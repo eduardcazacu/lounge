@@ -1,4 +1,4 @@
-import { Hono, type Context } from "hono";
+import { Hono } from "hono";
 import { Prisma } from "@prisma/client";
 import { verify } from 'hono/jwt'
 import { createBlogInput, updateBlogInput } from "@blogging-app/common";
@@ -6,23 +6,9 @@ import z from "zod";
 import { getConfig } from "../env";
 import { getPrismaClient } from "../prisma";
 import { notifyFollowersOfNewPost, notifyPostAuthorOfReply, notifyMentionedUsers } from "../push";
+import { scheduleBackgroundWork } from "../background";
 
 const MAX_MENTIONS_PER_COMMENT = 10;
-
-// Schedule fire-and-forget background work. On Cloudflare Workers this defers via
-// executionCtx.waitUntil; on the Node dev runtime accessing executionCtx throws, so
-// we fall back to a detached promise.
-function scheduleBackgroundWork(c: Context<any>, work: Promise<unknown>) {
-  try {
-    if (c.executionCtx?.waitUntil) {
-      c.executionCtx.waitUntil(work);
-      return;
-    }
-  } catch {
-    // No ExecutionContext (Node runtime).
-  }
-  void work.catch((e) => console.error(e));
-}
 
 // Defensively normalize a client-supplied mentionedUserIds payload into a
 // deduped list of positive integers, capped to a sane maximum.

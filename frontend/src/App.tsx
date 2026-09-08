@@ -6,6 +6,7 @@ import { Blog } from './pages/Blog'
 import { Blogs } from './pages/Blogs'
 import { Publish } from './pages/Publish'
 import { Account } from './pages/Account'
+import { Instant } from './pages/Instant'
 import { Admin } from './pages/Admin'
 import { VerifyEmail } from './pages/VerifyEmail'
 import { ForgotPassword } from './pages/ForgotPassword'
@@ -93,6 +94,7 @@ function App() {
           <Route path="/blogs" element={<Blogs />} />
           <Route path="/publish" element={<Publish />} />
           <Route path="/account" element={<Account />} />
+          <Route path="/instant" element={<Instant />} />
           <Route path="/admin" element={<Admin />} />
           <Route path="/verify-email" element={<VerifyEmail />} />
         </Routes>

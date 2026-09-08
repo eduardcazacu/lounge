@@ -8,6 +8,7 @@ import { clearAuthStorage, getAuthHeader, isAuthErrorStatus } from "../lib/auth"
 import { Link, Navigate } from "react-router-dom";
 import { DEFAULT_THEME_KEY, getThemePalette, THEME_PALETTES } from "../themes";
 import type { ThemeKey } from "@blogging-app/common";
+import { encodeFileToWebp, loadImageDimensions } from "../lib/image";
 
 const BIO_MAX_LENGTH = 100;
 
@@ -27,88 +28,26 @@ const PROFILE_PICTURE_MAX_HEIGHT = 512;
 const PROFILE_PICTURE_TARGET_BYTES = 400_000;
 const PROFILE_PICTURE_MAX_UPLOAD_BYTES = 3 * 1024 * 1024;
 
-async function loadImageDimensions(file: File) {
-  const objectUrl = URL.createObjectURL(file);
-  try {
-    return await new Promise<{ width: number; height: number }>((resolve, reject) => {
-      const image = new Image();
-      image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight });
-      image.onerror = () => reject(new Error("Failed to read image dimensions."));
-      image.src = objectUrl;
-    });
-  } finally {
-    URL.revokeObjectURL(objectUrl);
-  }
-}
+// Avatar profile for the shared encoder in lib/image.ts.
+const PROFILE_PICTURE_ENCODE_OPTIONS = {
+  maxWidth: PROFILE_PICTURE_MAX_WIDTH,
+  maxHeight: PROFILE_PICTURE_MAX_HEIGHT,
+  targetBytes: PROFILE_PICTURE_TARGET_BYTES,
+  qualityLevels: [0.92, 0.85, 0.78, 0.7],
+  minLongEdge: 160,
+};
 
 async function resizeProfilePicture(file: File) {
   if (file.type === "image/gif") {
+    // Re-encoding through a canvas would drop the animation, so GIFs pass
+    // through untouched and are simply rejected when they are too big.
     const { width, height } = await loadImageDimensions(file);
     if (width > 1024 || height > 1024) {
       throw new Error("GIF is larger than 1024x1024. Please upload a smaller GIF.");
     }
     return file;
   }
-
-  const objectUrl = URL.createObjectURL(file);
-  try {
-    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error("Unable to load image."));
-      img.src = objectUrl;
-    });
-
-    const baseScale = Math.min(
-      1,
-      PROFILE_PICTURE_MAX_WIDTH / image.naturalWidth,
-      PROFILE_PICTURE_MAX_HEIGHT / image.naturalHeight
-    );
-    let workingWidth = Math.max(1, Math.round(image.naturalWidth * baseScale));
-    let workingHeight = Math.max(1, Math.round(image.naturalHeight * baseScale));
-    let bestBlob: Blob | null = null;
-    const qualityLevels = [0.92, 0.85, 0.78, 0.7];
-
-    for (let pass = 0; pass < 4; pass++) {
-      const canvas = document.createElement("canvas");
-      canvas.width = workingWidth;
-      canvas.height = workingHeight;
-      const context = canvas.getContext("2d");
-      if (!context) {
-        throw new Error("Canvas is unavailable in this browser.");
-      }
-      context.drawImage(image, 0, 0, workingWidth, workingHeight);
-
-      for (const quality of qualityLevels) {
-        const candidate = await new Promise<Blob | null>((resolve) => {
-          canvas.toBlob(resolve, "image/webp", quality);
-        });
-        if (!candidate) {
-          continue;
-        }
-        bestBlob = candidate;
-        if (candidate.size <= PROFILE_PICTURE_TARGET_BYTES) {
-          break;
-        }
-      }
-
-      if (bestBlob && bestBlob.size <= PROFILE_PICTURE_TARGET_BYTES) {
-        break;
-      }
-
-      workingWidth = Math.max(160, Math.round(workingWidth * 0.85));
-      workingHeight = Math.max(160, Math.round(workingHeight * 0.85));
-    }
-
-    if (!bestBlob) {
-      throw new Error("Failed to process image.");
-    }
-
-    const outputName = file.name.replace(/\.[^.]+$/, ".webp");
-    return new File([bestBlob], outputName, { type: "image/webp" });
-  } finally {
-    URL.revokeObjectURL(objectUrl);
-  }
+  return encodeFileToWebp(file, PROFILE_PICTURE_ENCODE_OPTIONS);
 }
 
 function persistProfilePicture(url: string | null) {

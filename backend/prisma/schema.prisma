@@ -32,6 +32,11 @@ model User {
   sessions   Session[]
   pushSubscriptions UserPushSubscription[]
   chatMessages ChatMessage[] @relation("ChatAuthor")
+  instantDeviceKeys InstantDeviceKey[]
+  instantsSent     Instant[] @relation("InstantSender")
+  instantsReceived Instant[] @relation("InstantRecipient")
+  streaksAsLow     InstantStreak[] @relation("StreakLow")
+  streaksAsHigh    InstantStreak[] @relation("StreakHigh")
 
   @@map("users")
 }
@@ -40,8 +45,10 @@ model UserPushSubscription {
   id       Int      @id @default(autoincrement())
   userId   Int      @map("user_id")
   endpoint String   @unique @map("endpoint")
-  p256dh   String   @map("p256dh")
-  auth     String   @map("auth")
+  // "webpush" (endpoint + p256dh + auth) or "apns" (endpoint holds the device token).
+  provider String   @default("webpush") @map("provider")
+  p256dh   String?  @map("p256dh")
+  auth     String?  @map("auth")
   userAgent String? @map("user_agent")
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -140,4 +147,92 @@ model ChatSetting {
   updatedAt      DateTime @updatedAt @map("updated_at")
 
   @@map("chat_settings")
+}
+
+// ---------------------------------------------------------------------------
+// Instant — expiring, end-to-end encrypted 1:1 photos.
+//
+// The server stores ciphertext (in R2) and per-device *wrapped* content keys.
+// It holds no key material it can unwrap: that requires a private key which
+// never leaves the recipient's device. See backend/README.md for the full
+// threat model, including what this does NOT defend against.
+// ---------------------------------------------------------------------------
+
+model InstantDeviceKey {
+  id         Int       @id @default(autoincrement())
+  userId     Int       @map("user_id")
+  deviceId   String    @map("device_id")
+  // Raw uncompressed P-256 public point, base64url.
+  publicKey  String    @map("public_key")
+  userAgent  String?   @map("user_agent")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  lastSeenAt DateTime? @map("last_seen_at")
+
+  user      User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  envelopes InstantKeyEnvelope[]
+
+  @@unique([userId, deviceId])
+  @@index([userId])
+  @@map("instant_device_keys")
+}
+
+model Instant {
+  id              String    @id @default(uuid())
+  senderId        Int       @map("sender_id")
+  recipientId     Int       @map("recipient_id")
+  // All four of these are nulled the moment the media is fetched or expires.
+  mediaKey        String?   @map("media_key")
+  mediaIv         String?   @map("media_iv")
+  ephemeralPubKey String?   @map("ephemeral_pub_key")
+  mediaType       String    @default("image/webp") @map("media_type")
+  byteSize        Int       @map("byte_size")
+  durationMode    String    @map("duration_mode")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  openedAt        DateTime? @map("opened_at")
+  viewedAt        DateTime? @map("viewed_at")
+  expiresAt       DateTime  @map("expires_at")
+
+  sender    User                 @relation("InstantSender", fields: [senderId], references: [id], onDelete: Cascade)
+  recipient User                 @relation("InstantRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  envelopes InstantKeyEnvelope[]
+
+  @@index([recipientId, openedAt])
+  @@index([expiresAt])
+  @@index([createdAt])
+  @@map("instants")
+}
+
+model InstantKeyEnvelope {
+  id          Int    @id @default(autoincrement())
+  instantId   String @map("instant_id")
+  deviceKeyId Int    @map("device_key_id")
+  // AES-GCM(content key) under a key derived from ECDH + HKDF. base64url.
+  wrappedKey  String @map("wrapped_key")
+  wrapIv      String @map("wrap_iv")
+
+  instant   Instant          @relation(fields: [instantId], references: [id], onDelete: Cascade)
+  deviceKey InstantDeviceKey @relation(fields: [deviceKeyId], references: [id], onDelete: Cascade)
+
+  @@unique([instantId, deviceKeyId])
+  @@index([instantId])
+  @@map("instant_key_envelopes")
+}
+
+model InstantStreak {
+  id              Int       @id @default(autoincrement())
+  // Always stored as (min(a, b), max(a, b)) so a pair has exactly one row.
+  userLowId       Int       @map("user_low_id")
+  userHighId      Int       @map("user_high_id")
+  count           Int       @default(0)
+  lastLowSentAt   DateTime? @map("last_low_sent_at")
+  lastHighSentAt  DateTime? @map("last_high_sent_at")
+  lastIncrementOn DateTime? @map("last_increment_on") @db.Date
+  warnedForOn     DateTime? @map("warned_for_on") @db.Date
+
+  userLow  User @relation("StreakLow", fields: [userLowId], references: [id], onDelete: Cascade)
+  userHigh User @relation("StreakHigh", fields: [userHighId], references: [id], onDelete: Cascade)
+
+  @@unique([userLowId, userHighId])
+  @@index([count])
+  @@map("instant_streaks")
 }

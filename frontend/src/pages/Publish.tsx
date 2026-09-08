@@ -5,6 +5,7 @@ import { ChangeEvent, useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { clearAuthStorage, getAuthHeader, isAuthErrorStatus } from "../lib/auth"
 import { getTransformedImageUrl } from "../lib/content"
+import { encodeFileToWebp, loadImageDimensions } from "../lib/image";
 
 const MAX_IMAGE_WIDTH = 1920;
 const MAX_IMAGE_HEIGHT = 1080;
@@ -61,85 +62,23 @@ export const Publish = () => {
       );
     }, [draftLoaded, title, description]);
 
-    async function loadImageDimensions(file: File) {
-      const objectUrl = URL.createObjectURL(file);
-      try {
-        const dimensions = await new Promise<{ width: number, height: number }>((resolve, reject) => {
-          const image = new Image();
-          image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight });
-          image.onerror = () => reject(new Error("Failed to read image dimensions."));
-          image.src = objectUrl;
-        });
-        return dimensions;
-      } finally {
-        URL.revokeObjectURL(objectUrl);
-      }
-    }
-
     async function resizeImageFile(file: File) {
       if (file.type === "image/gif") {
+        // Re-encoding through a canvas would drop the animation, so GIFs pass
+        // through untouched and are simply rejected when they are too big.
         const { width, height } = await loadImageDimensions(file);
         if (width > MAX_IMAGE_WIDTH || height > MAX_IMAGE_HEIGHT) {
           throw new Error("GIF is larger than 1920x1080. Please upload a smaller GIF.");
         }
         return file;
       }
-
-      const objectUrl = URL.createObjectURL(file);
-      try {
-        const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-          const img = new Image();
-          img.onload = () => resolve(img);
-          img.onerror = () => reject(new Error("Unable to load image."));
-          img.src = objectUrl;
-        });
-
-        const baseScale = Math.min(1, MAX_IMAGE_WIDTH / image.naturalWidth, MAX_IMAGE_HEIGHT / image.naturalHeight);
-        let workingWidth = Math.max(1, Math.round(image.naturalWidth * baseScale));
-        let workingHeight = Math.max(1, Math.round(image.naturalHeight * baseScale));
-        let bestBlob: Blob | null = null;
-        const qualityLevels = [0.96, 0.9, 0.84, 0.78];
-
-        for (let pass = 0; pass < 4; pass++) {
-          const canvas = document.createElement("canvas");
-          canvas.width = workingWidth;
-          canvas.height = workingHeight;
-          const context = canvas.getContext("2d");
-          if (!context) {
-            throw new Error("Canvas is unavailable in this browser.");
-          }
-          context.drawImage(image, 0, 0, workingWidth, workingHeight);
-
-          for (const quality of qualityLevels) {
-            const candidate = await new Promise<Blob | null>((resolve) => {
-              canvas.toBlob(resolve, "image/webp", quality);
-            });
-            if (!candidate) {
-              continue;
-            }
-            bestBlob = candidate;
-            if (candidate.size <= TARGET_NON_GIF_BYTES) {
-              break;
-            }
-          }
-
-          if (bestBlob && bestBlob.size <= TARGET_NON_GIF_BYTES) {
-            break;
-          }
-
-          workingWidth = Math.max(640, Math.round(workingWidth * 0.85));
-          workingHeight = Math.max(360, Math.round(workingHeight * 0.85));
-        }
-
-        if (!bestBlob) {
-          throw new Error("Failed to process image.");
-        }
-
-        const outputName = file.name.replace(/\.[^.]+$/, ".webp");
-        return new File([bestBlob], outputName, { type: "image/webp" });
-      } finally {
-        URL.revokeObjectURL(objectUrl);
-      }
+      return encodeFileToWebp(file, {
+        maxWidth: MAX_IMAGE_WIDTH,
+        maxHeight: MAX_IMAGE_HEIGHT,
+        targetBytes: TARGET_NON_GIF_BYTES,
+        qualityLevels: [0.96, 0.9, 0.84, 0.78],
+        minLongEdge: 640,
+      });
     }
 
     async function uploadImage(file: File) {

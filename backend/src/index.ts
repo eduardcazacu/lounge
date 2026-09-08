@@ -3,6 +3,8 @@ import { userRouter } from './route/user'
 import { blogRouter } from './route/blog'
 import { adminRouter } from './route/admin'
 import { chatRouter } from './route/chat'
+import { instantRouter } from './route/instant'
+import type { InstantInbox } from './instant-inbox'
 import { cors } from 'hono/cors'
 
 // Create the main Hono app
@@ -18,13 +20,10 @@ const app = new Hono<{
 		VAPID_PRIVATE_KEY?: string,
 		VAPID_SUBJECT?: string,
 		R2_PUBLIC_BASE_URL?: string,
-		BLOG_IMAGES?: {
-			put: (key: string, value: ArrayBuffer, options?: {
-				httpMetadata?: { contentType?: string },
-				customMetadata?: Record<string, string>
-			}) => Promise<unknown>,
-			head: (key: string) => Promise<unknown | null>
-		}
+		// Declared in src/cloudflare.d.ts. Instant needs get/delete as well as
+		// put, so the binding is typed properly rather than inline here.
+		BLOG_IMAGES?: R2Bucket,
+		INSTANT_INBOX?: DurableObjectNamespace<InstantInbox>
 	}
 }>();
 
@@ -50,9 +49,14 @@ app.route("api/v1/user", userRouter)
 app.route("api/v1/blog", blogRouter)
 app.route("api/v1/admin", adminRouter)
 app.route("api/v1/chat", chatRouter)
+app.route("api/v1/instant", instantRouter)
 
 app.use('/message/*', async (c, next) => {
   await next()
 })
 
+// This module stays runnable under plain Node (src/server.ts): it must not pull
+// in anything from `cloudflare:workers`. The Worker entrypoint is src/worker.ts,
+// which adds the Durable Object and the cron handler on top of this app.
+export { app }
 export default app

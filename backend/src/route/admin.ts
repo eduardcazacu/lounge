@@ -6,6 +6,7 @@ import { getAdminEmails, isAdminEmail } from "../admin-config";
 import { getPrismaClient } from "../prisma";
 import { sendBroadcastEmail, sendWelcomeEmail } from "../email";
 import { sendBroadcastNotification } from "../push";
+import { runInstantSweep } from "../scheduled";
 import z from "zod";
 
 type AdminEnv = {
@@ -19,6 +20,8 @@ type AdminEnv = {
     VAPID_PUBLIC_KEY?: string;
     VAPID_PRIVATE_KEY?: string;
     VAPID_SUBJECT?: string;
+    R2_PUBLIC_BASE_URL?: string;
+    BLOG_IMAGES?: R2Bucket;
   };
   Variables: {
     userId: number;
@@ -432,5 +435,25 @@ adminRouter.post("/push/broadcast", async (c) => {
     console.error(e);
     c.status(500);
     return c.json({ msg: "Failed to send broadcast notification." });
+  }
+});
+
+// Runs the hourly Instant maintenance pass on demand. Cron triggers fire under
+// neither `tsx src/server.ts` nor `wrangler dev`, so without this the expiry
+// sweep and the streak warnings would be untestable outside production.
+adminRouter.post("/instant/sweep", async (c) => {
+  try {
+    const report = await runInstantSweep({
+      DATABASE_URL: c.env?.DATABASE_URL ?? process.env.DATABASE_URL,
+      VAPID_PUBLIC_KEY: c.env?.VAPID_PUBLIC_KEY ?? process.env.VAPID_PUBLIC_KEY,
+      VAPID_PRIVATE_KEY: c.env?.VAPID_PRIVATE_KEY ?? process.env.VAPID_PRIVATE_KEY,
+      VAPID_SUBJECT: c.env?.VAPID_SUBJECT ?? process.env.VAPID_SUBJECT,
+      BLOG_IMAGES: c.env?.BLOG_IMAGES,
+    });
+    return c.json({ msg: "Instant sweep complete.", report });
+  } catch (e) {
+    console.error(e);
+    c.status(500);
+    return c.json({ msg: "Failed to run the Instant sweep." });
   }
 });

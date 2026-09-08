@@ -1,4 +1,5 @@
 name = "lounge-backend"
+main = "src/worker.ts"
 compatibility_date = "2026-02-08"
 compatibility_flags = ["nodejs_compat"]
 workers_dev = false
@@ -20,6 +21,22 @@ head_sampling_rate = 1
 [[r2_buckets]]
 binding = "BLOG_IMAGES"
 bucket_name = "eddies-lounge-images"
+
+# Instant's realtime inbox. One object per user, addressed as `user:<id>`.
+# SQLite-backed classes are the default for new Durable Objects and are
+# available on the Workers Free plan.
+[[durable_objects.bindings]]
+name = "INSTANT_INBOX"
+class_name = "InstantInbox"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["InstantInbox"]
+
+# Hourly Instant maintenance: expire unopened media, lapse dead streaks, and
+# warn people whose long streaks are about to end. See src/scheduled.ts.
+[triggers]
+crons = ["0 * * * *"]
 
 [vars]
 # Public dev URL for the bucket domain, e.g. https://pub-xxxxxxxx.r2.dev

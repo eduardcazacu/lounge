@@ -121,6 +121,14 @@ function getPushStatusCode(error: unknown): number | null {
   return null;
 }
 
+// Web Push needs both encryption keys. Rows without them are APNs device
+// tokens (see the `provider` column), which this library cannot deliver to.
+function isDeliverableWebPush<
+  T extends { endpoint: string; p256dh: string | null; auth: string | null }
+>(subscription: T): subscription is T & { p256dh: string; auth: string } {
+  return Boolean(subscription.p256dh && subscription.auth);
+}
+
 function getVapidSubject(input: VapidConfig) {
   return input.vapidSubject?.trim() || "https://lounge.eduardcazacu.com";
 }
@@ -229,7 +237,9 @@ export async function notifyFollowersOfNewPost(input: NewPostNotificationInput) 
       subscriptionCount: recipients.reduce((count, user) => count + user.pushSubscriptions.length, 0),
     });
 
-    const subscriptions = recipients.flatMap((user) => user.pushSubscriptions);
+    const subscriptions = recipients
+      .flatMap((user) => user.pushSubscriptions)
+      .filter(isDeliverableWebPush);
     if (subscriptions.length === 0) {
       console.log("[push] no subscriptions eligible for new-post notification", {
         postId: input.postId,
@@ -356,7 +366,9 @@ export async function sendTestNotificationToUser(input: TestNotificationInput) {
     throw new Error("Push notifications are disabled for this user.");
   }
 
-  if (user.pushSubscriptions.length === 0) {
+  const subscriptions = user.pushSubscriptions.filter(isDeliverableWebPush);
+
+  if (subscriptions.length === 0) {
     console.warn("[push] test notification blocked because user has no subscriptions", {
       userId: input.userId,
     });
@@ -365,7 +377,7 @@ export async function sendTestNotificationToUser(input: TestNotificationInput) {
 
   console.log("[push] sending test notification", {
     userId: input.userId,
-    subscriptionCount: user.pushSubscriptions.length,
+    subscriptionCount: subscriptions.length,
   });
 
   webPush.setVapidDetails(
@@ -375,7 +387,7 @@ export async function sendTestNotificationToUser(input: TestNotificationInput) {
   );
 
   const payload = buildTestPayload(input.title, input.body);
-  const sendJobs = user.pushSubscriptions.map((subscription) => {
+  const sendJobs = subscriptions.map((subscription) => {
     const pushSubscription = {
       endpoint: subscription.endpoint,
       keys: {
@@ -485,7 +497,9 @@ export async function sendBroadcastNotification(input: BroadcastNotificationInpu
     subscriptionCount: recipients.reduce((count, user) => count + user.pushSubscriptions.length, 0),
   });
 
-  const subscriptions = recipients.flatMap((user) => user.pushSubscriptions);
+  const subscriptions = recipients
+      .flatMap((user) => user.pushSubscriptions)
+      .filter(isDeliverableWebPush);
   if (subscriptions.length === 0) {
     throw new Error("No subscribed users available for broadcast.");
   }
@@ -656,7 +670,9 @@ export async function notifyPostAuthorOfReply(input: PostReplyNotificationInput)
       input.commentAuthorName.trim() || "Someone",
       input.postTitle
     );
-    const sendJobs = postAuthor.pushSubscriptions.map((subscription) => {
+    const sendJobs = postAuthor.pushSubscriptions
+      .filter(isDeliverableWebPush)
+      .map((subscription) => {
       const pushSubscription = {
         endpoint: subscription.endpoint,
         keys: {
@@ -774,7 +790,9 @@ export async function notifyMentionedUsers(input: MentionNotificationInput) {
       },
     });
 
-    const subscriptions = recipients.flatMap((user) => user.pushSubscriptions);
+    const subscriptions = recipients
+      .flatMap((user) => user.pushSubscriptions)
+      .filter(isDeliverableWebPush);
     console.log("[push] resolved recipients for mention notification", {
       postId: input.postId,
       commentId: input.commentId,
@@ -871,5 +889,156 @@ export async function notifyMentionedUsers(input: MentionNotificationInput) {
     }
   } catch (error) {
     console.error("Failed to send push notifications for mentions.", error);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Generic dispatcher.
+//
+// The five senders above each hard-code Web Push. This one switches on the
+// subscription's `provider` so a native iOS device token can be delivered
+// through APNs without another sender being written. Instant uses this; the
+// older senders are left alone deliberately.
+// ---------------------------------------------------------------------------
+
+type GenericPushInput = {
+  databaseUrl: string;
+  userIds: number[];
+  payload: {
+    title: string;
+    body: string;
+    data?: Record<string, unknown>;
+  };
+  topic: string;
+  vapidConfig: VapidConfig;
+};
+
+export async function sendPushToUsers(input: GenericPushInput): Promise<PushDeliveryResult[]> {
+  if (input.userIds.length === 0) {
+    return [];
+  }
+
+  if (!input.vapidConfig.vapidPublicKey || !input.vapidConfig.vapidPrivateKey) {
+    console.warn("[push] skipping notification because VAPID config is missing", {
+      topic: input.topic,
+      userCount: input.userIds.length,
+    });
+    return [];
+  }
+
+  try {
+    const prisma = getPrismaClient(input.databaseUrl);
+    const recipients = await prisma.user.findMany({
+      where: {
+        id: { in: input.userIds },
+        notificationsEnabled: true,
+        pushSubscriptions: { some: {} },
+      },
+      select: {
+        pushSubscriptions: {
+          select: {
+            id: true,
+            provider: true,
+            endpoint: true,
+            p256dh: true,
+            auth: true,
+          },
+        },
+      },
+    });
+
+    const subscriptions = recipients.flatMap((user) => user.pushSubscriptions);
+    if (subscriptions.length === 0) {
+      return [];
+    }
+
+    webPush.setVapidDetails(
+      getVapidSubject(input.vapidConfig),
+      input.vapidConfig.vapidPublicKey,
+      input.vapidConfig.vapidPrivateKey
+    );
+
+    const payload = JSON.stringify({
+      title: input.payload.title,
+      body: input.payload.body,
+      data: input.payload.data ?? {},
+    });
+
+    const sendJobs = subscriptions.map((subscription) => {
+      if (subscription.provider !== "webpush") {
+        // TODO: APNs. Sign an ES256 JWT with the .p8 key via WebCrypto and POST
+        // to api.push.apple.com; `endpoint` holds the device token. The schema
+        // is already shaped for it, so only this branch needs filling in.
+        return Promise.resolve({
+          subscriptionId: subscription.id,
+          endpoint: summarizeSubscriptionEndpoint(subscription.endpoint),
+          statusCode: null as number | null,
+          errorMessage: `Unsupported push provider "${subscription.provider}"`,
+          success: false as const,
+        });
+      }
+
+      if (!subscription.p256dh || !subscription.auth) {
+        return Promise.resolve({
+          subscriptionId: subscription.id,
+          endpoint: summarizeSubscriptionEndpoint(subscription.endpoint),
+          statusCode: null as number | null,
+          errorMessage: "Web Push subscription is missing its encryption keys",
+          success: false as const,
+        });
+      }
+
+      return webPush
+        .sendNotification(
+          {
+            endpoint: subscription.endpoint,
+            keys: { p256dh: subscription.p256dh, auth: subscription.auth },
+          },
+          payload,
+          getPushDeliveryOptions(input.topic)
+        )
+        .then(() => ({
+          subscriptionId: subscription.id,
+          endpoint: summarizeSubscriptionEndpoint(subscription.endpoint),
+          statusCode: null as number | null,
+          success: true as const,
+        }))
+        .catch((error: unknown) => ({
+          subscriptionId: subscription.id,
+          endpoint: summarizeSubscriptionEndpoint(subscription.endpoint),
+          statusCode: getPushStatusCode(error),
+          errorMessage: getPushErrorMessage(error),
+          success: false as const,
+        }));
+    });
+
+    const responses = await Promise.allSettled(sendJobs);
+    const deliveryResults = flattenSettledDeliveryResults(responses);
+    const failedResults = deliveryResults.filter((result) => !result.success);
+
+    console.log("[push] completed delivery", {
+      topic: input.topic,
+      attempted: deliveryResults.length,
+      delivered: deliveryResults.length - failedResults.length,
+      failed: failedResults.length,
+    });
+
+    const invalidSubscriptionIds = deliveryResults.flatMap((result) =>
+      !result.success && (result.statusCode === 404 || result.statusCode === 410) && result.subscriptionId
+        ? [result.subscriptionId]
+        : []
+    );
+
+    if (invalidSubscriptionIds.length > 0) {
+      console.warn("[push] removing invalid subscriptions", { topic: input.topic, invalidSubscriptionIds });
+      await prisma.userPushSubscription.deleteMany({
+        where: { id: { in: invalidSubscriptionIds } },
+      });
+    }
+
+    return deliveryResults;
+  } catch (error) {
+    console.error("Failed to send push notifications.", error);
+    return [];
   }
 }
