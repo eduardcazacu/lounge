@@ -126,6 +126,33 @@ struct BackoffTests {
     }
 }
 
+@Suite("Connection warnings")
+struct ConnectionWarningTests {
+    /// The happy path and the two momentary startup states say nothing. An
+    /// indicator that is always on screen is noise, and a coloured dot with no
+    /// text reads as a warning even when everything is fine.
+    @Test("Says nothing when there is nothing wrong")
+    func silentWhenHealthy() {
+        #expect(InstantConnectionState.open.warningText == nil)
+        #expect(InstantConnectionState.connecting.warningText == nil)
+        #expect(InstantConnectionState.idle.warningText == nil)
+    }
+
+    @Test("Speaks up when delivery is actually broken")
+    func warnsWhenBroken() {
+        #expect(InstantConnectionState.offline.warningText == "Reconnecting")
+        #expect(InstantConnectionState.unsupported.warningText == "Live updates off")
+    }
+
+    /// Reconnecting fixes itself and deserves an attention colour; a backend
+    /// with no Durable Object never will, so it stays muted.
+    @Test("Distinguishes a blip from a dead end")
+    func separatesRecoverableFromTerminal() {
+        #expect(InstantConnectionState.offline.isRecoverable)
+        #expect(InstantConnectionState.unsupported.isRecoverable == false)
+    }
+}
+
 @Suite("Session store")
 struct SessionStoreTests {
     private func token(id: Int, exp: Double = 4_102_444_800) -> String {

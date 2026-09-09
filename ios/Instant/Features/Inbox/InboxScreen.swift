@@ -55,7 +55,7 @@ struct InboxScreen: View {
                 .font(.system(size: 30, weight: .heavy, design: .rounded))
                 .foregroundStyle(InstantStyle.primaryText)
             Spacer()
-            connectionDot
+            connectionWarning
             Button {
                 environment.showsInbox = false
             } label: {
@@ -73,22 +73,28 @@ struct InboxScreen: View {
         .padding(.bottom, 12)
     }
 
-    /// Small, but it is the difference between "nothing has arrived" and
-    /// "nothing can arrive".
-    private var connectionDot: some View {
-        let (color, label): (Color, String) = switch store.connection {
-        case .open: (.green, "Connected")
-        case .connecting: (.yellow, "Connecting")
-        case .offline: (.orange, "Reconnecting")
-        case .unsupported: (InstantStyle.secondaryText, "Realtime unavailable")
-        case .idle: (InstantStyle.secondaryText, "Idle")
-        }
-        return Circle()
-            .fill(color)
-            .frame(width: 8, height: 8)
+    /// Only shown when live delivery is actually broken.
+    ///
+    /// A dot that is always there is ambient noise; one that appears only when
+    /// something is wrong is worth reading. It carries its own text, because an
+    /// unlabelled coloured dot leaves the reader to guess.
+    @ViewBuilder
+    private var connectionWarning: some View {
+        if let text = store.connection.warningText {
+            let color: Color = store.connection.isRecoverable ? .orange : InstantStyle.secondaryText
+            HStack(spacing: 6) {
+                Circle().fill(color).frame(width: 7, height: 7)
+                Text(text)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(color)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(Capsule().fill(color.opacity(0.14)))
             .padding(.trailing, 8)
-            .accessibilityLabel(label)
             .accessibilityIdentifier("inbox.connection")
+            .accessibilityLabel(text)
+        }
     }
 
     /// One row per person. The streak sits beside the name rather than in its

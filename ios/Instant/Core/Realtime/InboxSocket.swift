@@ -11,6 +11,28 @@ public enum InstantConnectionState: Equatable, Sendable {
     case unsupported
 }
 
+public extension InstantConnectionState {
+    /// A short message when live delivery is genuinely broken, or `nil` when
+    /// there is nothing worth saying.
+    ///
+    /// `.connecting` and `.idle` are momentary and normal at launch, and
+    /// `.open` is simply the happy path. An indicator that is always on screen
+    /// is ambient noise nobody reads — and, worse, it reads as a warning.
+    var warningText: String? {
+        switch self {
+        case .open, .connecting, .idle:
+            return nil
+        case .offline:
+            return "Reconnecting"
+        case .unsupported:
+            return "Live updates off"
+        }
+    }
+
+    /// Reconnecting fixes itself; no Durable Object does not.
+    var isRecoverable: Bool { self != .unsupported }
+}
+
 public enum InboxSocketEvent: Equatable, Sendable {
     case state(InstantConnectionState)
     case wire(InstantWireEvent)

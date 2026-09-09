@@ -222,6 +222,22 @@ final class InstantUITests: XCTestCase {
         )
     }
 
+    /// The indicator is absent whenever delivery is working, which is almost
+    /// always — it exists to be noticed, not to be lived with.
+    func testNoConnectionIndicatorWhileConnected() {
+        let app = launch(signedIn: true)
+        XCTAssertTrue(app.buttons["camera.shutter"].waitForExistence(timeout: 30))
+        app.buttons["camera.inbox"].tap()
+
+        XCTAssertTrue(app.buttons["inbox.camera"].waitForExistence(timeout: 30))
+        XCTAssertFalse(
+            app.otherElements["inbox.connection"].exists,
+            "a healthy connection shows nothing"
+        )
+        XCTAssertFalse(app.staticTexts["Reconnecting"].exists)
+        XCTAssertFalse(app.staticTexts["Live updates off"].exists)
+    }
+
     /// Conversations sit to the left of the camera, so a swipe from left to
     /// right on the camera reveals them — the same direction the chat button
     /// sits in.
