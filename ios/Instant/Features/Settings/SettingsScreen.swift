@@ -70,7 +70,7 @@ struct SettingsScreen: View {
         Section {
             HStack(spacing: 14) {
                 AvatarView(
-                    name: model.profile?.name ?? "Me",
+                    name: model.profile?.name ?? "",
                     themeKey: model.themeKey,
                     url: model.profilePictureUrl,
                     size: 62

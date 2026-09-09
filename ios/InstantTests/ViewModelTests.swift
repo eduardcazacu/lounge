@@ -201,6 +201,114 @@ struct ViewerModelTests {
 }
 
 @MainActor
+@Suite("Camera zoom")
+struct CameraZoomTests {
+    private func model(zoomRange: ClosedRange<CGFloat> = 1...8) -> CameraModel {
+        CameraModel(camera: StubCameraController(
+            zoomRange: zoomRange,
+            frame: UIGraphicsImageRenderer(size: CGSize(width: 10, height: 10)).image { _ in }
+        ))
+    }
+
+    @Test("Starts at 1x")
+    func startsUnzoomed() {
+        let model = model()
+        #expect(model.zoomFactor == 1)
+        #expect(model.isZooming == false)
+        #expect(model.zoomLabel == "1.0×")
+    }
+
+    /// A pinch reports magnification relative to its own start, so the gesture
+    /// has to be anchored — otherwise every new pinch snaps back to 1x first.
+    @Test("A pinch multiplies the zoom it started from")
+    func pinchIsRelativeToItsStart() {
+        let model = model()
+
+        model.beginZoom()
+        model.updateZoom(magnification: 2)
+        #expect(model.zoomFactor == 2)
+        model.endZoom()
+
+        // Second pinch starts from 2x, not from 1x.
+        model.beginZoom()
+        model.updateZoom(magnification: 1.5)
+        #expect(model.zoomFactor == 3)
+        model.endZoom()
+        #expect(model.zoomFactor == 3, "and it stays where the pinch left it")
+    }
+
+    @Test("Clamps to what the camera accepts")
+    func clampsToRange() {
+        let model = model(zoomRange: 1...4)
+
+        model.beginZoom()
+        model.updateZoom(magnification: 100)
+        #expect(model.zoomFactor == 4, "cannot exceed the maximum")
+
+        model.updateZoom(magnification: 0.001)
+        #expect(model.zoomFactor == 1, "or go below the minimum")
+        model.endZoom()
+    }
+
+    @Test("Ignores updates outside a gesture")
+    func ignoresStrayUpdates() {
+        let model = model()
+        model.updateZoom(magnification: 4)
+        #expect(model.zoomFactor == 1)
+    }
+
+    @Test("Tracks whether a pinch is in flight, so the indicator can hide")
+    func tracksGestureState() {
+        let model = model()
+        #expect(model.isZooming == false)
+        model.beginZoom()
+        #expect(model.isZooming)
+        model.endZoom()
+        #expect(model.isZooming == false)
+    }
+
+    /// The front and back cameras have different limits, so carrying a zoom
+    /// across the flip would either clamp oddly or jump.
+    @Test("Flipping the camera resets the zoom")
+    func flipResetsZoom() async {
+        let model = model()
+        model.beginZoom()
+        model.updateZoom(magnification: 3)
+        model.endZoom()
+        #expect(model.zoomFactor == 3)
+
+        await model.flip()
+        #expect(model.zoomFactor == 1)
+    }
+
+    @Test("A camera that cannot zoom says so")
+    func reportsNoZoom() {
+        #expect(model(zoomRange: 1...1).canZoom == false)
+        #expect(model(zoomRange: 1...8).canZoom)
+    }
+
+    @Test("Nonsense magnification does not produce a nonsense zoom")
+    func survivesBadInput() {
+        let model = model()
+        model.beginZoom()
+        model.updateZoom(magnification: .nan)
+        #expect(model.zoomFactor >= 1)
+        model.updateZoom(magnification: .infinity)
+        #expect(model.zoomFactor <= 8)
+        model.endZoom()
+    }
+
+    @Test("Label reads as a magnification")
+    func formatsLabel() {
+        let model = model()
+        model.beginZoom()
+        model.updateZoom(magnification: 2.44)
+        #expect(model.zoomLabel == "2.4×")
+        model.endZoom()
+    }
+}
+
+@MainActor
 @Suite("Compose")
 struct ComposeModelTests {
     private func photo(width: CGFloat = 200, height: CGFloat = 300) -> UIImage {

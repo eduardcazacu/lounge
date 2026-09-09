@@ -31,10 +31,20 @@ takes when camera permission is refused.
 - `Core/Networking` — `APIClient` plus one facade per router.
 - `Core/Realtime` — the WebSocket inbox.
 - `Core/Media` — libwebp encoding, the compression ladder, the caption compositor.
+- `Core/Camera` — capture behind a protocol, so the Simulator's photo-library
+  fallback and the UI tests' fixed frame are the same seam.
 - `Features` — one folder per screen, each an `@Observable` model plus a view.
 
 View models hold no view types and take their dependencies as protocols, so all
 of them are tested without a screen.
+
+Pinch-to-zoom drives `AVCaptureDevice.videoZoomFactor`, which belongs to the
+device rather than the preview — so the captured photo comes out magnified
+without the capture path knowing anything about it. It caps at 8x, because past
+that digital zoom is interpolation, and resets on a flip since the front and
+back cameras have different limits. The gesture only exists when there is a real
+capture session, so it is covered by unit tests against the camera protocol
+rather than by a UI test: the Simulator has no camera to pinch.
 
 ## The protocol, and what is easy to get wrong
 

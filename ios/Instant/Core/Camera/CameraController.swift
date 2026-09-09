@@ -15,10 +15,26 @@ public protocol CameraControlling: AnyObject {
     var isFlashOn: Bool { get set }
     var session: AVCaptureSession? { get }
 
+    /// Current magnification, and what this camera will actually accept.
+    var zoomFactor: CGFloat { get }
+    var zoomRange: ClosedRange<CGFloat> { get }
+
     func start() async
     func stop()
     func flip() async
+    func setZoom(_ factor: CGFloat)
     func capture() async throws -> UIImage
+}
+
+public extension CameraControlling {
+    var canZoom: Bool { zoomRange.upperBound > zoomRange.lowerBound }
+
+    /// Clamping lives here so it can be checked without a camera attached —
+    /// which, on the Simulator, is always.
+    static func clampedZoom(_ factor: CGFloat, to range: ClosedRange<CGFloat>) -> CGFloat {
+        guard factor.isFinite else { return range.lowerBound }
+        return min(max(factor, range.lowerBound), range.upperBound)
+    }
 }
 
 public enum CameraError: Error, Equatable {
@@ -32,6 +48,11 @@ public final class CameraController: NSObject, CameraControlling {
     public private(set) var position: AVCaptureDevice.Position = .front
     public var isFlashOn = false
     public private(set) var session: AVCaptureSession?
+    public private(set) var zoomFactor: CGFloat = 1
+
+    /// Past a certain point digital zoom is just interpolation, and on a phone
+    /// camera that arrives well before the hardware's stated maximum.
+    static let maximumUsefulZoom: CGFloat = 8
 
     private let output = AVCapturePhotoOutput()
     private var input: AVCaptureDeviceInput?
@@ -86,6 +107,26 @@ public final class CameraController: NSObject, CameraControlling {
         }
     }
 
+    public var zoomRange: ClosedRange<CGFloat> {
+        guard let device = input?.device else { return 1...1 }
+        let lower = device.minAvailableVideoZoomFactor
+        let upper = min(device.maxAvailableVideoZoomFactor, Self.maximumUsefulZoom)
+        // A camera that cannot zoom reports an empty span rather than an
+        // invalid range.
+        return upper > lower ? lower...upper : lower...lower
+    }
+
+    public func setZoom(_ factor: CGFloat) {
+        guard let device = input?.device else { return }
+        let clamped = Self.clampedZoom(factor, to: zoomRange)
+        guard (try? device.lockForConfiguration()) != nil else { return }
+        device.videoZoomFactor = clamped
+        device.unlockForConfiguration()
+        // Zoom is a property of the capture device, so the photo comes out
+        // magnified without the capture path knowing anything about it.
+        zoomFactor = clamped
+    }
+
     public func flip() async {
         position = position == .front ? .back : .front
         guard let session, let current = input else { return }
@@ -100,6 +141,10 @@ public final class CameraController: NSObject, CameraControlling {
             session.addInput(current)
         }
         session.commitConfiguration()
+        // The front and back cameras have different limits, so carrying a zoom
+        // across the flip would either clamp oddly or jump.
+        zoomFactor = 1
+        setZoom(1)
     }
 
     public func capture() async throws -> UIImage {
@@ -166,19 +211,31 @@ public final class StubCameraController: CameraControlling {
     public var isFlashOn = false
     public var session: AVCaptureSession? { nil }
     public private(set) var flipCount = 0
+    public private(set) var zoomFactor: CGFloat = 1
+    public var zoomRange: ClosedRange<CGFloat>
     private let frame: UIImage
 
-    public init(isAvailable: Bool = true, frame: UIImage) {
+    public init(
+        isAvailable: Bool = true,
+        zoomRange: ClosedRange<CGFloat> = 1...8,
+        frame: UIImage
+    ) {
         self.isAvailable = isAvailable
+        self.zoomRange = zoomRange
         self.frame = frame
     }
 
     public func start() async {}
     public func stop() {}
 
+    public func setZoom(_ factor: CGFloat) {
+        zoomFactor = Self.clampedZoom(factor, to: zoomRange)
+    }
+
     public func flip() async {
         flipCount += 1
         position = position == .front ? .back : .front
+        zoomFactor = 1
     }
 
     public func capture() async throws -> UIImage {

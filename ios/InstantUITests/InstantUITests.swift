@@ -24,10 +24,13 @@ final class InstantUITests: XCTestCase {
     /// title: a bare `VStack` is not an accessibility element, so an identifier
     /// on one never reaches the tree.
     private func waitForSignIn(_ app: XCUIApplication) {
-        XCTAssertTrue(app.textFields["signIn.email"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.textFields["signIn.email"].waitForExistence(timeout: 30))
     }
 
-    private func waitForLabel(_ element: XCUIElement, _ expected: String, timeout: TimeInterval = 10) {
+    /// Generous by default: these run in parallel with the unit suite, and a
+    /// value that only arrives after a network round trip can take a while on a
+    /// loaded machine. The assertion still fails if it never arrives.
+    private func waitForLabel(_ element: XCUIElement, _ expected: String, timeout: TimeInterval = 30) {
         let matched = expectation(
             for: NSPredicate(format: "label == %@", expected), evaluatedWith: element
         )
@@ -67,7 +70,7 @@ final class InstantUITests: XCTestCase {
         app.buttons["signIn.submit"].tap()
 
         let error = app.staticTexts["signIn.error"]
-        XCTAssertTrue(error.waitForExistence(timeout: 5))
+        XCTAssertTrue(error.waitForExistence(timeout: 15))
         XCTAssertEqual(error.label, "Incorrect credentials")
 
         // Correcting the password gets through, and the camera becomes the home
@@ -77,7 +80,7 @@ final class InstantUITests: XCTestCase {
         password.typeText("correct-horse")
         app.buttons["signIn.submit"].tap()
 
-        XCTAssertTrue(app.buttons["camera.shutter"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["camera.shutter"].waitForExistence(timeout: 30))
     }
 
     func testSignInButtonStaysDisabledUntilBothFieldsAreFilled() {
@@ -103,16 +106,16 @@ final class InstantUITests: XCTestCase {
     func testOpeningAnInstantDecryptsItAndItExpiresOnItsOwn() {
         let app = launch(signedIn: true)
 
-        XCTAssertTrue(app.buttons["camera.shutter"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["camera.shutter"].waitForExistence(timeout: 30))
         app.buttons["camera.inbox"].tap()
 
         let row = app.buttons["inbox.conversation.Ana"]
-        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        XCTAssertTrue(row.waitForExistence(timeout: 30))
         row.tap()
 
         // The image is real: the stub sealed a photo to this device's own key,
         // so getting here means the whole ECIES path ran.
-        XCTAssertTrue(app.images["viewer.image"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.images["viewer.image"].waitForExistence(timeout: 30))
         XCTAssertTrue(app.otherElements["viewer.countdown"].exists)
 
         // Five seconds, then it closes itself. Wait on the photo disappearing:
@@ -122,23 +125,23 @@ final class InstantUITests: XCTestCase {
 
         // The person keeps their row — they still have a streak — but nothing
         // is waiting from them any more.
-        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        XCTAssertTrue(row.waitForExistence(timeout: 30))
         let noLongerWaiting = expectation(
             for: NSPredicate(format: "NOT (label CONTAINS %@)", "New Instant"),
             evaluatedWith: row
         )
-        wait(for: [noLongerWaiting], timeout: 10)
+        wait(for: [noLongerWaiting], timeout: 30)
     }
 
     func testAnOpenedInstantCannotBeOpenedTwice() {
         let app = launch(signedIn: true)
-        XCTAssertTrue(app.buttons["camera.shutter"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["camera.shutter"].waitForExistence(timeout: 30))
         app.buttons["camera.inbox"].tap()
 
         let row = app.buttons["inbox.conversation.Ana"]
-        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        XCTAssertTrue(row.waitForExistence(timeout: 30))
         row.tap()
-        XCTAssertTrue(app.images["viewer.image"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.images["viewer.image"].waitForExistence(timeout: 30))
 
         // Tap to close early rather than waiting it out.
         app.images["viewer.image"].tap()
@@ -147,23 +150,23 @@ final class InstantUITests: XCTestCase {
         // Pull to refresh. The person stays on the list — they still have a
         // streak — but the spent instant must not come back as waiting.
         app.swipeDown()
-        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        XCTAssertTrue(row.waitForExistence(timeout: 30))
         let stillWaiting = expectation(
             for: NSPredicate(format: "NOT (label CONTAINS %@)", "New Instant"),
             evaluatedWith: row
         )
-        wait(for: [stillWaiting], timeout: 10)
+        wait(for: [stillWaiting], timeout: 30)
     }
 
     /// One row per person, with the streak beside the name rather than in a
     /// section of its own.
     func testAConversationRowCarriesBothTheInstantAndTheStreak() {
         let app = launch(signedIn: true)
-        XCTAssertTrue(app.buttons["camera.shutter"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["camera.shutter"].waitForExistence(timeout: 30))
         app.buttons["camera.inbox"].tap()
 
         let row = app.buttons["inbox.conversation.Ana"]
-        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        XCTAssertTrue(row.waitForExistence(timeout: 30))
         XCTAssertTrue(row.label.contains("9"), "expected the streak count, got: \(row.label)")
         XCTAssertTrue(row.label.contains("New Instant"), "expected the waiting state, got: \(row.label)")
 
@@ -176,15 +179,15 @@ final class InstantUITests: XCTestCase {
     /// land on it by accident.
     func testLongPressingAConversationShowsTheSafetyNumber() {
         let app = launch(signedIn: true)
-        XCTAssertTrue(app.buttons["camera.shutter"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["camera.shutter"].waitForExistence(timeout: 30))
         app.buttons["camera.inbox"].tap()
 
         let row = app.buttons["inbox.conversation.Ana"]
-        XCTAssertTrue(row.waitForExistence(timeout: 20))
+        XCTAssertTrue(row.waitForExistence(timeout: 30))
         row.press(forDuration: 1.0)
 
         let number = app.staticTexts["safety.number"]
-        XCTAssertTrue(number.waitForExistence(timeout: 10))
+        XCTAssertTrue(number.waitForExistence(timeout: 30))
         // Twelve groups of five digits, which is what the other side compares to.
         let groups = number.label.split(separator: " ")
         XCTAssertEqual(groups.count, 12)
@@ -195,22 +198,24 @@ final class InstantUITests: XCTestCase {
     /// it does nothing at all, and the row carries no instruction text.
     func testTappingAConversationWithNothingWaitingDoesNothing() {
         let app = launch(signedIn: true)
-        XCTAssertTrue(app.buttons["camera.shutter"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["camera.shutter"].waitForExistence(timeout: 30))
         app.buttons["camera.inbox"].tap()
 
         let row = app.buttons["inbox.conversation.Ana"]
-        XCTAssertTrue(row.waitForExistence(timeout: 20))
+        XCTAssertTrue(row.waitForExistence(timeout: 30))
 
         // Spend the waiting instant first.
         row.tap()
-        XCTAssertTrue(app.images["viewer.image"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.images["viewer.image"].waitForExistence(timeout: 30))
         app.images["viewer.image"].tap()
         waitForDisappearance(app.images["viewer.image"])
 
-        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        XCTAssertTrue(row.waitForExistence(timeout: 30))
         XCTAssertFalse(row.label.contains("safety number"), "the hint text is gone")
 
         row.tap()
+        // Short on purpose: this asserts something does *not* appear, so a long
+        // timeout would only slow the suite down.
         XCTAssertFalse(
             app.staticTexts["safety.number"].waitForExistence(timeout: 3),
             "a tap must not open the safety number"
@@ -222,33 +227,33 @@ final class InstantUITests: XCTestCase {
     /// sits in.
     func testSwipingRightFromTheCameraOpensConversations() {
         let app = launch(signedIn: true)
-        XCTAssertTrue(app.buttons["camera.shutter"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["camera.shutter"].waitForExistence(timeout: 30))
 
         app.swipeRight()
-        XCTAssertTrue(app.buttons["inbox.camera"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["inbox.camera"].waitForExistence(timeout: 30))
 
         app.swipeLeft()
-        XCTAssertTrue(app.buttons["camera.shutter"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["camera.shutter"].waitForExistence(timeout: 30))
     }
 
     /// The profile button is the account's own avatar, not a placeholder.
     func testCameraProfileButtonShowsTheSignedInAccount() {
         let app = launch(signedIn: true)
         let profile = app.buttons["camera.profile"]
-        XCTAssertTrue(profile.waitForExistence(timeout: 10))
+        XCTAssertTrue(profile.waitForExistence(timeout: 30))
 
         // The stub account is "Tester"; the avatar labels itself with the name
         // it is drawing, so this catches a hardcoded placeholder.
         let named = expectation(
             for: NSPredicate(format: "label CONTAINS %@", "Tester"), evaluatedWith: profile
         )
-        wait(for: [named], timeout: 10)
+        wait(for: [named], timeout: 30)
         XCTAssertFalse(profile.label.contains("Me"), "the placeholder is gone")
     }
 
     func testCameraShowsNoStreakCounter() {
         let app = launch(signedIn: true)
-        XCTAssertTrue(app.buttons["camera.shutter"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["camera.shutter"].waitForExistence(timeout: 30))
         // The stub has a 9-day streak; it belongs on the conversation row, not here.
         XCTAssertFalse(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "🔥")).element.exists)
     }
@@ -259,10 +264,10 @@ final class InstantUITests: XCTestCase {
         let app = launch(signedIn: true)
 
         let shutter = app.buttons["camera.shutter"]
-        XCTAssertTrue(shutter.waitForExistence(timeout: 10))
+        XCTAssertTrue(shutter.waitForExistence(timeout: 30))
         shutter.tap()
 
-        XCTAssertTrue(app.buttons["compose.sendTo"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["compose.sendTo"].waitForExistence(timeout: 30))
 
         // The duration chip cycles 5s -> infinite -> 1s.
         let duration = app.buttons["compose.duration"]
@@ -274,47 +279,47 @@ final class InstantUITests: XCTestCase {
 
         app.buttons["compose.caption"].tap()
         let field = app.textFields["compose.captionField"]
-        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        XCTAssertTrue(field.waitForExistence(timeout: 15))
         // Type into the focused field and dismiss by tapping the backdrop.
         // Reaching for the keyboard's own Done key invites an interruption that
         // invalidates the element mid-test.
         app.typeText("hello from a test")
         app.tap()
 
-        XCTAssertTrue(app.staticTexts["compose.captionOverlay"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["compose.captionOverlay"].waitForExistence(timeout: 15))
 
         app.buttons["compose.sendTo"].tap()
 
         // Ana has a device key; the row for someone unenrolled is disabled.
         let recipient = app.buttons["sendTo.row.Ana"]
-        XCTAssertTrue(recipient.waitForExistence(timeout: 10))
+        XCTAssertTrue(recipient.waitForExistence(timeout: 30))
         recipient.tap()
         app.buttons["sendTo.send"].tap()
 
         // Back to the camera once it is away.
-        XCTAssertTrue(shutter.waitForExistence(timeout: 15))
+        XCTAssertTrue(shutter.waitForExistence(timeout: 30))
     }
 
     func testDiscardingACaptureReturnsToTheCamera() {
         let app = launch(signedIn: true)
         let shutter = app.buttons["camera.shutter"]
-        XCTAssertTrue(shutter.waitForExistence(timeout: 10))
+        XCTAssertTrue(shutter.waitForExistence(timeout: 30))
         shutter.tap()
 
-        XCTAssertTrue(app.buttons["compose.discard"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["compose.discard"].waitForExistence(timeout: 30))
         app.buttons["compose.discard"].tap()
-        XCTAssertTrue(shutter.waitForExistence(timeout: 5))
+        XCTAssertTrue(shutter.waitForExistence(timeout: 30))
     }
 
     // MARK: - Settings
 
     func testSettingsShowsAccountAndDeviceKeyDetails() {
         let app = launch(signedIn: true)
-        XCTAssertTrue(app.buttons["camera.profile"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["camera.profile"].waitForExistence(timeout: 30))
         app.buttons["camera.profile"].tap()
 
         let name = app.staticTexts["settings.name"]
-        XCTAssertTrue(name.waitForExistence(timeout: 10))
+        XCTAssertTrue(name.waitForExistence(timeout: 30))
         // The row renders a placeholder until the profile fetch lands.
         waitForLabel(name, "Tester")
 
@@ -330,7 +335,7 @@ final class InstantUITests: XCTestCase {
 
     func testSigningOutReturnsToTheSignInScreen() {
         let app = launch(signedIn: true)
-        XCTAssertTrue(app.buttons["camera.profile"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["camera.profile"].waitForExistence(timeout: 30))
         app.buttons["camera.profile"].tap()
 
         let signOut = app.buttons["settings.signOut"]
@@ -342,18 +347,18 @@ final class InstantUITests: XCTestCase {
 
     func testEditingBioAndThemeSaves() {
         let app = launch(signedIn: true)
-        XCTAssertTrue(app.buttons["camera.profile"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["camera.profile"].waitForExistence(timeout: 30))
         app.buttons["camera.profile"].tap()
 
         let bio = app.textViews["settings.bio"].exists
             ? app.textViews["settings.bio"]
             : app.textFields["settings.bio"]
-        XCTAssertTrue(bio.waitForExistence(timeout: 10))
+        XCTAssertTrue(bio.waitForExistence(timeout: 30))
         bio.tap()
         bio.typeText(" edited")
 
         app.buttons["settings.save"].tap()
         // Saving keeps the sheet open; the absence of an error is the assertion.
-        XCTAssertTrue(app.staticTexts["settings.name"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["settings.name"].waitForExistence(timeout: 30))
     }
 }

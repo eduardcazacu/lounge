@@ -49,6 +49,17 @@ struct CameraScreen: View {
             if let session = model.camera.session {
                 CameraPreview(session: session, mirrored: model.camera.position == .front)
                     .ignoresSafeArea()
+                    // Pinch anywhere on the frame. Zoom is a property of the
+                    // capture device, so the photo comes out magnified too.
+                    .gesture(
+                        MagnifyGesture(minimumScaleDelta: 0)
+                            .onChanged { value in
+                                if !model.isZooming { model.beginZoom() }
+                                model.updateZoom(magnification: value.magnification)
+                            }
+                            .onEnded { _ in model.endZoom() }
+                    )
+                    .accessibilityIdentifier("camera.preview")
             } else {
                 LinearGradient(
                     colors: [Color(white: 0.18), Color(white: 0.06)],
@@ -75,12 +86,29 @@ struct CameraScreen: View {
             VStack {
                 topBar(model)
                 Spacer()
+                if model.isZooming, model.canZoom {
+                    zoomIndicator(model)
+                        .padding(.bottom, 18)
+                        .transition(.opacity)
+                }
                 bottomBar(model)
             }
             .padding(.horizontal, 20)
             .padding(.top, 8)
             .padding(.bottom, 28)
+            .animation(.easeOut(duration: 0.15), value: model.isZooming)
         }
+    }
+
+    private func zoomIndicator(_ model: CameraModel) -> some View {
+        Text(model.zoomLabel)
+            .font(.system(size: 15, weight: .bold, design: .rounded))
+            .monospacedDigit()
+            .foregroundStyle(.white)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 7)
+            .background(Capsule().fill(Color.black.opacity(0.45)))
+            .accessibilityIdentifier("camera.zoom")
     }
 
     private func topBar(_ model: CameraModel) -> some View {
