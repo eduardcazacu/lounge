@@ -167,6 +167,62 @@ on key material the server cannot reason about.
 Streaks of 7 days or more get a push to **both** people when they are within 4
 hours of lapsing, at most once per day.
 
+### Push, and APNs
+
+Web Push and APNs share `user_push_subscriptions`. For Web Push, `endpoint` is
+the push service URL and `p256dh`/`auth` carry the encryption material; for APNs,
+`endpoint` holds the hex device token and both key columns are null.
+
+The APNs **environment rides in `provider`** — `"apns"` for production builds and
+`"apns-sandbox"` for development ones. The same device token is not valid in both
+environments, so they have to be told apart; encoding it here rather than adding
+a column means no migration. `POST /api/v1/user/me/push/subscribe` accepts
+`provider` and makes `keys` optional, required only when `provider` is
+`"webpush"`, so existing web callers are unaffected.
+
+Sending lives in `src/apns.ts`. Apple wants a short-lived ES256 JWT signed with a
+`.p8` key, which maps cleanly onto WebCrypto: ECDSA P-256 with SHA-256 produces
+the raw `r‖s` pair that JWS ES256 expects, with no DER unwrapping (unlike Node's
+`crypto`). The token is cached and re-signed roughly every 50 minutes, because
+Apple rejects tokens older than an hour and rate-limits minting them. A `410
+Unregistered` or a `400 BadDeviceToken` deletes the subscription, mirroring the
+404/410 cleanup the Web Push path already does — otherwise the hourly streak
+sweep would retry dead tokens forever.
+
+Four secrets turn it on. Until all four are present the APNs branch reports
+itself unconfigured rather than throwing, so the iOS app can register tokens and
+ship before the Apple Developer account exists; adding the secrets starts
+delivery with no code change.
+
+```bash
+npx wrangler secret put APNS_KEY_ID       # 10-char Key ID from the .p8
+npx wrangler secret put APNS_TEAM_ID      # 10-char Team ID
+npx wrangler secret put APNS_PRIVATE_KEY  # the whole AuthKey_XXXXXXXXXX.p8
+npx wrangler secret put APNS_BUNDLE_ID    # com.eduardcazacu.instant
+```
+
+Note that the iOS app ships with push **disabled** (`INSTANT_PUSH_ENABLED = NO`)
+because a free personal Apple team cannot sign an app declaring
+`aps-environment`. Nothing here depends on that: the backend records whatever
+tokens it is given and simply has none to send to until the app is built with
+push enabled. See `ios/README.md`.
+
+Verify the sender without an Apple account:
+
+```bash
+npx tsx scripts/verify-apns.ts
+```
+
+It generates a throwaway P-256 key, checks the JWT against its own public key,
+and drives every response Apple can give through a stubbed `fetch`.
+
+**Only `sendPushToUsers` reaches APNs.** The five older senders
+(`notifyFollowersOfNewPost`, `sendTestNotificationToUser`,
+`sendBroadcastNotification`, `notifyPostAuthorOfReply`, `notifyMentionedUsers`)
+hard-code Web Push and pre-filter with `isDeliverableWebPush`, so an APNs row is
+invisible to them. Instant's own notifications and the streak warnings both go
+through the generic dispatcher and do reach iOS.
+
 ### Testing the cron
 
 Cron triggers fire under neither `tsx src/server.ts` nor `wrangler dev`, so the

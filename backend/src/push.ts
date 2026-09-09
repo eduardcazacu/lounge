@@ -1,5 +1,11 @@
 import webPush from "web-push";
 import { getPrismaClient } from "./prisma";
+import {
+  type ApnsConfig,
+  isApnsProvider,
+  resolveApnsConfig,
+  sendApnsNotification,
+} from "./apns";
 
 type VapidConfig = {
   vapidPublicKey?: string | null;
@@ -911,6 +917,8 @@ type GenericPushInput = {
   };
   topic: string;
   vapidConfig: VapidConfig;
+  /** Optional: without it, APNs rows report themselves unconfigured. */
+  apnsConfig?: ApnsConfig;
 };
 
 export async function sendPushToUsers(input: GenericPushInput): Promise<PushDeliveryResult[]> {
@@ -918,8 +926,16 @@ export async function sendPushToUsers(input: GenericPushInput): Promise<PushDeli
     return [];
   }
 
-  if (!input.vapidConfig.vapidPublicKey || !input.vapidConfig.vapidPrivateKey) {
-    console.warn("[push] skipping notification because VAPID config is missing", {
+  const apns = resolveApnsConfig(input.apnsConfig ?? {});
+  const canSendWebPush = Boolean(
+    input.vapidConfig.vapidPublicKey && input.vapidConfig.vapidPrivateKey
+  );
+
+  // Either transport being configured is enough. Bailing out on missing VAPID
+  // would silence APNs too, which matters now that the iOS app is the primary
+  // client.
+  if (!canSendWebPush && !apns) {
+    console.warn("[push] skipping notification because no push provider is configured", {
       topic: input.topic,
       userCount: input.userIds.length,
     });
@@ -952,11 +968,13 @@ export async function sendPushToUsers(input: GenericPushInput): Promise<PushDeli
       return [];
     }
 
-    webPush.setVapidDetails(
-      getVapidSubject(input.vapidConfig),
-      input.vapidConfig.vapidPublicKey,
-      input.vapidConfig.vapidPrivateKey
-    );
+    if (canSendWebPush) {
+      webPush.setVapidDetails(
+        getVapidSubject(input.vapidConfig),
+        input.vapidConfig.vapidPublicKey!,
+        input.vapidConfig.vapidPrivateKey!
+      );
+    }
 
     const payload = JSON.stringify({
       title: input.payload.title,
@@ -965,15 +983,64 @@ export async function sendPushToUsers(input: GenericPushInput): Promise<PushDeli
     });
 
     const sendJobs = subscriptions.map((subscription) => {
+      if (isApnsProvider(subscription.provider)) {
+        if (!apns) {
+          return Promise.resolve({
+            subscriptionId: subscription.id,
+            endpoint: summarizeSubscriptionEndpoint(subscription.endpoint),
+            statusCode: null as number | null,
+            errorMessage: "APNs is not configured (APNS_KEY_ID, APNS_TEAM_ID, APNS_PRIVATE_KEY, APNS_BUNDLE_ID)",
+            success: false as const,
+          });
+        }
+
+        // `endpoint` holds the hex device token for APNs rows.
+        return sendApnsNotification({
+          config: apns,
+          deviceToken: subscription.endpoint,
+          provider: subscription.provider,
+          payload: {
+            title: input.payload.title,
+            body: input.payload.body,
+            data: input.payload.data,
+          },
+          collapseId: input.topic,
+        }).then((result) =>
+          result.success
+            ? {
+                subscriptionId: subscription.id,
+                endpoint: summarizeSubscriptionEndpoint(subscription.endpoint),
+                statusCode: result.statusCode,
+                success: true as const,
+              }
+            : {
+                subscriptionId: subscription.id,
+                endpoint: summarizeSubscriptionEndpoint(subscription.endpoint),
+                // Mapped onto 410 so the cleanup below drops dead tokens the
+                // same way it drops dead Web Push endpoints.
+                statusCode: result.shouldDeleteSubscription ? 410 : result.statusCode,
+                errorMessage: result.reason ?? "APNs delivery failed",
+                success: false as const,
+              }
+        );
+      }
+
       if (subscription.provider !== "webpush") {
-        // TODO: APNs. Sign an ES256 JWT with the .p8 key via WebCrypto and POST
-        // to api.push.apple.com; `endpoint` holds the device token. The schema
-        // is already shaped for it, so only this branch needs filling in.
         return Promise.resolve({
           subscriptionId: subscription.id,
           endpoint: summarizeSubscriptionEndpoint(subscription.endpoint),
           statusCode: null as number | null,
           errorMessage: `Unsupported push provider "${subscription.provider}"`,
+          success: false as const,
+        });
+      }
+
+      if (!canSendWebPush) {
+        return Promise.resolve({
+          subscriptionId: subscription.id,
+          endpoint: summarizeSubscriptionEndpoint(subscription.endpoint),
+          statusCode: null as number | null,
+          errorMessage: "Web Push is not configured (VAPID keys are missing)",
           success: false as const,
         });
       }

@@ -40,7 +40,7 @@ export type SweepReport = {
 export async function runInstantSweep(env: SweepEnv, now: Date = new Date()): Promise<SweepReport> {
   // getConfig reads c.env with a process.env fallback; a scheduled handler has
   // no Hono context, so hand it the bindings directly.
-  const { databaseUrl, vapidPublicKey, vapidPrivateKey, vapidSubject } = getConfig({
+  const { databaseUrl, vapidPublicKey, vapidPrivateKey, vapidSubject, apnsKeyId, apnsTeamId, apnsPrivateKey, apnsBundleId } = getConfig({
     env,
   } as unknown as Context<any>);
   const prisma = getPrismaClient(databaseUrl);
@@ -113,6 +113,7 @@ export async function runInstantSweep(env: SweepEnv, now: Date = new Date()): Pr
         },
         topic: `streak-${streak.id}`,
         vapidConfig: { vapidPublicKey, vapidPrivateKey, vapidSubject },
+        apnsConfig: { apnsKeyId, apnsTeamId, apnsPrivateKey, apnsBundleId },
       });
       warnedIds.push(streak.id);
     } catch (error) {

@@ -1,0 +1,16 @@
+{
+  "note": "The key-agreement step in isolation, to localize a salt/info mistake.",
+  "version": "eddies-lounge/instant/v1",
+  "senderUserId": 4242,
+  "device": {
+    "id": 1,
+    "deviceId": "30aca1dc-1614-4644-b3a0-57407dfac0cd",
+    "publicKey": "BARvdSKRQLt4J6hszhenNx43gNuTd27Ugbb2bExgnvhKVoTsjwrepS3y6o8HnZtb6OFpF4N5-1QuayM0TJ4xX2M",
+    "privateKeyRaw": "xzQutaMAbDlqVdKN6FYfpDl3r7GScvdDgEm8c4o_A3Y"
+  },
+  "ephemeralPubKey": "BI7A8xp0XSZpS_HDgCPYBArrfO4itGQyF1r5Ow_ULpdeiBkzfeWPK6Hi-weYDPiaGDV_sbIhQMnW58aqVcyjd_Y",
+  "ephemeralPrivateKeyRaw": "2SC05_xjxqnXks5xBEDiPYIKw37wuqmK0Oohvgzd1zw",
+  "sharedSecret": "vgKorQCg7KwQ_ss92jxq2lrcme09ftkCQfU4I3ogC60",
+  "hkdfInfoUtf8": "ZWRkaWVzLWxvdW5nZS9pbnN0YW50L3YxfDQyNDJ8MzBhY2ExZGMtMTYxNC00NjQ0LWIzYTAtNTc0MDdkZmFjMGNk",
+  "expectedWrappingKey": "R9MAs2cf9EHzV_tRSKNmKTAUUnaSRf7VKOoA171g9cE"
+}

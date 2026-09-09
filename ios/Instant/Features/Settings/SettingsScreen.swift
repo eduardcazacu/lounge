@@ -1,0 +1,180 @@
+#if canImport(UIKit)
+import PhotosUI
+import SwiftUI
+
+struct SettingsScreen: View {
+    @Environment(AppEnvironment.self) private var environment
+    @Environment(\.dismiss) private var dismiss
+    @State private var model: SettingsModel?
+    @State private var pickerItem: PhotosPickerItem?
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                InstantStyle.background.ignoresSafeArea()
+
+                if let model {
+                    Form {
+                        identitySection(model)
+                        profileSection(model)
+                        notificationsSection(model)
+                        deviceSection
+                        accountSection
+                    }
+                    .scrollContentBackground(.hidden)
+                    .tint(.white)
+                }
+            }
+            .navigationTitle("Account")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(InstantStyle.background, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { dismiss() }.tint(.white)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { Task { await model?.save() } }
+                        .tint(.white)
+                        .fontWeight(.semibold)
+                        .disabled(model?.isSaving ?? true)
+                        .accessibilityIdentifier("settings.save")
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
+        .task {
+            if model == nil { model = SettingsModel(userAPI: environment.userAPI) }
+            await model?.load()
+        }
+        .onChange(of: pickerItem) { _, item in
+            guard let item else { return }
+            Task {
+                if let data = try? await item.loadTransferable(type: Data.self),
+                   let image = UIImage(data: data) {
+                    await model?.uploadProfilePicture(image)
+                }
+                pickerItem = nil
+            }
+        }
+    }
+
+    private func identitySection(_ model: SettingsModel) -> some View {
+        Section {
+            HStack(spacing: 14) {
+                AvatarView(
+                    name: model.profile?.name ?? "Me",
+                    themeKey: model.themeKey,
+                    url: model.profilePictureUrl,
+                    size: 62
+                )
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(model.profile?.name ?? "—")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(InstantStyle.primaryText)
+                        .accessibilityIdentifier("settings.name")
+                    Text(model.profile?.email ?? "")
+                        .font(.caption)
+                        .foregroundStyle(InstantStyle.secondaryText)
+                }
+                Spacer()
+            }
+
+            PhotosPicker(selection: $pickerItem, matching: .images) {
+                Text("Change picture")
+            }
+            .accessibilityIdentifier("settings.changePicture")
+
+            if model.profilePictureUrl != nil {
+                Button("Remove picture", role: .destructive) {
+                    Task { await model.removeProfilePicture() }
+                }
+            }
+        } footer: {
+            // Worth saying rather than letting someone hunt for a field that
+            // does not exist: the API has no endpoint that changes `name`.
+            Text("Your display name is set when your account is created and can't be changed here.")
+        }
+        .listRowBackground(InstantStyle.surface)
+    }
+
+    private func profileSection(_ model: SettingsModel) -> some View {
+        Section("Profile") {
+            TextField(
+                "Bio",
+                text: Binding(get: { model.bio }, set: { model.bio = String($0.prefix(100)) }),
+                axis: .vertical
+            )
+            .lineLimit(1...3)
+            .foregroundStyle(InstantStyle.primaryText)
+            .accessibilityIdentifier("settings.bio")
+
+            Picker("Theme", selection: Binding(get: { model.themeKey }, set: { model.themeKey = $0 })) {
+                ForEach(ThemePalette.all, id: \.key) { palette in
+                    HStack {
+                        Circle().fill(palette.accent).frame(width: 14, height: 14)
+                        Text(palette.label)
+                    }
+                    .tag(palette.key)
+                }
+            }
+            .accessibilityIdentifier("settings.theme")
+
+            if let error = model.errorMessage {
+                Text(error).font(.footnote).foregroundStyle(InstantStyle.unread)
+            }
+        }
+        .listRowBackground(InstantStyle.surface)
+    }
+
+    private func notificationsSection(_ model: SettingsModel) -> some View {
+        Section {
+            Toggle(
+                "Push notifications",
+                isOn: Binding(
+                    get: { model.notificationsEnabled },
+                    set: { enabled in Task { await model.setNotifications(enabled) } }
+                )
+            )
+            .accessibilityIdentifier("settings.notifications")
+        } footer: {
+            Text("A notification tells you an instant arrived and who sent it. It never carries the photo — the server can't read it either.")
+        }
+        .listRowBackground(InstantStyle.surface)
+    }
+
+    private var deviceSection: some View {
+        Section {
+            if let device = environment.store.device {
+                LabeledContent("Device key") {
+                    Text(device.isSecureEnclaveBacked ? "Secure Enclave" : "This device only")
+                        .foregroundStyle(InstantStyle.secondaryText)
+                }
+                .accessibilityIdentifier("settings.deviceKey")
+                LabeledContent("Device ID") {
+                    Text(device.deviceId.prefix(8) + "…")
+                        .font(.system(.footnote, design: .monospaced))
+                        .foregroundStyle(InstantStyle.secondaryText)
+                }
+            }
+        } header: {
+            Text("This device")
+        } footer: {
+            Text("Instant's private key is made on this device and never leaves it. There is no recovery: reinstalling makes a new key, and anything already sent to the old one can't be opened.")
+        }
+        .listRowBackground(InstantStyle.surface)
+    }
+
+    private var accountSection: some View {
+        Section {
+            Button("Sign out", role: .destructive) {
+                Task {
+                    await environment.signOut()
+                    dismiss()
+                }
+            }
+            .accessibilityIdentifier("settings.signOut")
+        }
+        .listRowBackground(InstantStyle.surface)
+    }
+}
+#endif

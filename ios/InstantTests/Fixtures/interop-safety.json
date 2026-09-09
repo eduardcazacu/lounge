@@ -1,0 +1,52 @@
+{
+  "note": "Safety numbers and fingerprints. These are what catch the JS-vs-Swift sort-order difference.",
+  "vectors": [
+    {
+      "mine": [
+        "-aaa",
+        "Zbbb",
+        "_ccc",
+        "aaaa",
+        "0ddd"
+      ],
+      "theirs": [
+        "zzz",
+        "AAA",
+        "-_-"
+      ],
+      "safetyNumber": "24635 26524 63901 31434 47075 23747 09509 07866 32968 38103 40923 40009",
+      "mineFingerprint": "Ve1JgDzc7w7-p_S-ZZMN-vFWUGr_D6q9KknkUMBT3GU",
+      "theirsFingerprint": "dOpAl8lnSt3qzdZpAVAKv_EhsLbbYcg6yhYCH70AyEE"
+    },
+    {
+      "mine": [
+        "AQIDBA"
+      ],
+      "theirs": [
+        "BQYHCA"
+      ],
+      "safetyNumber": "64571 63562 59536 31149 24049 24796 28226 14355 41690 23531 07910 47113",
+      "mineFingerprint": "f2LwESBr8ezpvlZBEeqfvb4yeNpHC5Nc90_scF04hgM",
+      "theirsFingerprint": "VZPFPRT5qJ8IxcCQC3r392NKbeYC8sEUrCEVpN4WESQ"
+    },
+    {
+      "mine": [
+        "a",
+        "B",
+        "-",
+        "_",
+        "9"
+      ],
+      "theirs": [
+        "a",
+        "B",
+        "-",
+        "_",
+        "9"
+      ],
+      "safetyNumber": "65421 40086 54682 43535 20472 53280 16922 38518 52894 00792 00566 47089",
+      "mineFingerprint": "7i-P9f45aCczajEALJnctbmy9rY0aKPtAgP2niIxA2g",
+      "theirsFingerprint": "7i-P9f45aCczajEALJnctbmy9rY0aKPtAgP2niIxA2g"
+    }
+  ]
+}

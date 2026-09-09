@@ -425,7 +425,7 @@ instantRouter.post("/", async (c) => {
       return c.json({ msg: "Invalid instant", errors: parsed.error.flatten() });
     }
 
-    const { databaseUrl, r2PublicBaseUrl, vapidPublicKey, vapidPrivateKey, vapidSubject } =
+    const { databaseUrl, r2PublicBaseUrl, vapidPublicKey, vapidPrivateKey, vapidSubject, apnsKeyId, apnsTeamId, apnsPrivateKey, apnsBundleId } =
       getConfig(c);
     const prisma = getPrismaClient(databaseUrl);
     const userId = c.get("userId");
@@ -557,6 +557,7 @@ instantRouter.post("/", async (c) => {
           },
           topic: `instant-${created.id.slice(0, 8)}`,
           vapidConfig: { vapidPublicKey, vapidPrivateKey, vapidSubject },
+          apnsConfig: { apnsKeyId, apnsTeamId, apnsPrivateKey, apnsBundleId },
         })
       );
     }

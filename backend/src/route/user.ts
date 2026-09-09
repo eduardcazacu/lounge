@@ -150,14 +150,29 @@ const resetPasswordInput = z.object({
 	password: z.string().min(6),
 });
 
-const pushSubscriptionInput = z.object({
-	endpoint: z.string().min(1),
-	keys: z.object({
-		p256dh: z.string().min(1),
-		auth: z.string().min(1),
-	}),
-	userAgent: z.string().optional(),
-});
+// Web Push and APNs share this table. For Web Push, `endpoint` is the push
+// service URL and `keys` carries the encryption material; for APNs, `endpoint`
+// is the hex device token and there are no keys at all.
+//
+// The APNs environment rides in `provider` rather than a new column: the same
+// device token is not valid in both sandbox and production, so they have to be
+// told apart, and encoding it here avoids a migration.
+const pushSubscriptionInput = z
+	.object({
+		endpoint: z.string().min(1),
+		provider: z.enum(["webpush", "apns", "apns-sandbox"]).default("webpush"),
+		keys: z
+			.object({
+				p256dh: z.string().min(1),
+				auth: z.string().min(1),
+			})
+			.optional(),
+		userAgent: z.string().optional(),
+	})
+	.refine((value) => value.provider !== "webpush" || value.keys !== undefined, {
+		message: "Web Push subscriptions must include encryption keys",
+		path: ["keys"],
+	});
 
 const pushUnsubscribeInput = z.object({
 	endpoint: z.string().optional(),
@@ -796,15 +811,17 @@ userRouter.post("/me/push/subscribe", async (c) => {
 			},
 			update: {
 				userId,
-				p256dh: parsed.data.keys.p256dh,
-				auth: parsed.data.keys.auth,
+				provider: parsed.data.provider,
+				p256dh: parsed.data.keys?.p256dh ?? null,
+				auth: parsed.data.keys?.auth ?? null,
 				userAgent: parsed.data.userAgent?.trim() || null,
 			},
 			create: {
 				userId,
 				endpoint: parsed.data.endpoint,
-				p256dh: parsed.data.keys.p256dh,
-				auth: parsed.data.keys.auth,
+				provider: parsed.data.provider,
+				p256dh: parsed.data.keys?.p256dh ?? null,
+				auth: parsed.data.keys?.auth ?? null,
 				userAgent: parsed.data.userAgent?.trim() || null,
 			},
 		});

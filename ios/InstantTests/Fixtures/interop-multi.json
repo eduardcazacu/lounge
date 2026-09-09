@@ -1,0 +1,45 @@
+{
+  "note": "One seal, three devices. Each opens its own envelope; any other device's envelope must fail against it.",
+  "senderUserId": 31337,
+  "plaintext": "CzBVep_E6Q4zWH2ix-wRNluApcrvFDleg6jN8hc8YYar0PUaP2SJrtP4HUJnjLHW-yBFao-02f4jSG2St9wBJktwlbrfBClOc5i94gcsUXabwOUKL1R5nsPoDTJXfKHG6xA1Wn-kye4TOF2Cp8zxFjtgharP9Bk-Y4it0vccQWaLsNX6H0RpjrPY_SJHbJG22wAlSm-Uud4DKE1yl7zhBitQdZq_5AkuU3idwucMMVZ7oMXqDzRZfqPI7RI3XIGmy_AVOl-Eqc7zGD1ih6zR9htAZYqv1PkeQ2iNstf8IUZrkLXa_yRJbpO43QInTHGWu-AFKk90mb7jCC1Sd5zB5gswVXqfxOkOM1h9osfsETZbgKXK7xQ5XoOozfIXPGGGq9D1Gj9kia7T-B1CZ4yx1vsgRWqPtNn-I0htkrfcASZLcJW63wQpTnOYveIHLFF2m8DlCi9UeZ7D6A0yV3yhxusQNVp_pMnuEzhdgqfM8RY7YIWqz_QZPmOIrdL3HEFmi7DV-h9EaY6z2P0iR2yRttsAJUpvlLneAyhNcpe84QYrUHWav-QJLlN4ncLnDDFWe6DF6g80WX6jyO0SN1yBpsvwFTpfhKnO8xg9Yoes0fYbQGWKr9T5HkNojbLX_CFGa5C12v8kSW6TuN0CJ0xxlrvgBSpPdJm-4wgtUnecweYLMFV6n8TpDjNYfaLH7BE2W4Clyu8UOV6DqM3yFzxhhqvQ9Ro_ZImu0_gdQmeMsdb7IEVqj7TZ_iNIbZK33AEmS3CVut8EKU5zmL3iByxRdpvA5QovVHmew-gNMld8ocbrEDVaf6TJ7hM4XYKnzPEWO2CFqs_0GT5jiK3S9xxBZouw1fofRGmOs9j9IkdskbbbACVKb5S53gMoTXKXvOEGK1B1mr_kCS5TeJ3C5wwxVnugxeoPNFl-o8jtEjdcgabL8BU6X4SpzvMYPWKHrNH2G0Bliq_U-R5DaI2y1_whRmuQtdr_JEluk7jdAidMcZa74AUqT3SZvuMILVJ3nMHmCzBVep_E6Q4zWH2ix-wRNluApcrvFDleg6jN8hc8YYar0PUaP2SJrtP4HUJnjLHW-yBFao-02f4jSG2St9wBJktwlbrfBClOc5i94gcsUXabwOUKL1R5nsPoDTJXfKHG6xA1Wn-kye4TOF2Cp8zxFjtgharP9Bk-Y4it0vccQWaLsNX6H0RpjrPY_SJHbJG22wAlSm-Uud4DKE1yl7zhBitQdZq_5AkuU3idwucMMVZ7oMXqDzRZfqPI7RI3XIGmy_AVOl-Eqc7zGD1ih6zR9htAZYqv1PkeQ2iNstf8IUZrkLXa_yRJbpO43QInTHGWu-AFKk90mb7jCC1Sd5zB5g",
+  "devices": [
+    {
+      "id": 201,
+      "deviceId": "416032a0-4deb-4656-9698-15f7f53fec8c",
+      "publicKey": "BClIK6K7VPxNzeHTwdmzOkz2vEk_0qfvo6JlwIWnYoMADCf62X-f1aF_cD__mnq-YgMxfSq-cyKL1NbD8R47fWU",
+      "privateKeyRaw": "90YUS_q-22BnYfRvva9rlv23NQHm5MmCoQRihbLhdt0"
+    },
+    {
+      "id": 202,
+      "deviceId": "31eed045-cbe3-4d55-9851-d3a4177756ea",
+      "publicKey": "BLt-P7Pf9c59xaXVpExSPeDJRW2rLna9bX_-eXE5LJf6Ycx8BQP9fQAj1VvhSSYorJuIa1pU_D-6HlyVMp2xmtg",
+      "privateKeyRaw": "SjfrfTt5jLKnmjI8H3LPOX-H1ICjj0Ge0LJ1wLLkNGc"
+    },
+    {
+      "id": 203,
+      "deviceId": "7a3de1c2-d6f8-4174-916f-6bcfe255f4bb",
+      "publicKey": "BNfPLjjaPxG_o78TzH1gvPZDfI2oPSMB4XbGUg2EHIFq8zEaeBktJBwqYg9aMl4QhPT4Nzd__mYsvcF1yHp6j4g",
+      "privateKeyRaw": "NkyjVKkEEgxuxncDqqbVC3wPZCu9GKXiICy2Qq7M33g"
+    }
+  ],
+  "ciphertext": "PDN82RCX_0tuFMsCGzQszoMiCRR99NSjT_MB5ka4ZhG0n2qQLxQ3zq7CNPl_uQF_ENnhkNPJSo7TLPljWsg7VP1T2dhyt-8PQIe6LI5Igxr9RkKHThNkX3M864gco-x5ZCbCpkyKAgBXOAp--EHsbO8-pWayXdCefMCFQnUuTmuyt_F5jN5VLXjxtr0Qkbz4Eq5WwgIU-TSaOgDWnjsqnUXJIhZ33DTOzPwxc-DfXsuzfNEqY6y_p1aWN5EAFRoivcy4bAb8knTfhMev1fcdBZ8A9N6fG-LYe603SW0Y6nRqOf33Vt2JUqXTOlaKpksYs7P4D-ppniF0EhRLQ6HfDNxpEYGESqbdtw6BJLJp-HFwsBCQMG145DfBt9eaINgpz-cFuxK07eVsTksWK_Lo59_XfpIVSxtc4TgRVcV2ojE4Suo0NsUvyj95HVabpw68DmWtXv43QiGgmETYApd4tw6Uqx50sBpnydsuraaNdAHsNwA9PM0AjpvER8DjY0bGbH76fUy3NQwFqB8JDNMPOpmUVN2l3z127j-PKIiWo-GJXYCPB1dWCZG9WREh_ryZhxfsOiuTnnbSNV-QOSlA4dAPn34qn5SKgVnB1UVL-tnha6b90bjlMGEGdxDfAPjd_ArppUg78g0LkRnV8l9AoCC0LO_fahBA6f4OzAhNhEwmf5zRDhEIbaKlF9ehQp7iX7eX5Iw0C5EJpuRcuOsMQ8-m7zbaJtdJQa_XIQolSLPeXpM0yGTbUs2c1-Nx5IxROeRUg1oVRqjCVtwGKXz2R3SfxSjV4QqaIZBkebR3UMEg1OkJ-__GEnOoLAOUldYQneSMXsKpVY1RovKvKnE8azgd08nVjAChxoqulD7mln3Gb62We8NQOT-BRAeBTO6YadatzueQbo40k1aK0IsOXaRcSophfX344uzp6YezIp0UZJOfku-NFXri3aBwAM86wGdA-_bGOxAy4xLMet-hpHeyvtE6k4Rsdp3jzJ1hOIr6PAE7vc_K1786oowfn6c3DGaBJGQe440HpfDlamoAdBC4Eq5j4T-Qozuy9E91KsvrSbNzJnbvzmSnWVvo5wLXmQxZvsqtscJBsXLHNUeHpW7gi5smUSEQ-rcDTznUsqU_yReMiGnYrAKsIREzwGnt4SjBkjS-yMMuQRTAZUnikBufk1jIAnXK8dXc_V-CftBDOwXuTJ6ZiMjMyzCS8NPvPQUcLxMg3Gve7JgZknMQR_k8D7Yxp5fGrTT_JrQvTzdibuwoxPwohch2-iRRZMzkRv370FPbKfljFn-GbnnlkKLJ9K9GoKEpsd1bJ4N91CxRlhZw0sLECutqyfKC-o1eROA1fwp3Lg4q4gexrTInRsuHCFCmKTq51wgeKjRMOcw",
+  "mediaIv": "Np6N_pv0PP_RO5Vk",
+  "ephemeralPubKey": "BBMJSZ2T55A9TaaRsVvDm1ele6ILfGkoAzfIkqqhL5c6uTf_XG5z0w39LGlFdnq3VnCuyfy3ppJYQjGHI9RF034",
+  "envelopes": [
+    {
+      "deviceKeyId": 201,
+      "wrappedKey": "59cJUjhSQVWIHkY4wsYNRun5_81eQsts7IeJbI6s1CMQcRXzKDskc2p-z-njknHa",
+      "wrapIv": "5dB22PaT24p1BvrG"
+    },
+    {
+      "deviceKeyId": 202,
+      "wrappedKey": "bZEv9sABzjyy7v_ysemcokQg2v-GqVIv5yYpovGbvqkX6khH2sJDHIIpwxmypdFc",
+      "wrapIv": "OhHcMqZhJ9yizJ8O"
+    },
+    {
+      "deviceKeyId": 203,
+      "wrappedKey": "xxVTthmFxCZV4WITV_cPC0VuaNr6Bt4xmQWiI91nWSK9OaDht2qjW0aQsQTvKWuc",
+      "wrapIv": "blT0QmUPzXiKlsQ6"
+    }
+  ]
+}
