@@ -86,10 +86,12 @@ struct CameraScreen: View {
     private func topBar(_ model: CameraModel) -> some View {
         HStack {
             Button { showsSettings = true } label: {
+                // The signed-in account, not a placeholder: their picture if
+                // they have one, their initials if not.
                 AvatarView(
-                    name: "Me",
-                    themeKey: ThemePalette.defaultKey,
-                    url: nil,
+                    name: environment.account?.name ?? "",
+                    themeKey: environment.account?.themeKey ?? ThemePalette.defaultKey,
+                    url: environment.account?.profilePictureUrl,
                     size: 40
                 )
             }

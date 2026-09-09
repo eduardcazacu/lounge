@@ -8,31 +8,49 @@ struct AvatarView: View {
     let url: String?
     var size: CGFloat = 52
 
-    private var initials: String {
-        let parts = name.split(separator: " ").prefix(2)
-        let letters = parts.compactMap { $0.first }.map(String.init).joined()
-        return letters.isEmpty ? "?" : letters.uppercased()
+    /// `nil` while the name is still unknown, so the placeholder can be a person
+    /// glyph rather than a "?" that reads like an error.
+    private var initials: String? {
+        let letters = name
+            .split(separator: " ")
+            .prefix(2)
+            .compactMap(\.first)
+            .map(String.init)
+            .joined()
+        return letters.isEmpty ? nil : letters.uppercased()
+    }
+
+    @ViewBuilder
+    private var placeholder: some View {
+        if let initials {
+            Text(initials)
+                .font(.system(size: size * 0.38, weight: .bold))
+                .foregroundStyle(.white)
+        } else {
+            Image(systemName: "person.fill")
+                .font(.system(size: size * 0.42))
+                .foregroundStyle(.white.opacity(0.85))
+        }
     }
 
     var body: some View {
         let palette = ThemePalette.palette(for: themeKey)
-        ZStack {
+        return ZStack {
             Circle().fill(palette.accent)
             if let url, let parsed = URL(string: url) {
                 AsyncImage(url: parsed) { image in
                     image.resizable().scaledToFill()
                 } placeholder: {
-                    Text(initials).font(.system(size: size * 0.38, weight: .bold))
+                    placeholder
                 }
                 .clipShape(Circle())
             } else {
-                Text(initials)
-                    .font(.system(size: size * 0.38, weight: .bold))
-                    .foregroundStyle(.white)
+                placeholder
             }
         }
         .frame(width: size, height: size)
         .overlay(Circle().strokeBorder(palette.border.opacity(0.7), lineWidth: 2))
+        .accessibilityLabel(name.isEmpty ? "Profile" : name)
     }
 }
 

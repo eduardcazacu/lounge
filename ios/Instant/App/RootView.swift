@@ -19,6 +19,7 @@ struct RootView: View {
             // prompt iOS gives you before the person has any reason to say yes.
             guard let userId = environment.session.currentUserId else { return }
             await environment.store.start(userId: userId)
+            await environment.loadAccount()
             await registerForPush()
         }
         .onChange(of: environment.store.sessionExpired) { _, expired in

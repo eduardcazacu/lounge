@@ -24,6 +24,10 @@ public final class AppEnvironment {
     public var pendingInstantId: String?
     public var showsInbox = false
 
+    /// The signed-in account, loaded once so the camera's profile button can
+    /// show a real avatar rather than waiting for someone to open Settings.
+    public private(set) var account: AccountProfile?
+
     public init(
         config: AppConfig,
         session: SessionStore,
@@ -65,15 +69,21 @@ public final class AppEnvironment {
         )
     }
 
+    public func loadAccount() async {
+        account = try? await userAPI.me()
+    }
+
     public func signOut() async {
         await userAPI.signOut()
         store.reset()
         session.signOut()
+        account = nil
     }
 
     public func handleSignIn(token: String) async {
         session.setToken(token)
         guard let userId = session.currentUserId else { return }
         await store.start(userId: userId)
+        await loadAccount()
     }
 }

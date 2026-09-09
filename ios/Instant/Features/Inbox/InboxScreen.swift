@@ -96,12 +96,8 @@ struct InboxScreen: View {
     /// the reader has to join to this one by eye.
     private func conversationRow(_ conversation: InstantStore.Conversation) -> some View {
         Button {
-            if let instant = conversation.pending {
-                open(instant)
-            } else {
-                // Nothing waiting, so the useful thing to offer is the key check.
-                safetyNumberPeer = conversation
-            }
+            guard let instant = conversation.pending else { return }
+            open(instant)
         } label: {
             HStack(spacing: 12) {
                 AvatarView(
@@ -134,9 +130,18 @@ struct InboxScreen: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // Long press for the safety number. `simultaneousGesture` rather than
+        // `onLongPressGesture` so the row's tap keeps working inside the List.
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.45).onEnded { _ in
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                safetyNumberPeer = conversation
+            }
+        )
         .listRowBackground(InstantStyle.background)
         .listRowSeparatorTint(InstantStyle.surfaceRaised)
         .accessibilityIdentifier("inbox.conversation.\(conversation.name)")
+        .accessibilityHint("Press and hold to check the safety number")
     }
 
     @ViewBuilder
@@ -161,10 +166,6 @@ struct InboxScreen: View {
             Text("Send one today to keep your streak")
                 .font(.system(size: 13))
                 .foregroundStyle(InstantStyle.unread)
-        } else {
-            Text("Tap to check your safety number")
-                .font(.system(size: 13))
-                .foregroundStyle(InstantStyle.secondaryText)
         }
     }
 

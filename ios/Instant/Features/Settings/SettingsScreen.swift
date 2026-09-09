@@ -33,7 +33,14 @@ struct SettingsScreen: View {
                     Button("Close") { dismiss() }.tint(.white)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { Task { await model?.save() } }
+                    // Refresh the shared account afterwards so the camera's
+                    // profile button reflects the change straight away.
+                    Button("Save") {
+                        Task {
+                            await model?.save()
+                            await environment.loadAccount()
+                        }
+                    }
                         .tint(.white)
                         .fontWeight(.semibold)
                         .disabled(model?.isSaving ?? true)
@@ -52,6 +59,7 @@ struct SettingsScreen: View {
                 if let data = try? await item.loadTransferable(type: Data.self),
                    let image = UIImage(data: data) {
                     await model?.uploadProfilePicture(image)
+                    await environment.loadAccount()
                 }
                 pickerItem = nil
             }
@@ -86,7 +94,10 @@ struct SettingsScreen: View {
 
             if model.profilePictureUrl != nil {
                 Button("Remove picture", role: .destructive) {
-                    Task { await model.removeProfilePicture() }
+                    Task {
+                        await model.removeProfilePicture()
+                        await environment.loadAccount()
+                    }
                 }
             }
         } footer: {

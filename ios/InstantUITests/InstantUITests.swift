@@ -172,8 +172,28 @@ final class InstantUITests: XCTestCase {
         XCTAssertFalse(app.buttons["inbox.streak.Ana"].exists)
     }
 
-    /// With nothing waiting, the row's useful action is the key check.
-    func testTappingAConversationWithNothingWaitingShowsTheSafetyNumber() {
+    /// The safety number is behind a long press, so an ordinary tap can never
+    /// land on it by accident.
+    func testLongPressingAConversationShowsTheSafetyNumber() {
+        let app = launch(signedIn: true)
+        XCTAssertTrue(app.buttons["camera.shutter"].waitForExistence(timeout: 10))
+        app.buttons["camera.inbox"].tap()
+
+        let row = app.buttons["inbox.conversation.Ana"]
+        XCTAssertTrue(row.waitForExistence(timeout: 20))
+        row.press(forDuration: 1.0)
+
+        let number = app.staticTexts["safety.number"]
+        XCTAssertTrue(number.waitForExistence(timeout: 10))
+        // Twelve groups of five digits, which is what the other side compares to.
+        let groups = number.label.split(separator: " ")
+        XCTAssertEqual(groups.count, 12)
+        XCTAssertTrue(groups.allSatisfy { $0.count == 5 })
+    }
+
+    /// A plain tap opens what is waiting and nothing else; with nothing waiting
+    /// it does nothing at all, and the row carries no instruction text.
+    func testTappingAConversationWithNothingWaitingDoesNothing() {
         let app = launch(signedIn: true)
         XCTAssertTrue(app.buttons["camera.shutter"].waitForExistence(timeout: 10))
         app.buttons["camera.inbox"].tap()
@@ -187,16 +207,14 @@ final class InstantUITests: XCTestCase {
         app.images["viewer.image"].tap()
         waitForDisappearance(app.images["viewer.image"])
 
-        // The person stays on the list; tapping again offers the safety number.
         XCTAssertTrue(row.waitForExistence(timeout: 10))
-        row.tap()
+        XCTAssertFalse(row.label.contains("safety number"), "the hint text is gone")
 
-        let number = app.staticTexts["safety.number"]
-        XCTAssertTrue(number.waitForExistence(timeout: 10))
-        // Twelve groups of five digits, which is what the other side compares to.
-        let groups = number.label.split(separator: " ")
-        XCTAssertEqual(groups.count, 12)
-        XCTAssertTrue(groups.allSatisfy { $0.count == 5 })
+        row.tap()
+        XCTAssertFalse(
+            app.staticTexts["safety.number"].waitForExistence(timeout: 3),
+            "a tap must not open the safety number"
+        )
     }
 
     /// Conversations sit to the left of the camera, so a swipe from left to
@@ -211,6 +229,21 @@ final class InstantUITests: XCTestCase {
 
         app.swipeLeft()
         XCTAssertTrue(app.buttons["camera.shutter"].waitForExistence(timeout: 10))
+    }
+
+    /// The profile button is the account's own avatar, not a placeholder.
+    func testCameraProfileButtonShowsTheSignedInAccount() {
+        let app = launch(signedIn: true)
+        let profile = app.buttons["camera.profile"]
+        XCTAssertTrue(profile.waitForExistence(timeout: 10))
+
+        // The stub account is "Tester"; the avatar labels itself with the name
+        // it is drawing, so this catches a hardcoded placeholder.
+        let named = expectation(
+            for: NSPredicate(format: "label CONTAINS %@", "Tester"), evaluatedWith: profile
+        )
+        wait(for: [named], timeout: 10)
+        XCTAssertFalse(profile.label.contains("Me"), "the placeholder is gone")
     }
 
     func testCameraShowsNoStreakCounter() {
