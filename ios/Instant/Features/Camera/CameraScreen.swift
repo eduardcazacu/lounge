@@ -47,7 +47,7 @@ struct CameraScreen: View {
     private func live(_ model: CameraModel) -> some View {
         ZStack {
             if let session = model.camera.session {
-                CameraPreview(session: session, mirrored: model.camera.position == .front)
+                CameraPreview(session: session, mirrored: model.position == .front)
                     .ignoresSafeArea()
                     // Pinch anywhere on the frame. Zoom is a property of the
                     // capture device, so the photo comes out magnified too.
@@ -130,8 +130,8 @@ struct CameraScreen: View {
 
             HStack(spacing: 12) {
                 CircleIconButton(
-                    systemName: model.camera.isFlashOn ? "bolt.fill" : "bolt.slash.fill",
-                    isOn: model.camera.isFlashOn
+                    systemName: model.isFlashOn ? "bolt.fill" : "bolt.slash.fill",
+                    isOn: model.isFlashOn
                 ) {
                     model.toggleFlash()
                 }

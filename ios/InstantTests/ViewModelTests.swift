@@ -200,6 +200,83 @@ struct ViewerModelTests {
     }
 }
 
+/// Records whether an `@Observable` property actually notified.
+final class ObservationProbe: @unchecked Sendable {
+    private(set) var fired = false
+    func markFired() { fired = true }
+}
+
+@MainActor
+@Suite("Camera controls publish their state")
+struct CameraObservabilityTests {
+    private func model() -> CameraModel {
+        CameraModel(camera: StubCameraController(
+            frame: UIGraphicsImageRenderer(size: CGSize(width: 10, height: 10)).image { _ in }
+        ))
+    }
+
+    /// The bug these exist for: the view read `model.camera.isFlashOn`, which
+    /// reaches a plain AVFoundation object through a protocol. SwiftUI
+    /// registers no dependency on that, so the button only redrew when some
+    /// unrelated observable property changed — taking a photo, for instance.
+    /// Asserting the device state moved is not enough; the *model* has to
+    /// notify.
+    @Test("Toggling the flash notifies")
+    func flashPublishes() {
+        let model = model()
+        let probe = ObservationProbe()
+        withObservationTracking { _ = model.isFlashOn } onChange: { probe.markFired() }
+
+        model.toggleFlash()
+
+        #expect(probe.fired, "the view has nothing to observe")
+        #expect(model.isFlashOn)
+        #expect(model.camera.isFlashOn, "and the device followed")
+
+        model.toggleFlash()
+        #expect(model.isFlashOn == false)
+    }
+
+    @Test("Flipping the camera notifies")
+    func positionPublishes() async {
+        let model = model()
+        let probe = ObservationProbe()
+        withObservationTracking { _ = model.position } onChange: { probe.markFired() }
+
+        await model.flip()
+
+        #expect(probe.fired)
+        #expect(model.position == .back)
+        #expect(model.position == model.camera.position)
+    }
+
+    /// The indicator has to track the pinch, not jump when it ends.
+    @Test("Zooming notifies on every step of the gesture")
+    func zoomPublishesDuringTheGesture() {
+        let model = model()
+        model.beginZoom()
+
+        let probe = ObservationProbe()
+        withObservationTracking { _ = model.zoomFactor } onChange: { probe.markFired() }
+
+        model.updateZoom(magnification: 2)
+
+        #expect(probe.fired)
+        #expect(model.zoomFactor == 2)
+        #expect(model.zoomLabel == "2.0×")
+        model.endZoom()
+    }
+
+    @Test("Starts in step with the device")
+    func startsSynced() {
+        let model = model()
+        #expect(model.isFlashOn == model.camera.isFlashOn)
+        #expect(model.position == model.camera.position)
+        #expect(model.zoomFactor == model.camera.zoomFactor)
+        #expect(model.canZoom == model.camera.canZoom)
+    }
+}
+
 @MainActor
 @Suite("Camera zoom")
 struct CameraZoomTests {
