@@ -25,6 +25,7 @@ public final class InstantStore {
 
     private let api: InstantAPIProtocol
     private let identities: DeviceIdentityProviding
+    private let recentContacts: RecentContactsStoring
     private let makeSocket: @MainActor (InstantAPIProtocol) -> InboxSocketProtocol
     private var socket: InboxSocketProtocol?
     private var pump: Task<Void, Never>?
@@ -33,10 +34,12 @@ public final class InstantStore {
     public init(
         api: InstantAPIProtocol,
         identities: DeviceIdentityProviding,
+        recentContacts: RecentContactsStoring = RecentContactsStore(),
         makeSocket: @escaping @MainActor (InstantAPIProtocol) -> InboxSocketProtocol
     ) {
         self.api = api
         self.identities = identities
+        self.recentContacts = recentContacts
         self.makeSocket = makeSocket
     }
 
@@ -211,6 +214,16 @@ public final class InstantStore {
         guard !fresh.isEmpty else { return }
         for instant in fresh { seenIds.insert(instant.id) }
         instants = (instants + fresh).sorted { $0.createdAt < $1.createdAt }
+
+        // Receiving counts as talking to someone, so it feeds the picker's
+        // ordering. The instant's own timestamp is used rather than "now": a
+        // backlog drained after a week offline should not all read as current.
+        if let userId {
+            for instant in fresh {
+                let when = InstantTimestamp.parse(instant.createdAt) ?? Date()
+                recentContacts.record(peerUserId: instant.senderId, for: userId, at: when)
+            }
+        }
     }
 
     public func refreshInbox(deviceId: String) async {

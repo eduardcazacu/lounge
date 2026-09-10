@@ -316,6 +316,28 @@ final class InstantUITests: XCTestCase {
         XCTAssertTrue(shutter.waitForExistence(timeout: 30))
     }
 
+    /// The stub's server order is Ana then Bo; the seeded history has Bo as the
+    /// most recent, so a picker that respects recency has to visibly move them.
+    func testRecipientPickerLeadsWithTheMostRecentContact() {
+        let app = launch(signedIn: true)
+        let shutter = app.buttons["camera.shutter"]
+        XCTAssertTrue(shutter.waitForExistence(timeout: 30))
+        shutter.tap()
+
+        XCTAssertTrue(app.buttons["compose.sendTo"].waitForExistence(timeout: 30))
+        app.buttons["compose.sendTo"].tap()
+
+        let recent = app.buttons["sendTo.row.Bo"]
+        let older = app.buttons["sendTo.row.Ana"]
+        XCTAssertTrue(recent.waitForExistence(timeout: 30))
+        XCTAssertTrue(older.waitForExistence(timeout: 30))
+
+        XCTAssertLessThan(
+            recent.frame.minY, older.frame.minY,
+            "the most recent contact should sit above the others"
+        )
+    }
+
     func testDiscardingACaptureReturnsToTheCamera() {
         let app = launch(signedIn: true)
         let shutter = app.buttons["camera.shutter"]

@@ -48,9 +48,15 @@ public enum LaunchOptions {
             keychain: InMemoryKeychain(),
             secureEnclaveAvailable: { false }
         )
+        // In-memory, and seeded: the picker orders by who you last talked to,
+        // so a UI test needs a known history that does not leak between runs.
+        let recentContacts = InMemoryRecentContactsStore()
+        recentContacts.record(peerUserId: StubBackend.recentPeerId, for: 1, at: Date())
+
         let store = InstantStore(
             api: instantAPI,
             identities: identities,
+            recentContacts: recentContacts,
             makeSocket: { _ in StubInboxSocket() }
         )
         return AppEnvironment(
@@ -60,6 +66,7 @@ public enum LaunchOptions {
             instantAPI: instantAPI,
             identities: identities,
             store: store,
+            recentContacts: recentContacts,
             makeCamera: { StubCameraController(frame: StubBackend.cameraFrame()) }
         )
     }

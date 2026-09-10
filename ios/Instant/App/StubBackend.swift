@@ -16,7 +16,28 @@ enum StubBackend {
         return "\(header).\(payload).stub"
     }()
 
+    /// Timestamps are relative to now. A fixed future date (the old
+    /// "2030-01-01") is not just unrealistic — anything that orders by recency
+    /// sees it as newer than everything real, which quietly inverted the
+    /// recipient picker under test.
+    private nonisolated(unsafe) static let iso: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    static func timestamp(offsetBySeconds offset: TimeInterval) -> String {
+        iso.string(from: Date().addingTimeInterval(offset))
+    }
+
+    /// An hour ago, so a contact seeded at "now" is unambiguously more recent.
+    static var receivedAt: String { timestamp(offsetBySeconds: -3600) }
+    static var expiresAt: String { timestamp(offsetBySeconds: 23 * 3600) }
+
     static let senderId = 2
+    /// Last in the server's ordering, so a picker that respects recency has to
+    /// visibly move them to the top.
+    static let recentPeerId = 3
     static let instantId = "11111111-2222-3333-4444-555555555555"
 
     static func cameraFrame() -> UIImage {
@@ -121,7 +142,7 @@ final class StubAPIClient: APIClientProtocol, @unchecked Sendable {
                 "streaks": [[
                     "userId": 2, "name": "Ana", "themeKey": "rose",
                     "profilePictureUrl": NSNull(), "count": 9,
-                    "deadline": "2030-01-01T00:00:00.000Z", "atRisk": true,
+                    "deadline": StubBackend.expiresAt, "atRisk": true,
                 ]],
             ])
 
@@ -140,8 +161,8 @@ final class StubAPIClient: APIClientProtocol, @unchecked Sendable {
             }
             return try encode([
                 "instant": [
-                    "id": UUID().uuidString, "createdAt": "2030-01-01T00:00:00.000Z",
-                    "expiresAt": "2030-01-02T00:00:00.000Z", "delivered": true,
+                    "id": UUID().uuidString, "createdAt": StubBackend.timestamp(offsetBySeconds: 0),
+                    "expiresAt": StubBackend.expiresAt, "delivered": true,
                 ],
             ])
 
@@ -151,7 +172,9 @@ final class StubAPIClient: APIClientProtocol, @unchecked Sendable {
                     InstantKeysResponse(userId: 2, devices: state.deviceKeys, myDevices: state.deviceKeys)
                 )
             }
-            if path.hasSuffix("/viewed") { return try encode(["ok": true, "viewedAt": "2030-01-01T00:00:00.000Z"]) }
+            if path.hasSuffix("/viewed") {
+                return try encode(["ok": true, "viewedAt": StubBackend.timestamp(offsetBySeconds: 0)])
+            }
             return try encode(["ok": true])
         }
     }
@@ -181,8 +204,8 @@ final class StubAPIClient: APIClientProtocol, @unchecked Sendable {
                 ephemeralPubKey: result.ephemeralPubKey,
                 byteSize: result.ciphertext.count,
                 durationMode: .fiveSeconds,
-                createdAt: "2030-01-01T00:00:00.000Z",
-                expiresAt: "2030-01-02T00:00:00.000Z",
+                createdAt: StubBackend.receivedAt,
+                expiresAt: StubBackend.expiresAt,
                 envelope: InstantKeyEnvelope(
                     wrappedKey: result.envelopes[0].wrappedKey,
                     wrapIv: result.envelopes[0].wrapIv

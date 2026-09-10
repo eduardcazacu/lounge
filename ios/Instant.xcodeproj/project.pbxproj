@@ -283,9 +283,6 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "$(INSTANT_ENTITLEMENTS_$(INSTANT_PUSH_ENABLED))";
-				INSTANT_ENTITLEMENTS_NO = "";
-				INSTANT_ENTITLEMENTS_YES = Instant/Resources/Instant.entitlements;
-				INSTANT_PUSH_ENABLED = NO;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 844S7255R5;
@@ -297,6 +294,11 @@
 				INFOPLIST_KEY_UIStatusBarStyle = UIStatusBarStyleLightContent;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
 				INFOPLIST_KEY_UIUserInterfaceStyle = Dark;
+				INSTANT_ENTITLEMENTS_NO = "";
+				INSTANT_ENTITLEMENTS_YES = Instant/Resources/Instant.entitlements;
+				INSTANT_PUSH_CONDITION_NO = "";
+				INSTANT_PUSH_CONDITION_YES = INSTANT_PUSH;
+				INSTANT_PUSH_ENABLED = NO;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -305,8 +307,6 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.eduardcazacu.instant;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) $(INSTANT_PUSH_CONDITION_$(INSTANT_PUSH_ENABLED))";
-				INSTANT_PUSH_CONDITION_NO = "";
-				INSTANT_PUSH_CONDITION_YES = INSTANT_PUSH;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -409,9 +409,6 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "$(INSTANT_ENTITLEMENTS_$(INSTANT_PUSH_ENABLED))";
-				INSTANT_ENTITLEMENTS_NO = "";
-				INSTANT_ENTITLEMENTS_YES = Instant/Resources/Instant.entitlements;
-				INSTANT_PUSH_ENABLED = NO;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 844S7255R5;
@@ -423,6 +420,11 @@
 				INFOPLIST_KEY_UIStatusBarStyle = UIStatusBarStyleLightContent;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
 				INFOPLIST_KEY_UIUserInterfaceStyle = Dark;
+				INSTANT_ENTITLEMENTS_NO = "";
+				INSTANT_ENTITLEMENTS_YES = Instant/Resources/Instant.entitlements;
+				INSTANT_PUSH_CONDITION_NO = "";
+				INSTANT_PUSH_CONDITION_YES = INSTANT_PUSH;
+				INSTANT_PUSH_ENABLED = NO;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -431,8 +433,6 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.eduardcazacu.instant;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) $(INSTANT_PUSH_CONDITION_$(INSTANT_PUSH_ENABLED))";
-				INSTANT_PUSH_CONDITION_NO = "";
-				INSTANT_PUSH_CONDITION_YES = INSTANT_PUSH;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
