@@ -24,6 +24,7 @@ public final class CameraModel {
     // — the view only refreshed when some *other* observable property happened
     // to change, which is why the flash button appeared stuck until a photo was
     // taken. These are the state the view actually reads.
+    public private(set) var isPreviewReady = false
     public private(set) var isFlashOn = false
     public private(set) var position: AVCaptureDevice.Position = .front
     public private(set) var zoomFactor: CGFloat = 1
@@ -47,6 +48,7 @@ public final class CameraModel {
     /// Pulls the device's current state onto the model, which is the only thing
     /// the view observes.
     private func syncFromCamera() {
+        isPreviewReady = camera.isPreviewReady
         isFlashOn = camera.isFlashOn
         position = camera.position
         zoomFactor = camera.zoomFactor
@@ -65,6 +67,7 @@ public final class CameraModel {
 
     public func stop() {
         camera.stop()
+        syncFromCamera()
     }
 
     public func flip() async {

@@ -267,6 +267,36 @@ struct CameraObservabilityTests {
         model.endZoom()
     }
 
+    /// The preview is revealed only once there is something to show; fading in
+    /// a blank layer is the black flash this exists to avoid.
+    @Test("Preview readiness follows the session, and publishes")
+    func previewReadinessPublishes() async {
+        let model = model()
+        #expect(model.isPreviewReady == false, "nothing to show before the session starts")
+
+        let probe = ObservationProbe()
+        withObservationTracking { _ = model.isPreviewReady } onChange: { probe.markFired() }
+
+        await model.start()
+        #expect(probe.fired)
+        #expect(model.isPreviewReady)
+
+        model.stop()
+        #expect(model.isPreviewReady == false)
+    }
+
+    /// Swiping to the inbox and back must not cost a session restart, so
+    /// readiness survives everything except an actual teardown.
+    @Test("Flipping the camera does not blank the preview")
+    func flipKeepsPreviewReady() async {
+        let model = model()
+        await model.start()
+        #expect(model.isPreviewReady)
+
+        await model.flip()
+        #expect(model.isPreviewReady, "a flip is a transition, not a restart")
+    }
+
     @Test("Starts in step with the device")
     func startsSynced() {
         let model = model()
@@ -778,6 +808,53 @@ struct RecipientOrderingTests {
         await model.load()
 
         #expect(order(model.candidates) == [3, 2])
+    }
+
+    /// The history is fetched, so it can land after the picker has opened.
+    /// Rendering in the server's order and re-sorting beats an empty sheet.
+    @Test("Re-sorts when the history arrives late")
+    func reordersOnLateHistory() async {
+        let userAPI = FakeUserAPI()
+        userAPI.usersResult = users([2, 3, 4])
+
+        let model = SendToModel(
+            userAPI: userAPI, instantAPI: FakeInstantAPI(),
+            history: { [] }, currentUserId: 1
+        )
+        await model.load()
+        #expect(order(model.candidates) == [2, 3, 4], "server order until history lands")
+        #expect(model.showsSections == false)
+
+        model.reorder(using: [.fixture(userId: 4)])
+
+        #expect(order(model.candidates) == [4, 2, 3])
+        #expect(order(model.recent) == [4])
+        #expect(model.showsSections)
+    }
+
+    /// Enrollment resolves separately and must not be thrown away by a re-sort;
+    /// a row that reverted to "Checking…" would be a visible glitch.
+    @Test("Re-sorting keeps whatever enrollment has resolved")
+    func reorderPreservesEnrollment() async {
+        let userAPI = FakeUserAPI()
+        userAPI.usersResult = users([2, 3])
+        let instantAPI = FakeInstantAPI()
+        instantAPI.keysByUser[2] = [
+            InstantDeviceKeyDTO(id: 1, deviceId: "d", publicKey: "p", createdAt: nil)
+        ]
+
+        let model = SendToModel(
+            userAPI: userAPI, instantAPI: instantAPI,
+            history: { [] }, currentUserId: 1
+        )
+        await model.load()
+        #expect(model.candidates.first { $0.id == 2 }?.isEnrolled == true)
+
+        model.reorder(using: [.fixture(userId: 3)])
+
+        #expect(order(model.candidates) == [3, 2])
+        #expect(model.candidates.first { $0.id == 2 }?.isEnrolled == true)
+        #expect(model.candidates.first { $0.id == 3 }?.isEnrolled == false)
     }
 
     /// Covers the exact path the UI test drives: the stub backend's user list

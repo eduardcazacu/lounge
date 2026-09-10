@@ -15,6 +15,11 @@ public protocol CameraControlling: AnyObject {
     var isFlashOn: Bool { get set }
     var session: AVCaptureSession? { get }
 
+    /// True once the session is running and the preview has something to show.
+    /// Until then the preview layer is blank, and revealing it produces the
+    /// black flash this exists to avoid.
+    var isPreviewReady: Bool { get }
+
     /// Current magnification, and what this camera will actually accept.
     var zoomFactor: CGFloat { get }
     var zoomRange: ClosedRange<CGFloat> { get }
@@ -48,6 +53,7 @@ public final class CameraController: NSObject, CameraControlling {
     public private(set) var position: AVCaptureDevice.Position = .front
     public var isFlashOn = false
     public private(set) var session: AVCaptureSession?
+    public private(set) var isPreviewReady = false
     public private(set) var zoomFactor: CGFloat = 1
 
     /// Past a certain point digital zoom is just interpolation, and on a phone
@@ -89,7 +95,10 @@ public final class CameraController: NSObject, CameraControlling {
             session.commitConfiguration()
         }
 
-        guard !session.isRunning else { return }
+        guard !session.isRunning else {
+            isPreviewReady = true
+            return
+        }
         await withCheckedContinuation { continuation in
             // startRunning blocks; keeping it off the main actor stops the
             // camera page from hitching as it appears.
@@ -98,9 +107,14 @@ public final class CameraController: NSObject, CameraControlling {
                 continuation.resume()
             }
         }
+        // startRunning returns once the session is live, which is within a frame
+        // or so of the first buffer reaching the preview layer. The fade the
+        // view applies covers that remainder.
+        isPreviewReady = session.isRunning
     }
 
     public func stop() {
+        isPreviewReady = false
         guard let session, session.isRunning else { return }
         DispatchQueue.global(qos: .userInitiated).async {
             session.stopRunning()
@@ -210,6 +224,7 @@ public final class StubCameraController: CameraControlling {
     public private(set) var position: AVCaptureDevice.Position = .front
     public var isFlashOn = false
     public var session: AVCaptureSession? { nil }
+    public private(set) var isPreviewReady = false
     public private(set) var flipCount = 0
     public private(set) var zoomFactor: CGFloat = 1
     public var zoomRange: ClosedRange<CGFloat>
@@ -225,8 +240,8 @@ public final class StubCameraController: CameraControlling {
         self.frame = frame
     }
 
-    public func start() async {}
-    public func stop() {}
+    public func start() async { isPreviewReady = true }
+    public func stop() { isPreviewReady = false }
 
     public func setZoom(_ factor: CGFloat) {
         zoomFactor = Self.clampedZoom(factor, to: zoomRange)

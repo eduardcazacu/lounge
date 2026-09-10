@@ -118,6 +118,24 @@ public final class SendToModel {
         .map(\.candidate)
     }
 
+    /// Re-sorts what is already on screen against newer history.
+    ///
+    /// The history is fetched, so it can land after the picker has opened.
+    /// Rendering in the server's order and then re-sorting beats holding the
+    /// list back until it arrives, and keeps whatever enrollment has resolved.
+    public func reorder(using history: [InstantConversationSummary]) {
+        let enrollment = Dictionary(
+            candidates.map { ($0.id, $0.isEnrolled) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        candidates = Self.ordered(candidates.map(\.user), history: history)
+            .map { candidate in
+                var updated = candidate
+                updated.isEnrolled = enrollment[candidate.id] ?? nil
+                return updated
+            }
+    }
+
     /// Enrollment is per-user and the key directory is a separate call, so this
     /// resolves in the background and rows settle from "checking" to enabled or
     /// disabled.

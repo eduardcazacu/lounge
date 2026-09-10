@@ -8,6 +8,7 @@ import SwiftUI
 /// the one action that matters under the thumb and everything else out of the way.
 struct CameraScreen: View {
     @Environment(AppEnvironment.self) private var environment
+    @Environment(\.scenePhase) private var scenePhase
     @State private var model: CameraModel?
     @State private var showsSettings = false
     @State private var libraryItem: PhotosPickerItem?
@@ -29,7 +30,20 @@ struct CameraScreen: View {
             if model == nil { model = CameraModel(camera: environment.makeCamera()) }
             await model?.start()
         }
-        .onDisappear { model?.stop() }
+        // Deliberately no `.onDisappear { stop() }`: swiping to the inbox and
+        // back should not cost a session restart, which is most of a second of
+        // black. The session is only torn down when the app actually leaves the
+        // foreground, which iOS requires anyway.
+        .onChange(of: scenePhase) { _, phase in
+            switch phase {
+            case .background:
+                model?.stop()
+            case .active:
+                Task { await model?.start() }
+            default:
+                break
+            }
+        }
         .sheet(isPresented: $showsSettings) { SettingsScreen() }
         .onChange(of: libraryItem) { _, item in
             guard let item else { return }
@@ -46,9 +60,15 @@ struct CameraScreen: View {
     @ViewBuilder
     private func live(_ model: CameraModel) -> some View {
         ZStack {
+            // The placeholder sits underneath for the whole of startup, so the
+            // preview fades in over something rather than over black.
+            cameraPlaceholder(model)
+
             if let session = model.camera.session {
                 CameraPreview(session: session, mirrored: model.position == .front)
                     .ignoresSafeArea()
+                    .opacity(model.isPreviewReady ? 1 : 0)
+                    .animation(.easeOut(duration: 0.28), value: model.isPreviewReady)
                     // Pinch anywhere on the frame. Zoom is a property of the
                     // capture device, so the photo comes out magnified too.
                     .gesture(
@@ -60,27 +80,6 @@ struct CameraScreen: View {
                             .onEnded { _ in model.endZoom() }
                     )
                     .accessibilityIdentifier("camera.preview")
-            } else {
-                LinearGradient(
-                    colors: [Color(white: 0.18), Color(white: 0.06)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .ignoresSafeArea()
-                .overlay {
-                    if model.needsLibraryFallback {
-                        VStack(spacing: 10) {
-                            Image(systemName: "photo.on.rectangle.angled")
-                                .font(.system(size: 40))
-                            Text("No camera here")
-                                .font(.headline)
-                            Text("Pick a photo from your library instead.")
-                                .font(.footnote)
-                                .foregroundStyle(InstantStyle.secondaryText)
-                        }
-                        .foregroundStyle(InstantStyle.primaryText)
-                    }
-                }
             }
 
             VStack {
@@ -109,6 +108,33 @@ struct CameraScreen: View {
             .padding(.vertical, 7)
             .background(Capsule().fill(Color.black.opacity(0.45)))
             .accessibilityIdentifier("camera.zoom")
+    }
+
+    /// Sits under the preview for the whole of startup, so the camera fades in
+    /// over something rather than over black — and stays visible on a device
+    /// that has no camera at all.
+    @ViewBuilder
+    private func cameraPlaceholder(_ model: CameraModel) -> some View {
+        LinearGradient(
+            colors: [Color(white: 0.18), Color(white: 0.06)],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .ignoresSafeArea()
+        .overlay {
+            if model.needsLibraryFallback {
+                VStack(spacing: 10) {
+                    Image(systemName: "photo.on.rectangle.angled")
+                        .font(.system(size: 40))
+                    Text("No camera here")
+                        .font(.headline)
+                    Text("Pick a photo from your library instead.")
+                        .font(.footnote)
+                        .foregroundStyle(InstantStyle.secondaryText)
+                }
+                .foregroundStyle(InstantStyle.primaryText)
+            }
+        }
     }
 
     private func topBar(_ model: CameraModel) -> some View {

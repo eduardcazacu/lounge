@@ -82,7 +82,13 @@ struct SendToScreen: View {
                     currentUserId: environment.session.currentUserId
                 )
             }
+            // The history may not have been fetched yet, and the picker is
+            // exactly where its ordering shows. Load the list straight away and
+            // let the refresh re-sort it, rather than holding the sheet empty.
+            async let refreshed: Void = environment.store.refreshHistory()
             await recipients?.load()
+            await refreshed
+            recipients?.reorder(using: environment.store.history)
         }
     }
 
