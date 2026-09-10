@@ -747,7 +747,64 @@ struct RecipientOrderingTests {
         )
         await model.load()
 
-        #expect(order(model.candidates) == [3, 2], "Bo is seeded as most recent")
+        // Bo is seeded; Ana and Cass have no history in this store, so they
+        // keep the server's order behind him.
+        #expect(order(model.candidates) == [3, 2, 4])
+    }
+
+    @Test("Splits into people you know and everyone else")
+    func splitsIntoSections() async {
+        let recents = InMemoryRecentContactsStore()
+        recents.record(peerUserId: 3, for: 1, at: Date())
+        let userAPI = FakeUserAPI()
+        userAPI.usersResult = users([2, 3, 4])
+
+        let model = SendToModel(
+            userAPI: userAPI, instantAPI: FakeInstantAPI(),
+            recentContacts: recents, currentUserId: 1
+        )
+        await model.load()
+
+        #expect(order(model.recent) == [3])
+        #expect(order(model.everyoneElse) == [2, 4])
+        #expect(model.showsSections)
+    }
+
+    /// A lone header over the whole list labels nothing, so a user with no
+    /// history sees the plain list they had before.
+    @Test("No history means no headers")
+    func hidesSectionsWithoutHistory() async {
+        let userAPI = FakeUserAPI()
+        userAPI.usersResult = users([2, 3])
+
+        let model = SendToModel(
+            userAPI: userAPI, instantAPI: FakeInstantAPI(),
+            recentContacts: InMemoryRecentContactsStore(), currentUserId: 1
+        )
+        await model.load()
+
+        #expect(model.showsSections == false)
+        #expect(model.recent.isEmpty)
+        #expect(order(model.everyoneElse) == [2, 3])
+    }
+
+    @Test("Everyone recent means no second section")
+    func handlesAllRecent() async {
+        let recents = InMemoryRecentContactsStore()
+        recents.record(peerUserId: 2, for: 1, at: Date())
+        recents.record(peerUserId: 3, for: 1, at: Date().addingTimeInterval(-60))
+        let userAPI = FakeUserAPI()
+        userAPI.usersResult = users([2, 3])
+
+        let model = SendToModel(
+            userAPI: userAPI, instantAPI: FakeInstantAPI(),
+            recentContacts: recents, currentUserId: 1
+        )
+        await model.load()
+
+        #expect(order(model.recent) == [2, 3])
+        #expect(model.everyoneElse.isEmpty)
+        #expect(model.showsSections)
     }
 
     @Test("Sending puts someone at the top next time")

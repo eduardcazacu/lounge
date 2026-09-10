@@ -21,6 +21,20 @@ public final class SendToModel {
     public private(set) var errorMessage: String?
     public var selectedId: Int?
 
+    /// People you have exchanged an instant with, most recent first.
+    public var recent: [Candidate] {
+        candidates.filter { $0.lastInteraction != nil }
+    }
+
+    /// Everyone else, in the order the server sent them.
+    public var everyoneElse: [Candidate] {
+        candidates.filter { $0.lastInteraction == nil }
+    }
+
+    /// With nothing recent there is only one group, and a lone header over the
+    /// whole list labels nothing.
+    public var showsSections: Bool { !recent.isEmpty }
+
     private let userAPI: UserAPIProtocol
     private let instantAPI: InstantAPIProtocol
     private let recentContacts: RecentContactsStoring

@@ -316,8 +316,10 @@ final class InstantUITests: XCTestCase {
         XCTAssertTrue(shutter.waitForExistence(timeout: 30))
     }
 
-    /// The stub's server order is Ana then Bo; the seeded history has Bo as the
-    /// most recent, so a picker that respects recency has to visibly move them.
+    /// The stub's server order is Ana, Bo, Cass. Bo is seeded as most recent and
+    /// Ana is recorded when the inbox drain delivers her instant, so both belong
+    /// under "Recent" with Bo first; Cass has no history and belongs under
+    /// "Everyone".
     func testRecipientPickerLeadsWithTheMostRecentContact() {
         let app = launch(signedIn: true)
         let shutter = app.buttons["camera.shutter"]
@@ -327,15 +329,26 @@ final class InstantUITests: XCTestCase {
         XCTAssertTrue(app.buttons["compose.sendTo"].waitForExistence(timeout: 30))
         app.buttons["compose.sendTo"].tap()
 
-        let recent = app.buttons["sendTo.row.Bo"]
-        let older = app.buttons["sendTo.row.Ana"]
-        XCTAssertTrue(recent.waitForExistence(timeout: 30))
-        XCTAssertTrue(older.waitForExistence(timeout: 30))
+        let mostRecent = app.buttons["sendTo.row.Bo"]
+        let stranger = app.buttons["sendTo.row.Cass"]
+        XCTAssertTrue(mostRecent.waitForExistence(timeout: 30))
+        XCTAssertTrue(stranger.waitForExistence(timeout: 30))
 
         XCTAssertLessThan(
-            recent.frame.minY, older.frame.minY,
-            "the most recent contact should sit above the others"
+            mostRecent.frame.minY, stranger.frame.minY,
+            "someone you have talked to should sit above someone you have not"
         )
+
+        // The split is labelled, so the ordering is legible rather than left to
+        // be inferred.
+        let recentHeader = app.staticTexts["sendTo.header.Recent"]
+        let everyoneHeader = app.staticTexts["sendTo.header.Everyone"]
+        XCTAssertTrue(recentHeader.waitForExistence(timeout: 30))
+        XCTAssertTrue(everyoneHeader.waitForExistence(timeout: 30))
+
+        XCTAssertLessThan(recentHeader.frame.minY, mostRecent.frame.minY)
+        XCTAssertLessThan(mostRecent.frame.minY, everyoneHeader.frame.minY)
+        XCTAssertLessThan(everyoneHeader.frame.minY, stranger.frame.minY)
     }
 
     func testDiscardingACaptureReturnsToTheCamera() {

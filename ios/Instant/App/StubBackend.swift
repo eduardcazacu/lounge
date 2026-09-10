@@ -105,6 +105,9 @@ final class StubAPIClient: APIClientProtocol, @unchecked Sendable {
                     ["id": 1, "name": "Tester", "themeKey": "ocean", "profilePictureUrl": NSNull()],
                     ["id": 2, "name": "Ana", "themeKey": "rose", "profilePictureUrl": NSNull()],
                     ["id": 3, "name": "Bo", "themeKey": "forest", "profilePictureUrl": NSNull()],
+                    // No history with this one, so the picker has an "Everyone"
+                    // section to put somebody in.
+                    ["id": 4, "name": "Cass", "themeKey": "gold", "profilePictureUrl": NSNull()],
                 ],
             ])
 

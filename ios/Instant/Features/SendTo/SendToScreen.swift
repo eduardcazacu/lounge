@@ -16,8 +16,28 @@ struct SendToScreen: View {
 
                 if let recipients {
                     List {
-                        ForEach(recipients.candidates) { candidate in
-                            row(candidate, in: recipients)
+                        if recipients.showsSections {
+                            Section {
+                                ForEach(recipients.recent) { candidate in
+                                    row(candidate, in: recipients)
+                                }
+                            } header: {
+                                sectionHeader("Recent")
+                            }
+
+                            if !recipients.everyoneElse.isEmpty {
+                                Section {
+                                    ForEach(recipients.everyoneElse) { candidate in
+                                        row(candidate, in: recipients)
+                                    }
+                                } header: {
+                                    sectionHeader("Everyone")
+                                }
+                            }
+                        } else {
+                            ForEach(recipients.candidates) { candidate in
+                                row(candidate, in: recipients)
+                            }
                         }
                     }
                     .listStyle(.plain)
@@ -64,6 +84,14 @@ struct SendToScreen: View {
             }
             await recipients?.load()
         }
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title.uppercased())
+            .font(.system(size: 11, weight: .bold))
+            .foregroundStyle(InstantStyle.secondaryText)
+            .listRowInsets(EdgeInsets(top: 12, leading: 0, bottom: 6, trailing: 0))
+            .accessibilityIdentifier("sendTo.header.\(title)")
     }
 
     private func row(_ candidate: SendToModel.Candidate, in recipients: SendToModel) -> some View {
