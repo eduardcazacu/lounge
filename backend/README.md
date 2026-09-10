@@ -223,6 +223,38 @@ hard-code Web Push and pre-filter with `isDeliverableWebPush`, so an APNs row is
 invisible to them. Instant's own notifications and the streak warnings both go
 through the generic dispatcher and do reach iOS.
 
+### Conversations
+
+`GET /api/v1/instant/conversations` lists everyone you have exchanged instants
+with, newest first, **whether or not a streak is running**. `/streaks` answers
+"what am I about to lose" and deliberately hides a lapsed one; an inbox needs
+"who do I talk to", which is a different question.
+
+No schema was added for this. The streak table is already a permanent index of
+conversations: `recordSend` upserts a row on the very first send, and lapsing
+only sets `count = 0` — the row and its two `last*_sent_at` marks stay for good.
+That matters because `instants` rows are swept after 30 days, so they cannot be
+the source of truth for "who have I ever talked to". A conversation therefore
+survives with no instants left in the table at all.
+
+Each entry carries `lastInteractionAt` plus `lastSentAt`/`lastReceivedAt`
+oriented to the caller (the same row read from the other side swaps them),
+`unopenedCount` for instants still waiting, and the streak as `streakCount`
+(0 when lapsed), `streakDeadline` and `streakAtRisk`. Partners who are not
+approved and verified are filtered out, matching the rest of the API — listing
+someone unaddressable would only offer a send that 404s.
+
+None of this reads media, keys or envelopes. It is metadata the server already
+holds in the clear, and the encryption guarantee is untouched.
+
+```bash
+npx tsx scripts/verify-conversations.ts
+```
+
+Drives the query against an in-memory fake, so states that are awkward to reach
+against a real database — a streak that lapsed months ago, a partner who was
+never approved, a conversation older than the 30-day sweep — are covered.
+
 ### Testing the cron
 
 Cron triggers fire under neither `tsx src/server.ts` nor `wrangler dev`, so the

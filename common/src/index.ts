@@ -149,6 +149,26 @@ export type InstantWireEvent =
     | { type: "instant"; instant: InstantDelivery }
     | { type: "opened"; instantId: string; recipientId: number; openedAt: string };
 
+// One person you have exchanged instants with, whether or not a streak is
+// running. Built from the streak table, which keeps a row per pair for good —
+// `recordSend` upserts one on every send and lapsing only zeroes the count.
+export type InstantConversation = {
+    userId: number;
+    name: string | null;
+    themeKey: string;
+    profilePictureUrl: string | null;
+    /// The most recent send in either direction.
+    lastInteractionAt: string;
+    lastSentAt: string | null;
+    lastReceivedAt: string | null;
+    /// Instants from them still waiting to be opened.
+    unopenedCount: number;
+    /// 0 once a streak has lapsed; the conversation stays either way.
+    streakCount: number;
+    streakDeadline: string | null;
+    streakAtRisk: boolean;
+};
+
 export type InstantStreakSummary = {
     userId: number;
     name: string | null;

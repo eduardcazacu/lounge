@@ -11,6 +11,7 @@ import { getPrismaClient } from "../prisma";
 import { scheduleBackgroundWork } from "../background";
 import { sendPushToUsers } from "../push";
 import { listStreaksForUser, recordSend } from "../instant-streaks";
+import { listConversationsForUser } from "../instant-conversations";
 import type { DeliveryEnvelope, DeliveryMeta, InstantInbox } from "../instant-inbox";
 import type { PrismaClient } from "@prisma/client";
 
@@ -767,6 +768,27 @@ instantRouter.post("/:id/undecryptable", async (c) => {
 });
 
 // --- streaks ---------------------------------------------------------------
+
+// Everyone you have exchanged instants with, newest first, whether or not a
+// streak is running. `/streaks` answers "what am I about to lose"; this answers
+// "who do I talk to", which is what an inbox needs.
+instantRouter.get("/conversations", async (c) => {
+  try {
+    const { databaseUrl, r2PublicBaseUrl } = getConfig(c);
+    const prisma = getPrismaClient(databaseUrl);
+    const userId = c.get("userId");
+
+    const conversations = await listConversationsForUser(prisma, userId, (key) =>
+      buildPublicImageUrl(r2PublicBaseUrl, key)
+    );
+
+    return c.json({ conversations });
+  } catch (e) {
+    console.error(e);
+    c.status(500);
+    return c.json({ msg: "Failed to load conversations" });
+  }
+});
 
 instantRouter.get("/streaks", async (c) => {
   try {
