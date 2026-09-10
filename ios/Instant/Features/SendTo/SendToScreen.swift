@@ -78,7 +78,7 @@ struct SendToScreen: View {
                 recipients = SendToModel(
                     userAPI: environment.userAPI,
                     instantAPI: environment.instantAPI,
-                    recentContacts: environment.recentContacts,
+                    history: { environment.store.history },
                     currentUserId: environment.session.currentUserId
                 )
             }
@@ -153,7 +153,6 @@ struct SendToScreen: View {
         guard let recipientId = recipients?.selectedId else { return }
         await model.send(to: recipientId)
         if case .sent = model.sendState {
-            environment.recordSend(to: recipientId)
             await environment.store.refreshHistory()
             dismiss()
             onSent()

@@ -18,7 +18,6 @@ public final class AppEnvironment {
     public let instantAPI: InstantAPIProtocol
     public let store: InstantStore
     public let identities: DeviceIdentityProviding
-    public let recentContacts: RecentContactsStoring
     public let makeCamera: @MainActor () -> CameraControlling
 
     /// Set when a push arrives naming an instant, so the UI can jump to it.
@@ -36,7 +35,6 @@ public final class AppEnvironment {
         instantAPI: InstantAPIProtocol,
         identities: DeviceIdentityProviding,
         store: InstantStore,
-        recentContacts: RecentContactsStoring = RecentContactsStore(),
         makeCamera: @escaping @MainActor () -> CameraControlling
     ) {
         self.config = config
@@ -45,7 +43,6 @@ public final class AppEnvironment {
         self.instantAPI = instantAPI
         self.identities = identities
         self.store = store
-        self.recentContacts = recentContacts
         self.makeCamera = makeCamera
     }
 
@@ -56,11 +53,9 @@ public final class AppEnvironment {
         }
         let instantAPI = InstantAPI(client: client)
         let identities = DeviceIdentityStore()
-        let recentContacts = RecentContactsStore()
         let store = InstantStore(
             api: instantAPI,
             identities: identities,
-            recentContacts: recentContacts,
             makeSocket: { api in InboxSocket(api: api, config: config) }
         )
         return AppEnvironment(
@@ -70,16 +65,8 @@ public final class AppEnvironment {
             instantAPI: instantAPI,
             identities: identities,
             store: store,
-            recentContacts: recentContacts,
             makeCamera: { CameraController() }
         )
-    }
-
-    /// Sending is the strongest signal of who you talk to, so it feeds the
-    /// picker's ordering the same way receiving does.
-    public func recordSend(to recipientId: Int) {
-        guard let userId = session.currentUserId else { return }
-        recentContacts.record(peerUserId: recipientId, for: userId)
     }
 
     public func loadAccount() async {

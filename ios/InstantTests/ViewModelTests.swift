@@ -618,7 +618,7 @@ struct SendToModelTests {
         ]
         let model = SendToModel(
             userAPI: userAPI, instantAPI: FakeInstantAPI(),
-            recentContacts: InMemoryRecentContactsStore(), currentUserId: 1
+            history: { [] }, currentUserId: 1
         )
         await model.load()
 
@@ -639,7 +639,7 @@ struct SendToModelTests {
 
         let model = SendToModel(
             userAPI: userAPI, instantAPI: instantAPI,
-            recentContacts: InMemoryRecentContactsStore(), currentUserId: 1
+            history: { [] }, currentUserId: 1
         )
         await model.load()
 
@@ -659,109 +659,61 @@ struct RecipientOrderingTests {
         candidates.map(\.id)
     }
 
+    private func seen(_ pairs: [(Int, String)]) -> [InstantConversationSummary] {
+        pairs.map { .fixture(userId: $0.0, lastInteractionAt: $0.1) }
+    }
+
     /// The server orders by most recent *Lounge post*, which says nothing about
     /// who you send photos to.
     @Test("People you have talked to come first, most recent at the top")
     func recentFirst() {
-        let recents = InMemoryRecentContactsStore()
-        let now = Date()
-        recents.record(peerUserId: 3, for: 1, at: now.addingTimeInterval(-60))
-        recents.record(peerUserId: 5, for: 1, at: now)
-
         let ordered = SendToModel.ordered(
-            users([2, 3, 4, 5]), recentContacts: recents, currentUserId: 1
+            users([2, 3, 4, 5]),
+            history: seen([(3, "2026-01-01T00:00:00.000Z"), (5, "2026-01-02T00:00:00.000Z")])
         )
         #expect(order(ordered) == [5, 3, 2, 4])
     }
 
     @Test("Everyone else keeps the order the server sent")
     func preservesServerOrderForStrangers() {
-        let ordered = SendToModel.ordered(
-            users([9, 4, 7]), recentContacts: InMemoryRecentContactsStore(), currentUserId: 1
-        )
-        #expect(order(ordered) == [9, 4, 7])
+        #expect(order(SendToModel.ordered(users([9, 4, 7]), history: [])) == [9, 4, 7])
     }
 
     @Test("A tie falls back to the server order rather than shuffling")
     func stableOnTies() {
-        let recents = InMemoryRecentContactsStore()
-        let sameMoment = Date()
-        recents.record(peerUserId: 4, for: 1, at: sameMoment)
-        recents.record(peerUserId: 2, for: 1, at: sameMoment)
-
+        let sameMoment = "2026-01-01T00:00:00.000Z"
         let ordered = SendToModel.ordered(
-            users([2, 3, 4]), recentContacts: recents, currentUserId: 1
+            users([2, 3, 4]), history: seen([(4, sameMoment), (2, sameMoment)])
         )
         #expect(order(ordered) == [2, 4, 3])
     }
 
-    /// History belongs to the account, not the device.
-    @Test("Another account's history does not leak in")
-    func historyIsPerAccount() {
-        let recents = InMemoryRecentContactsStore()
-        recents.record(peerUserId: 4, for: 99, at: Date())
-
-        let ordered = SendToModel.ordered(
-            users([2, 3, 4]), recentContacts: recents, currentUserId: 1
-        )
-        #expect(order(ordered) == [2, 3, 4])
-    }
-
     @Test("Carries the timestamp through for the row to use")
     func exposesLastInteraction() {
-        let recents = InMemoryRecentContactsStore()
-        let when = Date(timeIntervalSince1970: 1_700_000_000)
-        recents.record(peerUserId: 2, for: 1, at: when)
-
-        let ordered = SendToModel.ordered(
-            users([2, 3]), recentContacts: recents, currentUserId: 1
-        )
-        #expect(ordered.first?.lastInteraction == when)
-        #expect(ordered.last?.lastInteraction == nil)
+        let when = "2026-05-05T00:00:00.000Z"
+        let ordered = SendToModel.ordered(users([2, 3]), history: seen([(2, when)]))
+        #expect(ordered.first?.lastInteractionAt == when)
+        #expect(ordered.last?.lastInteractionAt == nil)
     }
 
-    @Test("Signed out, everyone is a stranger")
-    func noCurrentUser() {
-        let recents = InMemoryRecentContactsStore()
-        recents.record(peerUserId: 3, for: 1, at: Date())
-
+    /// Someone in the history who is no longer in the user list — deactivated,
+    /// say — must not disturb the people who are.
+    @Test("History for someone not in the list is ignored")
+    func ignoresUnlistedHistory() {
         let ordered = SendToModel.ordered(
-            users([2, 3]), recentContacts: recents, currentUserId: nil
+            users([2, 3]), history: seen([(99, "2030-01-01T00:00:00.000Z")])
         )
         #expect(order(ordered) == [2, 3])
     }
 
-    /// Covers the exact path the UI test drives: the stub backend's user list
-    /// through the real model.
-    @Test("Orders the stub backend's list by recency")
-    func ordersTheStubList() async {
-        let recents = InMemoryRecentContactsStore()
-        recents.record(peerUserId: StubBackend.recentPeerId, for: 1, at: Date())
-        let client = StubAPIClient()
-
-        let model = SendToModel(
-            userAPI: UserAPI(client: client),
-            instantAPI: InstantAPI(client: client),
-            recentContacts: recents,
-            currentUserId: 1
-        )
-        await model.load()
-
-        // Bo is seeded; Ana and Cass have no history in this store, so they
-        // keep the server's order behind him.
-        #expect(order(model.candidates) == [3, 2, 4])
-    }
-
     @Test("Splits into people you know and everyone else")
     func splitsIntoSections() async {
-        let recents = InMemoryRecentContactsStore()
-        recents.record(peerUserId: 3, for: 1, at: Date())
         let userAPI = FakeUserAPI()
         userAPI.usersResult = users([2, 3, 4])
 
         let model = SendToModel(
             userAPI: userAPI, instantAPI: FakeInstantAPI(),
-            recentContacts: recents, currentUserId: 1
+            history: { [.fixture(userId: 3)] }, currentUserId: 1
         )
         await model.load()
 
@@ -779,7 +731,7 @@ struct RecipientOrderingTests {
 
         let model = SendToModel(
             userAPI: userAPI, instantAPI: FakeInstantAPI(),
-            recentContacts: InMemoryRecentContactsStore(), currentUserId: 1
+            history: { [] }, currentUserId: 1
         )
         await model.load()
 
@@ -790,15 +742,18 @@ struct RecipientOrderingTests {
 
     @Test("Everyone recent means no second section")
     func handlesAllRecent() async {
-        let recents = InMemoryRecentContactsStore()
-        recents.record(peerUserId: 2, for: 1, at: Date())
-        recents.record(peerUserId: 3, for: 1, at: Date().addingTimeInterval(-60))
         let userAPI = FakeUserAPI()
         userAPI.usersResult = users([2, 3])
 
         let model = SendToModel(
             userAPI: userAPI, instantAPI: FakeInstantAPI(),
-            recentContacts: recents, currentUserId: 1
+            history: {
+                [
+                    .fixture(userId: 2, lastInteractionAt: "2026-01-02T00:00:00.000Z"),
+                    .fixture(userId: 3, lastInteractionAt: "2026-01-01T00:00:00.000Z"),
+                ]
+            },
+            currentUserId: 1
         )
         await model.load()
 
@@ -807,27 +762,39 @@ struct RecipientOrderingTests {
         #expect(model.showsSections)
     }
 
-    @Test("Sending puts someone at the top next time")
-    func sendingUpdatesTheOrder() async {
-        let recents = InMemoryRecentContactsStore()
+    /// Read at load time, not captured at construction, so a picker opened
+    /// before the history lands still reflects it.
+    @Test("Reads the history when it loads, not when it was built")
+    func readsHistoryLate() async {
         let userAPI = FakeUserAPI()
         userAPI.usersResult = users([2, 3])
+        var history: [InstantConversationSummary] = []
 
-        let before = SendToModel(
+        let model = SendToModel(
             userAPI: userAPI, instantAPI: FakeInstantAPI(),
-            recentContacts: recents, currentUserId: 1
+            history: { history }, currentUserId: 1
         )
-        await before.load()
-        #expect(order(before.candidates) == [2, 3])
+        history = [.fixture(userId: 3)]
+        await model.load()
 
-        recents.record(peerUserId: 3, for: 1)
+        #expect(order(model.candidates) == [3, 2])
+    }
 
-        let after = SendToModel(
-            userAPI: userAPI, instantAPI: FakeInstantAPI(),
-            recentContacts: recents, currentUserId: 1
+    /// Covers the exact path the UI test drives: the stub backend's user list
+    /// through the real model.
+    @Test("Orders the stub backend's list by recency")
+    func ordersTheStubList() async {
+        let client = StubAPIClient()
+        let model = SendToModel(
+            userAPI: UserAPI(client: client),
+            instantAPI: InstantAPI(client: client),
+            history: { [.fixture(userId: 3)] },
+            currentUserId: 1
         )
-        await after.load()
-        #expect(order(after.candidates) == [3, 2])
+        await model.load()
+
+        // Bo is the one with history; Ana and Cass keep the server's order.
+        #expect(order(model.candidates) == [3, 2, 4])
     }
 }
 

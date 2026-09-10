@@ -60,6 +60,10 @@ for, so the local inbox list is what decides whether a row can be tapped.
 Rows order by what is time-sensitive: anything waiting, then a streak about to
 lapse, then simply whoever you spoke to most recently.
 
+The Send To picker's "Recent" section reads the same history, so recency
+survives a reinstall and is identical on every device you sign in from. It used
+to come from a device-local store, which was neither.
+
 ## The protocol, and what is easy to get wrong
 
 Full contract in `backend/README.md`. The parts that fail *silently* if a port

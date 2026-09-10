@@ -10,8 +10,9 @@ public final class SendToModel {
         /// Nobody can be sent to before they have enrolled a device — there
         /// would be no public key to wrap the content key for.
         public var isEnrolled: Bool?
-        /// When you last sent to or heard from them, if ever.
-        public var lastInteraction: Date?
+        /// When you last exchanged an instant with them, if ever. ISO 8601, so
+        /// it sorts chronologically as a plain string.
+        public var lastInteractionAt: String?
 
         public var id: Int { user.id }
     }
@@ -23,12 +24,12 @@ public final class SendToModel {
 
     /// People you have exchanged an instant with, most recent first.
     public var recent: [Candidate] {
-        candidates.filter { $0.lastInteraction != nil }
+        candidates.filter { $0.lastInteractionAt != nil }
     }
 
     /// Everyone else, in the order the server sent them.
     public var everyoneElse: [Candidate] {
-        candidates.filter { $0.lastInteraction == nil }
+        candidates.filter { $0.lastInteractionAt == nil }
     }
 
     /// With nothing recent there is only one group, and a lone header over the
@@ -37,18 +38,20 @@ public final class SendToModel {
 
     private let userAPI: UserAPIProtocol
     private let instantAPI: InstantAPIProtocol
-    private let recentContacts: RecentContactsStoring
+    /// Read at load time rather than captured, so the picker reflects whatever
+    /// the store last heard from `GET /api/v1/instant/conversations`.
+    private let history: @MainActor () -> [InstantConversationSummary]
     private let currentUserId: Int?
 
     public init(
         userAPI: UserAPIProtocol,
         instantAPI: InstantAPIProtocol,
-        recentContacts: RecentContactsStoring,
+        history: @escaping @MainActor () -> [InstantConversationSummary],
         currentUserId: Int?
     ) {
         self.userAPI = userAPI
         self.instantAPI = instantAPI
-        self.recentContacts = recentContacts
+        self.history = history
         self.currentUserId = currentUserId
     }
 
@@ -61,7 +64,7 @@ public final class SendToModel {
             // The list includes the caller; the send endpoint 400s on a
             // self-send, so filter rather than let someone tap into an error.
             let users = try await userAPI.users().filter { $0.id != currentUserId }
-            candidates = Self.ordered(users, recentContacts: recentContacts, currentUserId: currentUserId)
+            candidates = Self.ordered(users, history: history())
             await loadEnrollment(for: users)
         } catch {
             errorMessage = "Could not load your Lounge."
@@ -74,26 +77,32 @@ public final class SendToModel {
     /// The server's order is by most recent *Lounge post*, which is a fine
     /// default for someone you have never messaged and says nothing at all
     /// about who you send photos to.
+    ///
+    /// Recency comes from the conversation history rather than anything held on
+    /// the device, so it survives a reinstall and is the same on every device
+    /// you sign in from.
     static func ordered(
         _ users: [UserSummary],
-        recentContacts: RecentContactsStoring,
-        currentUserId: Int?
+        history: [InstantConversationSummary]
     ) -> [Candidate] {
+        let lastSeen = Dictionary(
+            history.map { ($0.userId, $0.lastInteractionAt) },
+            uniquingKeysWith: { first, second in max(first, second) }
+        )
+
         let candidates = users.enumerated().map { position, user in
             (
                 position: position,
                 candidate: Candidate(
                     user: user,
                     isEnrolled: nil,
-                    lastInteraction: currentUserId.flatMap {
-                        recentContacts.lastInteraction(with: user.id, for: $0)
-                    }
+                    lastInteractionAt: lastSeen[user.id]
                 )
             )
         }
 
         return candidates.sorted { lhs, rhs in
-            switch (lhs.candidate.lastInteraction, rhs.candidate.lastInteraction) {
+            switch (lhs.candidate.lastInteractionAt, rhs.candidate.lastInteractionAt) {
             case let (left?, right?):
                 // Same instant for both is possible in tests and on a fast
                 // exchange; fall back to the server order so it stays stable.

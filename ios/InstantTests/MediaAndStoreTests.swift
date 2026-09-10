@@ -313,8 +313,7 @@ struct ComposeLayoutTests {
 struct InstantStoreTests {
     private func makeStore(
         api: FakeInstantAPI,
-        socket: InboxSocketProtocol = StubSocket(),
-        recentContacts: RecentContactsStoring = InMemoryRecentContactsStore()
+        socket: InboxSocketProtocol = StubSocket()
     ) -> InstantStore {
         InstantStore(
             api: api,
@@ -322,7 +321,6 @@ struct InstantStoreTests {
                 keychain: InMemoryKeychain(),
                 secureEnclaveAvailable: { false }
             ),
-            recentContacts: recentContacts,
             makeSocket: { _ in socket }
         )
     }
@@ -533,27 +531,6 @@ struct InstantStoreTests {
         // The conversation survives; only the "waiting" state goes away.
         #expect(store.conversations.map(\.userId) == [2])
         #expect(store.conversations.first?.hasPending == false)
-    }
-
-    /// Receiving counts as talking to someone, which is half of what orders the
-    /// recipient picker.
-    @Test("An arrival is recorded against the sender, at the instant's own time")
-    func recordsArrivalsAsInteractions() async {
-        let recents = InMemoryRecentContactsStore()
-        let store = makeStore(api: FakeInstantAPI(), recentContacts: recents)
-        await store.start(userId: 1)
-
-        store.merge([
-            InstantDelivery.fixture(id: "a", senderId: 7, createdAt: "2026-01-01T00:00:00.000Z")
-        ])
-
-        // The instant's own timestamp, not "now": a backlog drained after a
-        // week offline must not all read as current.
-        #expect(
-            recents.lastInteraction(with: 7, for: 1)
-                == InstantTimestamp.parse("2026-01-01T00:00:00.000Z")
-        )
-        #expect(recents.lastInteraction(with: 8, for: 1) == nil)
     }
 
     @Test("Unread count tracks the waiting list")

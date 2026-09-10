@@ -206,66 +206,6 @@ struct SessionStoreTests {
     }
 }
 
-@Suite("Recent contacts")
-struct RecentContactsTests {
-    @Test("Remembers per account and peer pair")
-    func keyedByBothSides() {
-        let store = InMemoryRecentContactsStore()
-        let when = Date(timeIntervalSince1970: 1_700_000_000)
-        store.record(peerUserId: 2, for: 1, at: when)
-
-        #expect(store.lastInteraction(with: 2, for: 1) == when)
-        #expect(store.lastInteraction(with: 2, for: 3) == nil, "another account has its own history")
-        #expect(store.lastInteraction(with: 1, for: 2) == nil, "and the pair is directional")
-    }
-
-    /// Draining a backlog can deliver older instants after newer ones, so the
-    /// mark only ever moves forwards — otherwise a week-old photo arriving late
-    /// would drag someone back down the list.
-    @Test("Only ever moves forwards")
-    func neverGoesBackwards() {
-        let store = InMemoryRecentContactsStore()
-        let recent = Date(timeIntervalSince1970: 2_000_000_000)
-        let older = Date(timeIntervalSince1970: 1_000_000_000)
-
-        store.record(peerUserId: 2, for: 1, at: recent)
-        store.record(peerUserId: 2, for: 1, at: older)
-        #expect(store.lastInteraction(with: 2, for: 1) == recent)
-
-        let newest = Date(timeIntervalSince1970: 3_000_000_000)
-        store.record(peerUserId: 2, for: 1, at: newest)
-        #expect(store.lastInteraction(with: 2, for: 1) == newest)
-    }
-
-    @Test("Nothing recorded reads as nothing")
-    func emptyByDefault() {
-        #expect(InMemoryRecentContactsStore().lastInteraction(with: 2, for: 1) == nil)
-    }
-}
-
-@Suite("Wire timestamps")
-struct InstantTimestampTests {
-    /// The backend serializes with fractional seconds; the fallback covers a
-    /// timestamp written without them.
-    @Test("Parses both shapes the API emits")
-    func parsesBothFormats() {
-        #expect(
-            InstantTimestamp.parse("2026-01-01T00:00:00.000Z")
-                == Date(timeIntervalSince1970: 1_767_225_600)
-        )
-        #expect(
-            InstantTimestamp.parse("2026-01-01T00:00:00Z")
-                == Date(timeIntervalSince1970: 1_767_225_600)
-        )
-    }
-
-    @Test("Nonsense parses to nothing rather than to 1970")
-    func rejectsGarbage() {
-        #expect(InstantTimestamp.parse("") == nil)
-        #expect(InstantTimestamp.parse("yesterday") == nil)
-    }
-}
-
 @Suite("Peer fingerprints")
 struct PeerFingerprintTests {
     @Test("Remembers per account and peer pair")

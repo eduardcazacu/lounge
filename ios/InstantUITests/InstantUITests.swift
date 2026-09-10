@@ -334,10 +334,9 @@ final class InstantUITests: XCTestCase {
         XCTAssertTrue(shutter.waitForExistence(timeout: 30))
     }
 
-    /// The stub's server order is Ana, Bo, Cass. Bo is seeded as most recent and
-    /// Ana is recorded when the inbox drain delivers her instant, so both belong
-    /// under "Recent" with Bo first; Cass has no history and belongs under
-    /// "Everyone".
+    /// Recency now comes from the server, so the whole order is deterministic:
+    /// the stub's history has Ana an hour ago and Bo a month ago, both under
+    /// "Recent", and Cass with no history at all under "Everyone".
     func testRecipientPickerLeadsWithTheMostRecentContact() {
         let app = launch(signedIn: true)
         let shutter = app.buttons["camera.shutter"]
@@ -347,13 +346,19 @@ final class InstantUITests: XCTestCase {
         XCTAssertTrue(app.buttons["compose.sendTo"].waitForExistence(timeout: 30))
         app.buttons["compose.sendTo"].tap()
 
-        let mostRecent = app.buttons["sendTo.row.Bo"]
+        let mostRecent = app.buttons["sendTo.row.Ana"]
+        let olderContact = app.buttons["sendTo.row.Bo"]
         let stranger = app.buttons["sendTo.row.Cass"]
         XCTAssertTrue(mostRecent.waitForExistence(timeout: 30))
+        XCTAssertTrue(olderContact.waitForExistence(timeout: 30))
         XCTAssertTrue(stranger.waitForExistence(timeout: 30))
 
         XCTAssertLessThan(
-            mostRecent.frame.minY, stranger.frame.minY,
+            mostRecent.frame.minY, olderContact.frame.minY,
+            "the more recent of two contacts leads"
+        )
+        XCTAssertLessThan(
+            olderContact.frame.minY, stranger.frame.minY,
             "someone you have talked to should sit above someone you have not"
         )
 
@@ -365,7 +370,7 @@ final class InstantUITests: XCTestCase {
         XCTAssertTrue(everyoneHeader.waitForExistence(timeout: 30))
 
         XCTAssertLessThan(recentHeader.frame.minY, mostRecent.frame.minY)
-        XCTAssertLessThan(mostRecent.frame.minY, everyoneHeader.frame.minY)
+        XCTAssertLessThan(olderContact.frame.minY, everyoneHeader.frame.minY)
         XCTAssertLessThan(everyoneHeader.frame.minY, stranger.frame.minY)
     }
 

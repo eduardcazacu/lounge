@@ -35,9 +35,6 @@ enum StubBackend {
     static var expiresAt: String { timestamp(offsetBySeconds: 23 * 3600) }
 
     static let senderId = 2
-    /// Last in the server's ordering, so a picker that respects recency has to
-    /// visibly move them to the top.
-    static let recentPeerId = 3
     static let instantId = "11111111-2222-3333-4444-555555555555"
 
     static func cameraFrame() -> UIImage {
