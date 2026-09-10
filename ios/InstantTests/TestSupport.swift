@@ -206,6 +206,8 @@ final class FakeInstantAPI: InstantAPIProtocol, @unchecked Sendable {
         var myKeys: [InstantDeviceKeyDTO] = []
         var inboxPages: [[InstantDelivery]] = []
         var streaksResult: [InstantStreakSummary] = []
+        var conversationsResult: [InstantConversationSummary] = []
+        var conversationsCallCount = 0
         var ticket = "ticket"
         var mediaResult: Result<Data, Error> = .success(Data())
         var mediaFetchCount = 0
@@ -237,6 +239,8 @@ final class FakeInstantAPI: InstantAPIProtocol, @unchecked Sendable {
     var inboxError: Error? { get { storage.withLock { $0.inboxError } } set { storage.withLock { $0.inboxError = newValue } } }
     var inboxCallCount: Int { storage.withLock { $0.inboxCallCount } }
     var streaksCallCount: Int { storage.withLock { $0.streaksCallCount } }
+    var conversationsResult: [InstantConversationSummary] { get { storage.withLock { $0.conversationsResult } } set { storage.withLock { $0.conversationsResult = newValue } } }
+    var conversationsCallCount: Int { storage.withLock { $0.conversationsCallCount } }
 
     func registerDevice(deviceId: String, publicKey: String) async throws -> InstantDeviceKeyDTO {
         storage.withLock { $0.registeredDevices.append((deviceId, publicKey)) }
@@ -263,6 +267,13 @@ final class FakeInstantAPI: InstantAPIProtocol, @unchecked Sendable {
         storage.withLock { state in
             state.streaksCallCount += 1
             return state.streaksResult
+        }
+    }
+
+    func conversations() async throws -> [InstantConversationSummary] {
+        storage.withLock { state in
+            state.conversationsCallCount += 1
+            return state.conversationsResult
         }
     }
 
@@ -348,6 +359,27 @@ final class FakeUserAPI: UserAPIProtocol, @unchecked Sendable {
 }
 
 // MARK: - Builders
+
+extension InstantConversationSummary {
+    static func fixture(
+        userId: Int,
+        name: String = "Ana",
+        lastInteractionAt: String = "2026-01-01T00:00:00.000Z",
+        unopenedCount: Int = 0,
+        streakCount: Int = 0,
+        streakAtRisk: Bool = false
+    ) -> InstantConversationSummary {
+        InstantConversationSummary(
+            userId: userId, name: name, themeKey: "rose", profilePictureUrl: nil,
+            lastInteractionAt: lastInteractionAt,
+            lastSentAt: nil, lastReceivedAt: lastInteractionAt,
+            unopenedCount: unopenedCount,
+            streakCount: streakCount,
+            streakDeadline: streakCount > 0 ? "2026-01-02T00:00:00.000Z" : nil,
+            streakAtRisk: streakAtRisk
+        )
+    }
+}
 
 extension InstantDelivery {
     static func fixture(

@@ -10,7 +10,14 @@ import Observation
 @Observable
 public final class InstantStore {
     public private(set) var instants: [InstantDelivery] = []
-    public private(set) var streaks: [InstantStreakSummary] = []
+    /// From `GET /api/v1/instant/conversations`: everyone you have talked to,
+    /// whether or not a streak is running.
+    public private(set) var history: [InstantConversationSummary] = []
+
+    /// Live streaks only, derived from the history rather than fetched
+    /// separately — `/streaks` is a strict subset of what `/conversations`
+    /// already returns.
+    public var streaks: [InstantStreakSummary] { history.compactMap(\.streak) }
     public private(set) var connection: InstantConnectionState = .idle
     public private(set) var device: DeviceIdentity?
     public private(set) var enrollmentError: String?
@@ -64,6 +71,10 @@ public final class InstantStore {
         /// The oldest instant still waiting, which is the one to open first.
         public let pending: InstantDelivery?
         public let pendingCount: Int
+        /// When this conversation was last active in either direction, from the
+        /// server. Nil only for one that arrived over the socket before the
+        /// first history refresh caught up.
+        public let lastInteractionAt: String?
 
         public var id: Int { userId }
         public var hasPending: Bool { pending != nil }
@@ -72,44 +83,55 @@ public final class InstantStore {
     public var conversations: [Conversation] {
         var byUser: [Int: Conversation] = [:]
 
+        // The server's history is the spine: it knows about people whose streak
+        // has lapsed, or who were never mutual, and about conversations whose
+        // instants have long since been swept.
+        for entry in history {
+            byUser[entry.userId] = Conversation(
+                userId: entry.userId,
+                name: entry.displayName,
+                themeKey: entry.themeKey,
+                profilePictureUrl: entry.profilePictureUrl,
+                streak: entry.streak,
+                pending: nil,
+                pendingCount: 0,
+                lastInteractionAt: entry.lastInteractionAt
+            )
+        }
+
+        // Then what is actually openable *here*. The server's `unopenedCount`
+        // counts every device, including instants this one has no envelope for,
+        // so the local list is what decides whether a row can be tapped.
+        //
         // `instants` is already in send order, so the first one seen per sender
         // is the oldest — the one that expires soonest.
         for instant in instants {
             let existing = byUser[instant.senderId]
             byUser[instant.senderId] = Conversation(
                 userId: instant.senderId,
-                name: instant.displayName,
-                themeKey: instant.senderThemeKey,
-                profilePictureUrl: instant.senderProfilePictureUrl,
-                streak: streak(withUserId: instant.senderId),
+                // An instant can arrive over the socket before the history
+                // refresh that would name this person, so fall back to what the
+                // delivery itself carries.
+                name: existing?.name ?? instant.displayName,
+                themeKey: existing?.themeKey ?? instant.senderThemeKey,
+                profilePictureUrl: existing?.profilePictureUrl ?? instant.senderProfilePictureUrl,
+                streak: existing?.streak,
                 pending: existing?.pending ?? instant,
-                pendingCount: (existing?.pendingCount ?? 0) + 1
+                pendingCount: (existing?.pendingCount ?? 0) + 1,
+                lastInteractionAt: existing?.lastInteractionAt ?? instant.createdAt
             )
         }
 
-        for streak in streaks where byUser[streak.userId] == nil {
-            byUser[streak.userId] = Conversation(
-                userId: streak.userId,
-                name: streak.displayName,
-                themeKey: streak.themeKey,
-                profilePictureUrl: streak.profilePictureUrl,
-                streak: streak,
-                pending: nil,
-                pendingCount: 0
-            )
-        }
-
-        // Anything waiting comes first; then whoever is closest to losing a
-        // streak, since that is the only other thing on this screen that is
-        // time-sensitive.
+        // Anything waiting comes first, then a streak about to lapse, then
+        // simply whoever you spoke to most recently.
         return byUser.values.sorted { lhs, rhs in
             if lhs.hasPending != rhs.hasPending { return lhs.hasPending }
             let lhsRisk = lhs.streak?.atRisk ?? false
             let rhsRisk = rhs.streak?.atRisk ?? false
             if lhsRisk != rhsRisk { return lhsRisk }
-            let lhsCount = lhs.streak?.count ?? 0
-            let rhsCount = rhs.streak?.count ?? 0
-            if lhsCount != rhsCount { return lhsCount > rhsCount }
+            let lhsSeen = lhs.lastInteractionAt ?? ""
+            let rhsSeen = rhs.lastInteractionAt ?? ""
+            if lhsSeen != rhsSeen { return lhsSeen > rhsSeen }
             return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
         }
     }
@@ -170,7 +192,7 @@ public final class InstantStore {
     public func reset() {
         stop()
         instants = []
-        streaks = []
+        history = []
         seenIds = []
         device = nil
         userId = nil
@@ -191,15 +213,15 @@ public final class InstantStore {
             }
         case .shouldDrainInbox:
             await refreshInbox(deviceId: deviceId)
-            await refreshStreaks()
+            await refreshHistory()
         case .wire(.ready):
             break
         case .wire(.instant(let instant)):
             merge([instant])
-            await refreshStreaks()
+            await refreshHistory()
         case .wire(.opened):
             // The sender's read receipt. Streak state may have moved with it.
-            await refreshStreaks()
+            await refreshHistory()
         }
     }
 
@@ -236,14 +258,14 @@ public final class InstantStore {
         }
     }
 
-    /// Seam for tests and for anything that already holds fresh streak data.
-    func applyStreaks(_ streaks: [InstantStreakSummary]) {
-        self.streaks = streaks
+    /// Seam for tests and for anything that already holds fresh history.
+    func applyHistory(_ history: [InstantConversationSummary]) {
+        self.history = history
     }
 
-    public func refreshStreaks() async {
+    public func refreshHistory() async {
         do {
-            streaks = try await api.streaks()
+            history = try await api.conversations()
         } catch let error as APIError where error.isAuthFailure {
             sessionExpired = true
         } catch {}
@@ -252,7 +274,7 @@ public final class InstantStore {
     public func refreshAll() async {
         guard let deviceId = device?.deviceId else { return }
         await refreshInbox(deviceId: deviceId)
-        await refreshStreaks()
+        await refreshHistory()
     }
 
     /// Removes an instant from the waiting list once it has been opened,

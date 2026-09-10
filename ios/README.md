@@ -46,6 +46,20 @@ back cameras have different limits. The gesture only exists when there is a real
 capture session, so it is covered by unit tests against the camera protocol
 rather than by a UI test: the Simulator has no camera to pinch.
 
+## Where the inbox comes from
+
+`GET /api/v1/instant/conversations` is the spine: everyone you have talked to,
+whether or not a streak is running. `/streaks` is a strict subset of it and is
+no longer fetched — a conversation used to vanish from the app the moment its
+streak lapsed, and a one-way send never appeared at all.
+
+What is openable is still decided locally. The server's `unopenedCount` counts
+every device the recipient owns, including instants this one holds no envelope
+for, so the local inbox list is what decides whether a row can be tapped.
+
+Rows order by what is time-sensitive: anything waiting, then a streak about to
+lapse, then simply whoever you spoke to most recently.
+
 ## The protocol, and what is easy to get wrong
 
 Full contract in `backend/README.md`. The parts that fail *silently* if a port

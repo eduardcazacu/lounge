@@ -154,7 +154,7 @@ struct SendToScreen: View {
         await model.send(to: recipientId)
         if case .sent = model.sendState {
             environment.recordSend(to: recipientId)
-            await environment.store.refreshStreaks()
+            await environment.store.refreshHistory()
             dismiss()
             onSent()
         }

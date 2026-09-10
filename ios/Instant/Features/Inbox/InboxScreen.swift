@@ -36,7 +36,7 @@ struct InboxScreen: View {
             ViewerScreen(model: model) {
                 store.dismiss(model.instant.id)
                 viewing = nil
-                Task { await store.refreshStreaks() }
+                Task { await store.refreshHistory() }
             }
         }
         .sheet(item: $safetyNumberPeer) { peer in

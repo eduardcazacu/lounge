@@ -381,18 +381,14 @@ struct InstantStoreTests {
     func drainsOnRequest() async {
         let api = FakeInstantAPI()
         api.inboxPages = [[InstantDelivery.fixture(id: "queued")]]
-        api.streaksResult = [
-            InstantStreakSummary(
-                userId: 2, name: "Ana", themeKey: "rose", profilePictureUrl: nil,
-                count: 3, deadline: nil, atRisk: false
-            )
-        ]
+        api.conversationsResult = [.fixture(userId: 2, name: "Ana", streakCount: 3)]
         let store = makeStore(api: api)
 
         await store.handle(.shouldDrainInbox, deviceId: "d")
 
         #expect(store.instants.map(\.id) == ["queued"])
-        #expect(store.streaks.first?.count == 3)
+        #expect(store.streaks.first?.count == 3, "a live streak is derived from the history")
+        #expect(store.history.first?.userId == 2)
     }
 
     @Test("A pushed instant lands in the list")
@@ -402,7 +398,7 @@ struct InstantStoreTests {
         await store.handle(.wire(.instant(InstantDelivery.fixture(id: "live"))), deviceId: "d")
 
         #expect(store.instants.map(\.id) == ["live"])
-        #expect(api.streaksCallCount == 1, "a new instant may have moved the streak")
+        #expect(api.conversationsCallCount == 1, "a new instant may have moved the conversation")
     }
 
     /// Without a Durable Object nothing is ever pushed, so the app has to poll
@@ -449,12 +445,7 @@ struct InstantStoreTests {
     func mergesInstantsAndStreaks() {
         let store = makeStore(api: FakeInstantAPI())
         store.merge([InstantDelivery.fixture(id: "a", senderId: 2)])
-        store.applyStreaks([
-            InstantStreakSummary(
-                userId: 2, name: "Ana", themeKey: "rose", profilePictureUrl: nil,
-                count: 9, deadline: nil, atRisk: false
-            )
-        ])
+        store.applyHistory([.fixture(userId: 2, name: "Ana", streakCount: 9)])
 
         #expect(store.conversations.count == 1, "one person, one row")
         let conversation = try! #require(store.conversations.first)
@@ -463,19 +454,41 @@ struct InstantStoreTests {
         #expect(conversation.streak?.count == 9)
     }
 
-    @Test("Shows people who only have a streak, and people who only have an instant")
+    @Test("Shows people from history and people who only have an instant")
     func includesBothSources() {
         let store = makeStore(api: FakeInstantAPI())
         store.merge([InstantDelivery.fixture(id: "a", senderId: 2)])
-        store.applyStreaks([
-            InstantStreakSummary(
-                userId: 5, name: "Bo", themeKey: "forest", profilePictureUrl: nil,
-                count: 3, deadline: nil, atRisk: false
-            )
-        ])
+        store.applyHistory([.fixture(userId: 5, name: "Bo", streakCount: 3)])
 
         #expect(Set(store.conversations.map(\.userId)) == [2, 5])
         #expect(store.conversations.first { $0.userId == 5 }?.hasPending == false)
+    }
+
+    /// The gap this endpoint closes: someone you talked to whose streak has
+    /// lapsed, with nothing waiting, still has a conversation.
+    @Test("A lapsed conversation with nothing waiting is still listed")
+    func showsHistoryWithoutStreakOrInstants() {
+        let store = makeStore(api: FakeInstantAPI())
+        store.applyHistory([.fixture(userId: 7, name: "Old Friend", streakCount: 0)])
+
+        let conversation = try! #require(store.conversations.first)
+        #expect(conversation.userId == 7)
+        #expect(conversation.name == "Old Friend")
+        #expect(conversation.streak == nil, "no streak to draw")
+        #expect(conversation.hasPending == false)
+    }
+
+    /// An instant can arrive over the socket before the history refresh that
+    /// would name the sender, so the row has to stand up on the delivery alone.
+    @Test("A first-ever instant shows before history catches up")
+    func handlesUnknownSender() {
+        let store = makeStore(api: FakeInstantAPI())
+        store.merge([InstantDelivery.fixture(id: "a", senderId: 42)])
+
+        let conversation = try! #require(store.conversations.first)
+        #expect(conversation.userId == 42)
+        #expect(conversation.name == "Ana", "falls back to what the delivery carries")
+        #expect(conversation.hasPending)
     }
 
     @Test("Counts multiple instants from one person and offers the oldest first")
@@ -492,32 +505,29 @@ struct InstantStoreTests {
         #expect(conversation.pending?.id == "first")
     }
 
-    /// Ordering is the whole reason for merging: waiting first, then whoever is
-    /// closest to losing something.
-    @Test("Orders by what is time-sensitive")
+    /// Waiting first, then a streak about to lapse, then simply whoever you
+    /// spoke to most recently.
+    @Test("Orders by what is time-sensitive, then by recency")
     func ordersByUrgency() {
         let store = makeStore(api: FakeInstantAPI())
         store.merge([InstantDelivery.fixture(id: "a", senderId: 3)])
-        store.applyStreaks([
-            InstantStreakSummary(userId: 3, name: "Cal", themeKey: "rose", profilePictureUrl: nil,
-                                 count: 1, deadline: nil, atRisk: false),
-            InstantStreakSummary(userId: 4, name: "Dee", themeKey: "gold", profilePictureUrl: nil,
-                                 count: 2, deadline: nil, atRisk: true),
-            InstantStreakSummary(userId: 5, name: "Eve", themeKey: "ocean", profilePictureUrl: nil,
-                                 count: 20, deadline: nil, atRisk: false),
+        store.applyHistory([
+            .fixture(userId: 3, name: "Cal", lastInteractionAt: "2026-01-01T00:00:00.000Z", streakCount: 1),
+            .fixture(userId: 4, name: "Dee", lastInteractionAt: "2026-01-02T00:00:00.000Z", streakCount: 2, streakAtRisk: true),
+            .fixture(userId: 5, name: "Eve", lastInteractionAt: "2026-01-09T00:00:00.000Z", streakCount: 0),
+            .fixture(userId: 6, name: "Fay", lastInteractionAt: "2026-01-05T00:00:00.000Z", streakCount: 0),
         ])
 
-        #expect(store.conversations.map(\.userId) == [3, 4, 5])
+        // Cal is waiting, Dee is about to lapse, then Eve and Fay by recency —
+        // note Eve leads Fay despite neither having a streak at all.
+        #expect(store.conversations.map(\.userId) == [3, 4, 5, 6])
     }
 
     @Test("Opening the last waiting instant leaves the person on the list")
     func keepsPersonAfterOpening() {
         let store = makeStore(api: FakeInstantAPI())
         store.merge([InstantDelivery.fixture(id: "a", senderId: 2)])
-        store.applyStreaks([
-            InstantStreakSummary(userId: 2, name: "Ana", themeKey: "rose", profilePictureUrl: nil,
-                                 count: 4, deadline: nil, atRisk: false)
-        ])
+        store.applyHistory([.fixture(userId: 2, name: "Ana", streakCount: 4)])
         store.dismiss("a")
 
         // The conversation survives; only the "waiting" state goes away.

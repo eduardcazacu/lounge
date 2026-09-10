@@ -238,6 +238,24 @@ final class InstantUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Live updates off"].exists)
     }
 
+    /// The point of the conversations endpoint: someone whose streak lapsed and
+    /// who has nothing waiting is still in the inbox. Under `/streaks` alone
+    /// they vanished entirely.
+    func testInboxShowsAConversationWithNoStreakAndNothingWaiting() {
+        let app = launch(signedIn: true)
+        XCTAssertTrue(app.buttons["camera.shutter"].waitForExistence(timeout: 30))
+        app.buttons["camera.inbox"].tap()
+
+        let lapsed = app.buttons["inbox.conversation.Bo"]
+        XCTAssertTrue(lapsed.waitForExistence(timeout: 30))
+        XCTAssertFalse(lapsed.label.contains("🔥"), "no streak to draw: \(lapsed.label)")
+
+        // And the one with something waiting still leads.
+        let waiting = app.buttons["inbox.conversation.Ana"]
+        XCTAssertTrue(waiting.waitForExistence(timeout: 30))
+        XCTAssertLessThan(waiting.frame.minY, lapsed.frame.minY)
+    }
+
     /// Conversations sit to the left of the camera, so a swipe from left to
     /// right on the camera reveals them — the same direction the chat button
     /// sits in.

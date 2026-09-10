@@ -6,6 +6,7 @@ public protocol InstantAPIProtocol: Sendable {
     func socketTicket(deviceId: String) async throws -> String
     func inbox(deviceId: String) async throws -> [InstantDelivery]
     func streaks() async throws -> [InstantStreakSummary]
+    func conversations() async throws -> [InstantConversationSummary]
     func send(
         ciphertext: Data,
         recipientId: Int,
@@ -71,6 +72,15 @@ public struct InstantAPI: InstantAPIProtocol {
 
     public func streaks() async throws -> [InstantStreakSummary] {
         try await client.decode(StreaksResponse.self, from: .get("\(Self.base)/streaks")).streaks
+    }
+
+    /// Everyone you have talked to, newest first, streak or no streak. This is
+    /// what the inbox is built from; `/streaks` alone drops a conversation the
+    /// moment its streak lapses.
+    public func conversations() async throws -> [InstantConversationSummary] {
+        try await client.decode(
+            ConversationsResponse.self, from: .get("\(Self.base)/conversations")
+        ).conversations
     }
 
     /// The payload travels as a JSON *string* in a form field, not as JSON body —

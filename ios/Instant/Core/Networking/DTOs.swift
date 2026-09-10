@@ -107,6 +107,63 @@ public struct InstantStreakSummary: Codable, Equatable, Sendable, Identifiable {
     public var displayName: String { name ?? "Someone" }
 }
 
+/// One person you have exchanged instants with, from
+/// `GET /api/v1/instant/conversations`.
+///
+/// Richer than `InstantStreakSummary` and, crucially, present whether or not a
+/// streak is running — a lapsed one still has a conversation.
+public struct InstantConversationSummary: Codable, Equatable, Sendable, Identifiable {
+    public let userId: Int
+    public let name: String?
+    public let themeKey: String
+    public let profilePictureUrl: String?
+    public let lastInteractionAt: String
+    public let lastSentAt: String?
+    public let lastReceivedAt: String?
+    public let unopenedCount: Int
+    /// 0 once a streak has lapsed; the conversation stays either way.
+    public let streakCount: Int
+    public let streakDeadline: String?
+    public let streakAtRisk: Bool
+
+    public var id: Int { userId }
+    public var displayName: String { name ?? "Someone" }
+
+    /// The streak view of this conversation, or nil when there is no live one.
+    public var streak: InstantStreakSummary? {
+        guard streakCount > 0 else { return nil }
+        return InstantStreakSummary(
+            userId: userId,
+            name: name,
+            themeKey: themeKey,
+            profilePictureUrl: profilePictureUrl,
+            count: streakCount,
+            deadline: streakDeadline,
+            atRisk: streakAtRisk
+        )
+    }
+
+    public init(
+        userId: Int, name: String?, themeKey: String, profilePictureUrl: String?,
+        lastInteractionAt: String, lastSentAt: String?, lastReceivedAt: String?,
+        unopenedCount: Int, streakCount: Int, streakDeadline: String?, streakAtRisk: Bool
+    ) {
+        self.userId = userId
+        self.name = name
+        self.themeKey = themeKey
+        self.profilePictureUrl = profilePictureUrl
+        self.lastInteractionAt = lastInteractionAt
+        self.lastSentAt = lastSentAt
+        self.lastReceivedAt = lastReceivedAt
+        self.unopenedCount = unopenedCount
+        self.streakCount = streakCount
+        self.streakDeadline = streakDeadline
+        self.streakAtRisk = streakAtRisk
+    }
+}
+
+struct ConversationsResponse: Codable { let conversations: [InstantConversationSummary] }
+
 public struct InstantDeviceKeyDTO: Codable, Equatable, Sendable, Identifiable {
     public let id: Int
     public let deviceId: String

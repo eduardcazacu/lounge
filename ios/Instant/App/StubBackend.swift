@@ -140,6 +140,34 @@ final class StubAPIClient: APIClientProtocol, @unchecked Sendable {
             let pending = state.mediaFetched ? [] : [state.sealed?.delivery].compactMap { $0 }
             return try JSONEncoder().encode(InboxResponse(instants: pending))
 
+        case ("GET", "api/v1/instant/conversations"):
+            return try encode([
+                "conversations": [
+                    // A live streak, with something waiting.
+                    [
+                        "userId": 2, "name": "Ana", "themeKey": "rose",
+                        "profilePictureUrl": NSNull(),
+                        "lastInteractionAt": StubBackend.receivedAt,
+                        "lastSentAt": NSNull(), "lastReceivedAt": StubBackend.receivedAt,
+                        "unopenedCount": state.mediaFetched ? 0 : 1,
+                        "streakCount": 9,
+                        "streakDeadline": StubBackend.expiresAt, "streakAtRisk": true,
+                    ],
+                    // The case this endpoint exists for: talked to once, streak
+                    // long lapsed, nothing waiting. `/streaks` would drop them.
+                    [
+                        "userId": 3, "name": "Bo", "themeKey": "forest",
+                        "profilePictureUrl": NSNull(),
+                        "lastInteractionAt": StubBackend.timestamp(offsetBySeconds: -86_400 * 30),
+                        "lastSentAt": StubBackend.timestamp(offsetBySeconds: -86_400 * 30),
+                        "lastReceivedAt": NSNull(),
+                        "unopenedCount": 0,
+                        "streakCount": 0,
+                        "streakDeadline": NSNull(), "streakAtRisk": false,
+                    ],
+                ],
+            ])
+
         case ("GET", "api/v1/instant/streaks"):
             return try encode([
                 "streaks": [[
