@@ -129,6 +129,19 @@ public struct InstantConversationSummary: Codable, Equatable, Sendable, Identifi
     public var id: Int { userId }
     public var displayName: String { name ?? "Someone" }
 
+    /// A copy with a different waiting count, for optimistic updates.
+    public func withUnopenedCount(_ count: Int) -> InstantConversationSummary {
+        InstantConversationSummary(
+            userId: userId, name: name, themeKey: themeKey,
+            profilePictureUrl: profilePictureUrl,
+            lastInteractionAt: lastInteractionAt,
+            lastSentAt: lastSentAt, lastReceivedAt: lastReceivedAt,
+            unopenedCount: max(0, count),
+            streakCount: streakCount, streakDeadline: streakDeadline,
+            streakAtRisk: streakAtRisk
+        )
+    }
+
     /// The streak view of this conversation, or nil when there is no live one.
     public var streak: InstantStreakSummary? {
         guard streakCount > 0 else { return nil }

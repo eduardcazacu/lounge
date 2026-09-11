@@ -175,6 +175,10 @@ export function buildApnsBody(payload: ApnsPayload): string {
     aps: {
       alert: { title: payload.title, body: payload.body },
       sound: "default",
+      // Lets a Notification Service Extension run on delivery, which is what
+      // would let the home-screen widget update while the app is closed.
+      // Harmless until one exists.
+      "mutable-content": 1,
     },
     data: payload.data ?? {},
   });

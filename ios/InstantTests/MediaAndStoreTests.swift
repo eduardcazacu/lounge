@@ -313,7 +313,8 @@ struct ComposeLayoutTests {
 struct InstantStoreTests {
     private func makeStore(
         api: FakeInstantAPI,
-        socket: InboxSocketProtocol = StubSocket()
+        socket: InboxSocketProtocol = StubSocket(),
+        widgets: WidgetSnapshotPublishing = RecordingWidgetPublisher()
     ) -> InstantStore {
         InstantStore(
             api: api,
@@ -321,6 +322,7 @@ struct InstantStoreTests {
                 keychain: InMemoryKeychain(),
                 secureEnclaveAvailable: { false }
             ),
+            widgets: widgets,
             makeSocket: { _ in socket }
         )
     }
@@ -531,6 +533,115 @@ struct InstantStoreTests {
         // The conversation survives; only the "waiting" state goes away.
         #expect(store.conversations.map(\.userId) == [2])
         #expect(store.conversations.first?.hasPending == false)
+    }
+
+    // MARK: - Widget
+
+    /// The widget shows who is waiting, so only people with something unopened
+    /// belong in the snapshot.
+    @Test("The snapshot holds only people with something waiting")
+    func snapshotHoldsOnlyWaiting() {
+        let store = makeStore(api: FakeInstantAPI())
+        store.applyHistory([
+            .fixture(userId: 2, name: "Ana", unopenedCount: 1, streakCount: 9),
+            .fixture(userId: 3, name: "Bo", unopenedCount: 0, streakCount: 4),
+        ])
+
+        let snapshot = store.makeWidgetSnapshot()
+        #expect(snapshot.contacts.map(\.userId) == [2])
+        #expect(snapshot.contacts.first?.name == "Ana")
+        #expect(snapshot.contacts.first?.streakCount == 9)
+        #expect(snapshot.contacts.first?.themeKey == "rose")
+    }
+
+    /// Neither count is reliably ahead: the local list is behind before the
+    /// first drain, and the server's is behind an instant that just arrived.
+    @Test("Takes the larger of the local and server counts")
+    func snapshotTakesLargerCount() {
+        let store = makeStore(api: FakeInstantAPI())
+        store.applyHistory([.fixture(userId: 2, name: "Ana", unopenedCount: 3)])
+        store.merge([InstantDelivery.fixture(id: "a", senderId: 2)])
+
+        #expect(store.makeWidgetSnapshot().contacts.first?.unopenedCount == 3)
+
+        store.applyHistory([.fixture(userId: 2, name: "Ana", unopenedCount: 0)])
+        #expect(
+            store.makeWidgetSnapshot().contacts.first?.unopenedCount == 1,
+            "a socket delivery the server has not caught up on still counts"
+        )
+    }
+
+    /// Over-reporting is the worse failure: it sends you into the app to find
+    /// nothing there.
+    @Test("Opening an instant stops the widget claiming it is still waiting")
+    func dismissDropsTheStaleServerCount() {
+        let store = makeStore(api: FakeInstantAPI())
+        store.applyHistory([.fixture(userId: 2, name: "Ana", unopenedCount: 1)])
+        store.merge([InstantDelivery.fixture(id: "a", senderId: 2)])
+        #expect(store.makeWidgetSnapshot().contacts.first?.unopenedCount == 1)
+
+        store.dismiss("a")
+
+        #expect(store.makeWidgetSnapshot().isEmpty, "the server's count is stale by one until it refreshes")
+        #expect(store.history.first?.unopenedCount == 0)
+    }
+
+    @Test("Dismissing one of several leaves the rest waiting")
+    func dismissDecrementsByOne() {
+        let store = makeStore(api: FakeInstantAPI())
+        store.applyHistory([.fixture(userId: 2, name: "Ana", unopenedCount: 3)])
+        store.merge([
+            InstantDelivery.fixture(id: "a", senderId: 2, createdAt: "2026-01-01T00:00:00.000Z"),
+            InstantDelivery.fixture(id: "b", senderId: 2, createdAt: "2026-01-02T00:00:00.000Z"),
+        ])
+
+        store.dismiss("a")
+
+        #expect(store.makeWidgetSnapshot().contacts.first?.unopenedCount == 2)
+    }
+
+    @Test("A lapsed streak reports zero rather than being hidden")
+    func snapshotIncludesLapsedStreak() {
+        let store = makeStore(api: FakeInstantAPI())
+        store.applyHistory([.fixture(userId: 2, unopenedCount: 1, streakCount: 0)])
+        #expect(store.makeWidgetSnapshot().contacts.first?.streakCount == 0)
+        #expect(store.makeWidgetSnapshot().contacts.first?.hasStreak == false)
+    }
+
+    @Test("Snapshot order follows the inbox order")
+    func snapshotFollowsInboxOrder() {
+        let store = makeStore(api: FakeInstantAPI())
+        store.applyHistory([
+            .fixture(userId: 2, name: "Ana", lastInteractionAt: "2026-01-01T00:00:00.000Z", unopenedCount: 1),
+            .fixture(userId: 3, name: "Bo", lastInteractionAt: "2026-01-05T00:00:00.000Z", unopenedCount: 1),
+        ])
+        #expect(store.makeWidgetSnapshot().contacts.map(\.userId) == [3, 2])
+    }
+
+    @Test("Publishes when an instant arrives and when one is dismissed")
+    func publishesOnChange() async {
+        let publisher = RecordingWidgetPublisher()
+        let store = makeStore(api: FakeInstantAPI(), widgets: publisher)
+        store.applyHistory([.fixture(userId: 2, name: "Ana", unopenedCount: 1)])
+
+        store.merge([InstantDelivery.fixture(id: "a", senderId: 2)])
+        #expect(await eventually { publisher.latest?.contacts.map(\.userId) == [2] })
+
+        store.dismiss("a")
+        #expect(await eventually { publisher.snapshots.count >= 2 })
+        #expect(
+            await eventually { publisher.latest?.contacts.isEmpty == true },
+            "dismissing the last one empties the widget"
+        )
+    }
+
+    /// Signing out must not leave a stranger's name on someone's home screen.
+    @Test("Clears the widget on reset")
+    func clearsOnReset() async {
+        let publisher = RecordingWidgetPublisher()
+        let store = makeStore(api: FakeInstantAPI(), widgets: publisher)
+        store.reset()
+        #expect(await eventually { publisher.clearCount >= 1 })
     }
 
     @Test("Unread count tracks the waiting list")

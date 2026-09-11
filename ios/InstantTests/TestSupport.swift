@@ -3,6 +3,22 @@ import Synchronization
 import Testing
 @testable import Instant
 
+/// Waits for a condition that a fire-and-forget `Task` will satisfy.
+///
+/// A single `Task.yield()` is not enough: the work is scheduled, not run
+/// inline, and on a loaded machine it can take several hops.
+func eventually(
+    timeout: Duration = .seconds(3),
+    _ condition: @MainActor () -> Bool
+) async -> Bool {
+    let deadline = ContinuousClock.now.advanced(by: timeout)
+    while ContinuousClock.now < deadline {
+        if await MainActor.run(body: condition) { return true }
+        try? await Task.sleep(for: .milliseconds(10))
+    }
+    return await MainActor.run(body: condition)
+}
+
 /// Anchors `Bundle(for:)` on the test bundle so the interop fixtures can be found.
 final class FixtureLocator {}
 

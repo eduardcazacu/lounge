@@ -32,6 +32,7 @@ public final class InstantStore {
 
     private let api: InstantAPIProtocol
     private let identities: DeviceIdentityProviding
+    private let widgets: WidgetSnapshotPublishing
     private let makeSocket: @MainActor (InstantAPIProtocol) -> InboxSocketProtocol
     private var socket: InboxSocketProtocol?
     private var pump: Task<Void, Never>?
@@ -40,11 +41,49 @@ public final class InstantStore {
     public init(
         api: InstantAPIProtocol,
         identities: DeviceIdentityProviding,
+        widgets: WidgetSnapshotPublishing = WidgetSnapshotPublisher(),
         makeSocket: @escaping @MainActor (InstantAPIProtocol) -> InboxSocketProtocol
     ) {
         self.api = api
         self.identities = identities
+        self.widgets = widgets
         self.makeSocket = makeSocket
+    }
+
+    // MARK: - Widget
+
+    /// What the home-screen widget should show: everyone with something
+    /// waiting, in the order the inbox lists them.
+    ///
+    /// The count takes the larger of what this device holds and what the server
+    /// last reported. The local list can be behind before the first drain, and
+    /// the server's count can be behind an instant that just arrived over the
+    /// socket; neither is reliably ahead of the other.
+    func makeWidgetSnapshot(now: Date = Date()) -> InstantWidgetSnapshot {
+        let serverCounts = Dictionary(
+            history.map { ($0.userId, $0.unopenedCount) },
+            uniquingKeysWith: max
+        )
+        let contacts = conversations.compactMap { conversation -> InstantWidgetSnapshot.Contact? in
+            let waiting = max(conversation.pendingCount, serverCounts[conversation.userId] ?? 0)
+            guard waiting > 0 else { return nil }
+            return InstantWidgetSnapshot.Contact(
+                userId: conversation.userId,
+                name: conversation.name,
+                themeKey: conversation.themeKey,
+                profilePictureUrl: conversation.profilePictureUrl,
+                unopenedCount: waiting,
+                streakCount: conversation.streak?.count ?? 0
+            )
+        }
+        return InstantWidgetSnapshot(contacts: contacts, updatedAt: now)
+    }
+
+    /// Republishes the widget. Cheap when nothing changed, because the publisher
+    /// only rewrites what differs.
+    func refreshWidget() {
+        let snapshot = makeWidgetSnapshot()
+        Task { [widgets] in await widgets.publish(snapshot) }
     }
 
     public var unreadCount: Int { instants.count }
@@ -190,6 +229,8 @@ public final class InstantStore {
         stop()
         instants = []
         history = []
+        // Signing out must not leave a stranger's name on the home screen.
+        Task { [widgets] in await widgets.clear() }
         seenIds = []
         device = nil
         userId = nil
@@ -233,6 +274,7 @@ public final class InstantStore {
         guard !fresh.isEmpty else { return }
         for instant in fresh { seenIds.insert(instant.id) }
         instants = (instants + fresh).sorted { $0.createdAt < $1.createdAt }
+        refreshWidget()
     }
 
     public func refreshInbox(deviceId: String) async {
@@ -253,6 +295,7 @@ public final class InstantStore {
     public func refreshHistory() async {
         do {
             history = try await api.conversations()
+            refreshWidget()
         } catch let error as APIError where error.isAuthFailure {
             sessionExpired = true
         } catch {}
@@ -267,7 +310,21 @@ public final class InstantStore {
     /// Removes an instant from the waiting list once it has been opened,
     /// expired, or turned out to be unopenable. It stays in the seen-set.
     public func dismiss(_ id: String) {
+        // Captured before removal: the server's count for this person is now
+        // stale by one, and until the next history refresh lands, taking the
+        // larger of the two counts would keep the widget claiming mail that has
+        // already been read. Over-reporting is the worse failure — it sends you
+        // into the app to find nothing.
+        let senderId = instants.first { $0.id == id }?.senderId
         instants.removeAll { $0.id == id }
+        if let senderId {
+            history = history.map { entry in
+                entry.userId == senderId
+                    ? entry.withUnopenedCount(entry.unopenedCount - 1)
+                    : entry
+            }
+        }
+        refreshWidget()
     }
 
     public func clearSessionExpired() {

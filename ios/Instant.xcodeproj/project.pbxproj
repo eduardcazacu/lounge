@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		D9864485A4F7CB8D16B5D251 /* InstantWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F231F6FE549E641636571AA6 /* InstantWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		D9F8C61E8878348FBC02E23C /* libwebp in Frameworks */ = {isa = PBXBuildFile; productRef = 1839E087D927F666802ADBDB /* libwebp */; };
 /* End PBXBuildFile section */
 
@@ -18,6 +19,13 @@
 			remoteGlobalIDString = C13732C8E715C9BEE4FA51C9;
 			remoteInfo = Instant;
 		};
+		5A241136DD1C60AAE495C3DF /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 98F54143AB4E86B28C3AFEE0 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 704A160D8849979DE00DDB64;
+			remoteInfo = InstantWidget;
+		};
 		BC35C7571281BCA7D3AABD70 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 98F54143AB4E86B28C3AFEE0 /* Project object */;
@@ -27,16 +35,41 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		37E8022B7B99C3249E08AE16 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				D9864485A4F7CB8D16B5D251 /* InstantWidget.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		709F2E47840969CE27FCADEB /* InstantUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = InstantUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		8BCD5BC4CDFDF0918087C782 /* Instant.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Instant.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F219C0274590DA45E4BEF1EA /* InstantTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = InstantTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		F231F6FE549E641636571AA6 /* InstantWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = InstantWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		871EC0CDB63A64797DD808F9 /* Shared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Shared;
+			sourceTree = "<group>";
+		};
 		A4E78D51C7AF34885265A1CA /* Instant */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Instant;
+			sourceTree = "<group>";
+		};
+		BA9AEB0CAACEDA0B5B57772A /* InstantWidget */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = InstantWidget;
 			sourceTree = "<group>";
 		};
 		C2D0948BCF7FECFBC1423C7E /* InstantTests */ = {
@@ -53,6 +86,13 @@
 
 /* Begin PBXFrameworksBuildPhase section */
 		1ABF84E55BD30AC2CEF8FC42 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7683A40AB86681224A5404DF /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -81,6 +121,7 @@
 			isa = PBXGroup;
 			children = (
 				8BCD5BC4CDFDF0918087C782 /* Instant.app */,
+				F231F6FE549E641636571AA6 /* InstantWidget.appex */,
 				F219C0274590DA45E4BEF1EA /* InstantTests.xctest */,
 				709F2E47840969CE27FCADEB /* InstantUITests.xctest */,
 			);
@@ -91,6 +132,8 @@
 			isa = PBXGroup;
 			children = (
 				A4E78D51C7AF34885265A1CA /* Instant */,
+				871EC0CDB63A64797DD808F9 /* Shared */,
+				BA9AEB0CAACEDA0B5B57772A /* InstantWidget */,
 				C2D0948BCF7FECFBC1423C7E /* InstantTests */,
 				D37F650ACA2AF7ABF6C2C0BC /* InstantUITests */,
 				328EC33DF3954DC9B83FA285 /* Products */,
@@ -123,6 +166,29 @@
 			productReference = F219C0274590DA45E4BEF1EA /* InstantTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		704A160D8849979DE00DDB64 /* InstantWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 6B9FE4DBCC085833C0A55856 /* Build configuration list for PBXNativeTarget "InstantWidget" */;
+			buildPhases = (
+				2D81737A052BBAAD15A6D3C1 /* Sources */,
+				7683A40AB86681224A5404DF /* Frameworks */,
+				FE608D3A8638F8175D740C08 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				871EC0CDB63A64797DD808F9 /* Shared */,
+				BA9AEB0CAACEDA0B5B57772A /* InstantWidget */,
+			);
+			name = InstantWidget;
+			packageProductDependencies = (
+			);
+			productName = InstantWidget;
+			productReference = F231F6FE549E641636571AA6 /* InstantWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		C13732C8E715C9BEE4FA51C9 /* Instant */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 8E040F02DDDF06E4C67F15D2 /* Build configuration list for PBXNativeTarget "Instant" */;
@@ -130,12 +196,15 @@
 				971ED9D05B25DB6C4D7680D4 /* Sources */,
 				78AE8C6BEB2A40A6D824CCEE /* Frameworks */,
 				364863F9F2E558B0F50473FC /* Resources */,
+				37E8022B7B99C3249E08AE16 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				3E9C52EF4399CCDF6B93D64D /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
+				871EC0CDB63A64797DD808F9 /* Shared */,
 				A4E78D51C7AF34885265A1CA /* Instant */,
 			);
 			name = Instant;
@@ -183,6 +252,9 @@
 						CreatedOnToolsVersion = 27.0;
 						TestTargetID = C13732C8E715C9BEE4FA51C9;
 					};
+					704A160D8849979DE00DDB64 = {
+						CreatedOnToolsVersion = 27.0;
+					};
 					C13732C8E715C9BEE4FA51C9 = {
 						CreatedOnToolsVersion = 27.0;
 					};
@@ -210,6 +282,7 @@
 			projectRoot = "";
 			targets = (
 				C13732C8E715C9BEE4FA51C9 /* Instant */,
+				704A160D8849979DE00DDB64 /* InstantWidget */,
 				64BCB755386F844C96A2A5B0 /* InstantTests */,
 				D75D01E5FD65F1CE576FC5B6 /* InstantUITests */,
 			);
@@ -238,9 +311,23 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		FE608D3A8638F8175D740C08 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		2D81737A052BBAAD15A6D3C1 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		3F0002D04A541FE103F80CF6 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -265,6 +352,11 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		3E9C52EF4399CCDF6B93D64D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 704A160D8849979DE00DDB64 /* InstantWidget */;
+			targetProxy = 5A241136DD1C60AAE495C3DF /* PBXContainerItemProxy */;
+		};
 		7C6CDA0B63D33FD5BF0E1EC6 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = C13732C8E715C9BEE4FA51C9 /* Instant */;
@@ -282,10 +374,9 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = "$(INSTANT_ENTITLEMENTS_$(INSTANT_PUSH_ENABLED))";
+				CODE_SIGN_ENTITLEMENTS = Instant/Resources/Instant.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 844S7255R5;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Instant;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Instant needs the camera to take the photos you send.";
@@ -294,11 +385,6 @@
 				INFOPLIST_KEY_UIStatusBarStyle = UIStatusBarStyleLightContent;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
 				INFOPLIST_KEY_UIUserInterfaceStyle = Dark;
-				INSTANT_ENTITLEMENTS_NO = "";
-				INSTANT_ENTITLEMENTS_YES = Instant/Resources/Instant.entitlements;
-				INSTANT_PUSH_CONDITION_NO = "";
-				INSTANT_PUSH_CONDITION_YES = INSTANT_PUSH;
-				INSTANT_PUSH_ENABLED = NO;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -306,7 +392,6 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.eduardcazacu.instant;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) $(INSTANT_PUSH_CONDITION_$(INSTANT_PUSH_ENABLED))";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -334,6 +419,30 @@
 				VALIDATE_PRODUCT = YES;
 			};
 			name = Release;
+		};
+		8EEBAB68363C2B0DAE00DB30 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = InstantWidget/InstantWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "InstantWidget-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Instant;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.eduardcazacu.instant.widget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
 		};
 		942EEBBACD6C88CAE7F29B29 /* Release */ = {
 			isa = XCBuildConfiguration;
@@ -378,6 +487,30 @@
 			};
 			name = Release;
 		};
+		9B3B545F8CBA1ACB550689D3 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = InstantWidget/InstantWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "InstantWidget-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Instant;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.eduardcazacu.instant.widget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 		D08DD63EED508AD30D0CB0B4 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -408,10 +541,9 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = "$(INSTANT_ENTITLEMENTS_$(INSTANT_PUSH_ENABLED))";
+				CODE_SIGN_ENTITLEMENTS = Instant/Resources/Instant.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 844S7255R5;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Instant;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Instant needs the camera to take the photos you send.";
@@ -420,11 +552,6 @@
 				INFOPLIST_KEY_UIStatusBarStyle = UIStatusBarStyleLightContent;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
 				INFOPLIST_KEY_UIUserInterfaceStyle = Dark;
-				INSTANT_ENTITLEMENTS_NO = "";
-				INSTANT_ENTITLEMENTS_YES = Instant/Resources/Instant.entitlements;
-				INSTANT_PUSH_CONDITION_NO = "";
-				INSTANT_PUSH_CONDITION_YES = INSTANT_PUSH;
-				INSTANT_PUSH_ENABLED = NO;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -432,7 +559,6 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.eduardcazacu.instant;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) $(INSTANT_PUSH_CONDITION_$(INSTANT_PUSH_ENABLED))";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -470,6 +596,15 @@
 			buildConfigurations = (
 				94C1D7A82E2F92E70C5BA5D8 /* Debug */,
 				9609A256A79253DD705A918E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		6B9FE4DBCC085833C0A55856 /* Build configuration list for PBXNativeTarget "InstantWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8EEBAB68363C2B0DAE00DB30 /* Debug */,
+				9B3B545F8CBA1ACB550689D3 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

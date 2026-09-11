@@ -64,6 +64,37 @@ The Send To picker's "Recent" section reads the same history, so recency
 survives a reinstall and is identical on every device you sign in from. It used
 to come from a device-local store, which was neither.
 
+## The widget
+
+`InstantWidget` is a WidgetKit extension showing who has sent you an instant:
+the app mark when nothing is waiting, otherwise the sender's picture (or their
+initials on their own theme colour), their name, how many are waiting, and the
+streak if there is one. Several people cycle every 30 seconds.
+
+**The app publishes; the widget only reads.** An extension can reach neither the
+access token nor the refresh cookie, and a token lives fifteen minutes — a
+widget refreshing on WidgetKit's schedule would find an expired one nearly every
+time. So `InstantStore` writes a snapshot into the `group.com.eduardcazacu.instant`
+App Group whenever the waiting list changes, and the widget renders whatever is
+on disk. No credential ever enters the extension.
+
+Two consequences worth knowing:
+
+- **Profile pictures are cached by the app, not fetched by the widget.** Widgets
+  render synchronously off local state; an image loaded at draw time simply
+  never appears. The app downsizes and writes them next to the snapshot, and
+  prunes the ones nobody is waiting on.
+- **The widget is only as fresh as the app's last run.** Nothing updates it
+  while the app is closed. The fix is a Notification Service Extension, which
+  runs on push delivery and can rewrite the snapshot — the APNs payload already
+  sets `mutable-content` for it. Not built yet.
+
+The cycling rule lives in `Shared/WidgetTimeline.swift` and the view in
+`Shared/InstantWidgetView.swift` rather than in the extension, because an
+extension's code cannot be reached from the app's test bundle. `WidgetRenderTests`
+rasterises every state to PNGs — the only way to see a widget, since XCUITest
+cannot drive one and the Simulator has no way to add one from the command line.
+
 ## The protocol, and what is easy to get wrong
 
 Full contract in `backend/README.md`. The parts that fail *silently* if a port
