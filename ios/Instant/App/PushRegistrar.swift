@@ -10,10 +10,39 @@ import UserNotifications
 /// it and its id. There is nothing useful in an Instant notification beyond
 /// "come and look", and the server could not decrypt the image to preview it
 /// even if the design wanted that.
+/// The system calls `PushRegistrar` makes, behind a protocol so they can be
+/// observed in a test.
+@MainActor
+public protocol NotificationAuthorizing {
+    func setDelegate(_ delegate: UNUserNotificationCenterDelegate?)
+    func requestAuthorization(options: UNAuthorizationOptions) async throws -> Bool
+    func registerForRemoteNotifications()
+}
+
+public struct SystemNotificationAuthorizer: NotificationAuthorizing {
+    public init() {}
+
+    public func setDelegate(_ delegate: UNUserNotificationCenterDelegate?) {
+        UNUserNotificationCenter.current().delegate = delegate
+    }
+
+    public func requestAuthorization(options: UNAuthorizationOptions) async throws -> Bool {
+        try await UNUserNotificationCenter.current().requestAuthorization(options: options)
+    }
+
+    public func registerForRemoteNotifications() {
+        UIApplication.shared.registerForRemoteNotifications()
+    }
+}
+
 @MainActor
 public final class PushRegistrar: NSObject {
     private let userAPI: UserAPIProtocol
     private let onOpenInstant: @MainActor (String?) -> Void
+    /// Injected so a test can assert the prompt is actually requested. The gate
+    /// that used to suppress it was invisible to every test precisely because
+    /// this call went straight to the system.
+    private let notifications: NotificationAuthorizing
 
     /// Development builds talk to APNs sandbox; TestFlight and App Store builds
     /// talk to production. The same device token is not valid in both, which is
@@ -28,36 +57,34 @@ public final class PushRegistrar: NSObject {
 
     public init(
         userAPI: UserAPIProtocol,
+        notifications: NotificationAuthorizing = SystemNotificationAuthorizer(),
         onOpenInstant: @escaping @MainActor (String?) -> Void
     ) {
         self.userAPI = userAPI
+        self.notifications = notifications
         self.onOpenInstant = onOpenInstant
         super.init()
     }
 
-    /// Push is compiled out unless the `INSTANT_PUSH_ENABLED` build setting is
-    /// YES.
+    /// Asks for permission, then registers for a token if it was given.
     ///
-    /// The Push Notifications capability needs the `aps-environment` entitlement,
-    /// and a free personal team cannot sign an app that declares it — the build
-    /// is refused outright, so the app cannot go on a device at all. Leaving it
-    /// off by default keeps `xcodebuild` working for everyone; flip the setting
-    /// once there is a paid membership and both the entitlement and this code
-    /// come back with no other change.
+    /// This used to be behind an `#if INSTANT_PUSH` that was never defined in
+    /// any build configuration, so the prompt was compiled out of every build
+    /// and the app could never ask. The gate existed because a free personal
+    /// team cannot sign an app declaring `aps-environment`; with a paid
+    /// membership that no longer applies, and a compile-time switch that
+    /// silently disables a feature is the wrong shape for it regardless.
     ///
-    /// Notification *taps* are still handled either way, so a build with push
-    /// switched on later needs nothing else.
+    /// `requestAuthorization` is idempotent: once someone has answered, iOS
+    /// returns the standing decision without prompting again, so calling this on
+    /// every sign-in is safe.
     public func requestAuthorizationAndRegister() async {
-        UNUserNotificationCenter.current().delegate = self
-        #if INSTANT_PUSH
-        let granted = (try? await UNUserNotificationCenter.current()
-            .requestAuthorization(options: [.alert, .sound, .badge])) ?? false
+        notifications.setDelegate(self)
+        let granted = (try? await notifications.requestAuthorization(
+            options: [.alert, .sound, .badge]
+        )) ?? false
         guard granted else { return }
-        UIApplication.shared.registerForRemoteNotifications()
-        #else
-        // Deliberately does not prompt: iOS gives one chance to ask, and asking
-        // when no token can be issued spends it for nothing.
-        #endif
+        notifications.registerForRemoteNotifications()
     }
 
     public nonisolated static func hexToken(from data: Data) -> String {

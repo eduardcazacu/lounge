@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import Testing
+import UserNotifications
 import UIKit
 @testable import Instant
 
@@ -667,6 +668,87 @@ final class StubSocket: InboxSocketProtocol, @unchecked Sendable {
 
     func start(deviceId: String) { startedDeviceIds.append(deviceId) }
     func stop() { continuation.finish() }
+}
+
+/// Records what the registrar asks the system to do.
+@MainActor
+final class RecordingAuthorizer: NotificationAuthorizing {
+    var requestedOptions: [UNAuthorizationOptions] = []
+    var registeredForRemote = 0
+    var delegateSet = false
+    var grant = true
+    var failure: Error?
+
+    func setDelegate(_ delegate: UNUserNotificationCenterDelegate?) {
+        delegateSet = delegate != nil
+    }
+
+    func requestAuthorization(options: UNAuthorizationOptions) async throws -> Bool {
+        requestedOptions.append(options)
+        if let failure { throw failure }
+        return grant
+    }
+
+    func registerForRemoteNotifications() { registeredForRemote += 1 }
+}
+
+@MainActor
+@Suite("Push authorization")
+struct PushAuthorizationTests {
+    private func registrar(_ authorizer: RecordingAuthorizer) -> PushRegistrar {
+        PushRegistrar(userAPI: FakeUserAPI(), notifications: authorizer) { _ in }
+    }
+
+    /// The regression this exists for: an `#if INSTANT_PUSH` that was defined in
+    /// no build configuration compiled the prompt out of every build, so the app
+    /// could never ask. Nothing caught it because the call went straight to the
+    /// system.
+    @Test("Actually asks for permission")
+    func asksForPermission() async {
+        let authorizer = RecordingAuthorizer()
+        await registrar(authorizer).requestAuthorizationAndRegister()
+
+        #expect(authorizer.requestedOptions.count == 1, "the prompt must be requested")
+        #expect(authorizer.requestedOptions.first?.contains(.alert) == true)
+        #expect(authorizer.requestedOptions.first?.contains(.sound) == true)
+        #expect(authorizer.requestedOptions.first?.contains(.badge) == true)
+    }
+
+    @Test("Registers for a token once permission is given")
+    func registersWhenGranted() async {
+        let authorizer = RecordingAuthorizer()
+        authorizer.grant = true
+        await registrar(authorizer).requestAuthorizationAndRegister()
+        #expect(authorizer.registeredForRemote == 1)
+    }
+
+    /// Registering without permission would ask APNs for a token the user has
+    /// refused to let us use.
+    @Test("Does not register when permission is refused")
+    func skipsRegistrationWhenDenied() async {
+        let authorizer = RecordingAuthorizer()
+        authorizer.grant = false
+        await registrar(authorizer).requestAuthorizationAndRegister()
+        #expect(authorizer.requestedOptions.count == 1)
+        #expect(authorizer.registeredForRemote == 0)
+    }
+
+    @Test("A failed request is not treated as consent")
+    func treatsFailureAsDenied() async {
+        let authorizer = RecordingAuthorizer()
+        authorizer.failure = NSError(domain: "test", code: 1)
+        await registrar(authorizer).requestAuthorizationAndRegister()
+        #expect(authorizer.registeredForRemote == 0)
+    }
+
+    /// Without a delegate a tapped notification opens the app but never routes
+    /// to the instant it names.
+    @Test("Sets itself as the notification delegate")
+    func setsDelegate() async {
+        let authorizer = RecordingAuthorizer()
+        await registrar(authorizer).requestAuthorizationAndRegister()
+        #expect(authorizer.delegateSet)
+    }
 }
 
 @Suite("Push registration")
