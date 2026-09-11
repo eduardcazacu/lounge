@@ -84,10 +84,18 @@ Two consequences worth knowing:
   render synchronously off local state; an image loaded at draw time simply
   never appears. The app downsizes and writes them next to the snapshot, and
   prunes the ones nobody is waiting on.
-- **The widget is only as fresh as the app's last run.** Nothing updates it
-  while the app is closed. The fix is a Notification Service Extension, which
-  runs on push delivery and can rewrite the snapshot — the APNs payload already
-  sets `mutable-content` for it. Not built yet.
+- **A Notification Service Extension keeps it fresh while the app is closed.**
+  `InstantNotificationService` runs on delivery of every Instant push, folds the
+  new arrival into the snapshot and reloads the widget. It has no access token
+  and cannot call the API, so the push payload carries the sender's id, name and
+  theme — metadata the notification's own title already reveals. It reads no
+  media and decrypts nothing.
+
+  What a push cannot carry is the streak or the cached picture, so the merge
+  keeps whatever the app last recorded and shows initials for someone new. The
+  banner is passed through untouched whether or not the snapshot could be
+  written: a widget that failed to update must never cost someone their
+  notification.
 
 The cycling rule lives in `Shared/WidgetTimeline.swift` and the view in
 `Shared/InstantWidgetView.swift` rather than in the extension, because an
@@ -173,11 +181,19 @@ runs the production decrypt path.
 ios/tools/push-test.sh
 ```
 
-`xcrun simctl push` delivers a real APNs payload to the Simulator with no Apple
-Developer account, which covers the whole device side: presentation, the tap,
-and the deep link into the instant the payload names. What it cannot cover is
-Apple accepting the request the backend sends — `backend/scripts/verify-apns.ts`
-checks the ES256 signing and request shape against a stubbed Apple instead.
+`xcrun simctl push` delivers a real APNs payload with no Apple Developer
+account, and the script prints the widget snapshot either side of it — a new
+contact appearing proves the Notification Service Extension ran with the app
+closed.
+
+It needs one manual step. `simctl push` refuses to deliver to an app that has
+not been granted notification permission, and simctl has no way to grant it:
+there is no `privacy … notifications` service. So the script waits for you to
+tap Allow.
+
+What none of this covers is Apple accepting the request the backend sends —
+`backend/scripts/verify-apns.ts` checks the ES256 signing and request shape
+against a stubbed Apple instead.
 
 ## Push is off by default
 

@@ -135,6 +135,146 @@ struct WidgetStoreTests {
     }
 }
 
+/// The Notification Service Extension's only job: keep the widget honest while
+/// the app is closed. It has no token and cannot call the API, so everything it
+/// knows comes from the push payload.
+@Suite("Push-driven widget updates")
+struct WidgetArrivalTests {
+    private let now = Date(timeIntervalSince1970: 1_700_000_000)
+
+    @Test("A first arrival creates the contact")
+    func firstArrival() {
+        let updated = InstantWidgetSnapshot.empty.addingArrival(
+            senderId: 7, name: "Ana", themeKey: "rose",
+            profilePictureUrl: "https://images.test/a.webp", now: now
+        )
+
+        #expect(updated.contacts.count == 1)
+        let contact = updated.contacts[0]
+        #expect(contact.userId == 7)
+        #expect(contact.name == "Ana")
+        #expect(contact.themeKey == "rose")
+        #expect(contact.unopenedCount == 1)
+        #expect(updated.updatedAt == now)
+    }
+
+    /// A push carries no streak, and inventing one would be worse than none.
+    @Test("A new contact reports no streak and no cached picture")
+    func newContactHasNoStreakOrAvatar() {
+        let updated = InstantWidgetSnapshot.empty.addingArrival(
+            senderId: 7, name: "Ana", themeKey: "rose", profilePictureUrl: nil, now: now
+        )
+        #expect(updated.contacts[0].streakCount == 0)
+        #expect(updated.contacts[0].avatarFile == nil)
+    }
+
+    /// The push does not carry the streak or the cached picture, so dropping
+    /// what the app already recorded would make the widget visibly worse the
+    /// moment a push arrived.
+    @Test("An arrival from someone known keeps their streak and picture")
+    func keepsWhatThePushDoesNotCarry() {
+        let existing = InstantWidgetSnapshot(
+            contacts: [.fixture(
+                userId: 7, name: "Ana", avatarFile: "7.img",
+                unopenedCount: 2, streakCount: 12
+            )],
+            updatedAt: .distantPast
+        )
+
+        let updated = existing.addingArrival(
+            senderId: 7, name: "Ana", themeKey: "rose", profilePictureUrl: nil, now: now
+        )
+
+        #expect(updated.contacts.count == 1, "the same person, not a duplicate")
+        #expect(updated.contacts[0].unopenedCount == 3)
+        #expect(updated.contacts[0].streakCount == 12)
+        #expect(updated.contacts[0].avatarFile == "7.img")
+    }
+
+    @Test("The newest arrival leads, matching the inbox")
+    func newestLeads() {
+        let existing = InstantWidgetSnapshot(
+            contacts: [.fixture(userId: 1, name: "Ana"), .fixture(userId: 2, name: "Bo")],
+            updatedAt: .distantPast
+        )
+
+        let updated = existing.addingArrival(
+            senderId: 2, name: "Bo", themeKey: "forest", profilePictureUrl: nil, now: now
+        )
+        #expect(updated.contacts.map(\.userId) == [2, 1])
+
+        let again = updated.addingArrival(
+            senderId: 3, name: "Cass", themeKey: "gold", profilePictureUrl: nil, now: now
+        )
+        #expect(again.contacts.map(\.userId) == [3, 2, 1])
+    }
+
+    @Test("An empty name or theme does not overwrite what is known")
+    func doesNotClobberWithBlanks() {
+        let existing = InstantWidgetSnapshot(
+            contacts: [.fixture(userId: 7, name: "Ana", themeKey: "rose")],
+            updatedAt: .distantPast
+        )
+        let updated = existing.addingArrival(
+            senderId: 7, name: "", themeKey: "", profilePictureUrl: nil, now: now
+        )
+        #expect(updated.contacts[0].name == "Ana")
+        #expect(updated.contacts[0].themeKey == "rose")
+    }
+}
+
+@Suite("Push payload parsing")
+struct ArrivalTests {
+    private func payload(_ data: [String: Any]) -> [AnyHashable: Any] {
+        ["aps": ["alert": ["title": "Ana sent you an instant"]], "data": data]
+    }
+
+    @Test("Reads the sender out of an instant push")
+    func parsesInstantPush() throws {
+        let arrival = try #require(Arrival(userInfo: payload([
+            "openUrl": "/instant",
+            "instantId": "abc",
+            "senderId": 7,
+            "senderName": "Ana",
+            "senderThemeKey": "rose",
+            "senderProfilePictureUrl": "https://images.test/a.webp",
+        ])))
+
+        #expect(arrival.senderId == 7)
+        #expect(arrival.name == "Ana")
+        #expect(arrival.themeKey == "rose")
+        #expect(arrival.profilePictureUrl == "https://images.test/a.webp")
+    }
+
+    /// The streak warning has no sender; it must pass through untouched rather
+    /// than invent a contact.
+    @Test("A streak warning is not an arrival")
+    func ignoresStreakWarning() {
+        #expect(Arrival(userInfo: payload(["openUrl": "/instant", "streakCount": 12])) == nil)
+        #expect(Arrival(userInfo: ["aps": ["alert": "hi"]]) == nil)
+        #expect(Arrival(userInfo: [:]) == nil)
+    }
+
+    /// APNs JSON hands numbers back as NSNumber, and a proxy could stringify
+    /// them; neither should lose the sender.
+    @Test("Accepts an id however JSON delivered it")
+    func toleratesNumberEncodings() {
+        #expect(Arrival.integer(7) == 7)
+        #expect(Arrival.integer(NSNumber(value: 7)) == 7)
+        #expect(Arrival.integer("7") == 7)
+        #expect(Arrival.integer("seven") == nil)
+        #expect(Arrival.integer(nil) == nil)
+    }
+
+    @Test("Falls back when the optional fields are missing")
+    func toleratesSparsePayload() throws {
+        let arrival = try #require(Arrival(userInfo: payload(["senderId": 3])))
+        #expect(arrival.name == "Someone")
+        #expect(arrival.themeKey.isEmpty)
+        #expect(arrival.profilePictureUrl == nil)
+    }
+}
+
 @Suite("Widget timeline")
 struct WidgetTimelineTests {
     private let now = Date(timeIntervalSince1970: 1_700_000_000)

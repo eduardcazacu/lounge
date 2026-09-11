@@ -38,7 +38,7 @@ struct RootView: View {
     }
 
     private func registerForPush() async {
-        guard !LaunchOptions.isStubbed else { return }
+        guard !LaunchOptions.isStubbed || LaunchOptions.requestsPush else { return }
         let registrar = PushRegistrar(userAPI: environment.userAPI) { instantId in
             environment.pendingInstantId = instantId
             environment.showsInbox = true

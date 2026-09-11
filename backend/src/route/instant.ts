@@ -553,8 +553,24 @@ instantRouter.post("/", async (c) => {
           payload: {
             title: `${senderName} sent you an instant`,
             body: "Open it before it disappears.",
-            // Deliberately carries no key material.
-            data: { openUrl: "/instant", instantId: created.id },
+            // Deliberately carries no key material and no media — the server
+            // holds only ciphertext and could not preview the photo anyway.
+            //
+            // The sender's identity is here so the Notification Service
+            // Extension can update the home-screen widget without a token: it
+            // has no way to call the API. This is all metadata the title
+            // already reveals or that the server serves publicly.
+            data: {
+              openUrl: "/instant",
+              instantId: created.id,
+              senderId: created.sender.id,
+              senderName,
+              senderThemeKey: created.sender.themeKey,
+              senderProfilePictureUrl: buildPublicImageUrl(
+                r2PublicBaseUrl,
+                created.sender.profilePictureKey
+              ),
+            },
           },
           topic: `instant-${created.id.slice(0, 8)}`,
           vapidConfig: { vapidPublicKey, vapidPrivateKey, vapidSubject },

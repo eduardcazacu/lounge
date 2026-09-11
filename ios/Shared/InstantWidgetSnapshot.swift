@@ -66,6 +66,60 @@ public struct InstantWidgetSnapshot: Codable, Equatable, Sendable {
 
     public var isEmpty: Bool { contacts.isEmpty }
     public var totalWaiting: Int { contacts.reduce(0) { $0 + $1.unopenedCount } }
+
+    /// Folds a newly-arrived instant in, from the push payload alone.
+    ///
+    /// The Notification Service Extension has no access token and cannot call
+    /// the API, so everything it knows comes from the notification. Whatever the
+    /// app already recorded for this person — their cached picture, their streak
+    /// — is kept, because the push does not carry it and dropping it would make
+    /// the widget visibly worse the moment a push arrives.
+    public func addingArrival(
+        senderId: Int,
+        name: String,
+        themeKey: String,
+        profilePictureUrl: String?,
+        now: Date
+    ) -> InstantWidgetSnapshot {
+        var updated = contacts
+        let existing = updated.firstIndex { $0.userId == senderId }
+
+        if let existing {
+            let previous = updated[existing]
+            updated[existing] = Contact(
+                userId: senderId,
+                name: name.isEmpty ? previous.name : name,
+                themeKey: themeKey.isEmpty ? previous.themeKey : themeKey,
+                profilePictureUrl: profilePictureUrl ?? previous.profilePictureUrl,
+                avatarFile: previous.avatarFile,
+                unopenedCount: previous.unopenedCount + 1,
+                streakCount: previous.streakCount
+            )
+            // Newest first, matching how the app orders the inbox.
+            updated.insert(updated.remove(at: existing), at: 0)
+        } else {
+            updated.insert(
+                Contact(
+                    userId: senderId,
+                    name: name,
+                    themeKey: themeKey,
+                    profilePictureUrl: profilePictureUrl,
+                    // No cached picture: pruning removes files for anyone not in
+                    // the snapshot, so someone arriving fresh has none on disk.
+                    // Initials on their theme colour cover it until the app next
+                    // runs and caches one.
+                    avatarFile: nil,
+                    unopenedCount: 1,
+                    // Unknown from a push. The app corrects it on next launch,
+                    // and no streak is better than a wrong one.
+                    streakCount: 0
+                ),
+                at: 0
+            )
+        }
+
+        return InstantWidgetSnapshot(contacts: updated, updatedAt: now)
+    }
 }
 
 /// The shared container the app writes to and the widget reads from.

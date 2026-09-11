@@ -7,11 +7,19 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A7A33C56B614DED61D784AF4 /* InstantNotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 1AA6D9EB91692544752BD739 /* InstantNotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		D9864485A4F7CB8D16B5D251 /* InstantWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F231F6FE549E641636571AA6 /* InstantWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		D9F8C61E8878348FBC02E23C /* libwebp in Frameworks */ = {isa = PBXBuildFile; productRef = 1839E087D927F666802ADBDB /* libwebp */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		23271A569DD9B640AFAC8F8C /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 98F54143AB4E86B28C3AFEE0 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 604F74F091BAD3D7C6E7D5EF;
+			remoteInfo = InstantNotificationService;
+		};
 		38D0ABC5A08ACF576AB3E9AA /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 98F54143AB4E86B28C3AFEE0 /* Project object */;
@@ -43,6 +51,7 @@
 			dstSubfolderSpec = 13;
 			files = (
 				D9864485A4F7CB8D16B5D251 /* InstantWidget.appex in Embed Foundation Extensions */,
+				A7A33C56B614DED61D784AF4 /* InstantNotificationService.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -50,6 +59,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		1AA6D9EB91692544752BD739 /* InstantNotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = InstantNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		709F2E47840969CE27FCADEB /* InstantUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = InstantUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		8BCD5BC4CDFDF0918087C782 /* Instant.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Instant.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F219C0274590DA45E4BEF1EA /* InstantTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = InstantTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -57,6 +67,11 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		40DBDC34C7765D75D472DF46 /* InstantNotificationService */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = InstantNotificationService;
+			sourceTree = "<group>";
+		};
 		871EC0CDB63A64797DD808F9 /* Shared */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Shared;
@@ -114,6 +129,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C317BF83F2F2460BD3A12A20 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -122,6 +144,7 @@
 			children = (
 				8BCD5BC4CDFDF0918087C782 /* Instant.app */,
 				F231F6FE549E641636571AA6 /* InstantWidget.appex */,
+				1AA6D9EB91692544752BD739 /* InstantNotificationService.appex */,
 				F219C0274590DA45E4BEF1EA /* InstantTests.xctest */,
 				709F2E47840969CE27FCADEB /* InstantUITests.xctest */,
 			);
@@ -134,6 +157,7 @@
 				A4E78D51C7AF34885265A1CA /* Instant */,
 				871EC0CDB63A64797DD808F9 /* Shared */,
 				BA9AEB0CAACEDA0B5B57772A /* InstantWidget */,
+				40DBDC34C7765D75D472DF46 /* InstantNotificationService */,
 				C2D0948BCF7FECFBC1423C7E /* InstantTests */,
 				D37F650ACA2AF7ABF6C2C0BC /* InstantUITests */,
 				328EC33DF3954DC9B83FA285 /* Products */,
@@ -143,6 +167,29 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		604F74F091BAD3D7C6E7D5EF /* InstantNotificationService */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8074348469ECA333301B095A /* Build configuration list for PBXNativeTarget "InstantNotificationService" */;
+			buildPhases = (
+				0BF89DF60518C40C363738B7 /* Sources */,
+				C317BF83F2F2460BD3A12A20 /* Frameworks */,
+				FBCB829A083DEA78DE37C5B1 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				40DBDC34C7765D75D472DF46 /* InstantNotificationService */,
+				871EC0CDB63A64797DD808F9 /* Shared */,
+			);
+			name = InstantNotificationService;
+			packageProductDependencies = (
+			);
+			productName = InstantNotificationService;
+			productReference = 1AA6D9EB91692544752BD739 /* InstantNotificationService.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		64BCB755386F844C96A2A5B0 /* InstantTests */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 7484A24AD5D1B3AEBE01B41B /* Build configuration list for PBXNativeTarget "InstantTests" */;
@@ -202,6 +249,7 @@
 			);
 			dependencies = (
 				3E9C52EF4399CCDF6B93D64D /* PBXTargetDependency */,
+				EFB14940DCB6A85FF387AB20 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				871EC0CDB63A64797DD808F9 /* Shared */,
@@ -248,6 +296,9 @@
 				LastSwiftUpdateCheck = 2700;
 				LastUpgradeCheck = 2700;
 				TargetAttributes = {
+					604F74F091BAD3D7C6E7D5EF = {
+						CreatedOnToolsVersion = 27.0;
+					};
 					64BCB755386F844C96A2A5B0 = {
 						CreatedOnToolsVersion = 27.0;
 						TestTargetID = C13732C8E715C9BEE4FA51C9;
@@ -283,6 +334,7 @@
 			targets = (
 				C13732C8E715C9BEE4FA51C9 /* Instant */,
 				704A160D8849979DE00DDB64 /* InstantWidget */,
+				604F74F091BAD3D7C6E7D5EF /* InstantNotificationService */,
 				64BCB755386F844C96A2A5B0 /* InstantTests */,
 				D75D01E5FD65F1CE576FC5B6 /* InstantUITests */,
 			);
@@ -311,6 +363,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		FBCB829A083DEA78DE37C5B1 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		FE608D3A8638F8175D740C08 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -321,6 +380,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		0BF89DF60518C40C363738B7 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		2D81737A052BBAAD15A6D3C1 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -367,6 +433,11 @@
 			target = C13732C8E715C9BEE4FA51C9 /* Instant */;
 			targetProxy = 38D0ABC5A08ACF576AB3E9AA /* PBXContainerItemProxy */;
 		};
+		EFB14940DCB6A85FF387AB20 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 604F74F091BAD3D7C6E7D5EF /* InstantNotificationService */;
+			targetProxy = 23271A569DD9B640AFAC8F8C /* PBXContainerItemProxy */;
+		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
@@ -407,6 +478,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 844S7255R5;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -419,6 +491,29 @@
 				VALIDATE_PRODUCT = YES;
 			};
 			name = Release;
+		};
+		81FF9470873B1A12EC229BA2 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = InstantNotificationService/InstantNotificationService.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "InstantNotificationService-Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.eduardcazacu.instant.notifications;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
 		};
 		8EEBAB68363C2B0DAE00DB30 /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -487,6 +582,29 @@
 			};
 			name = Release;
 		};
+		9985A4D0786FEC85B349F84A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = InstantNotificationService/InstantNotificationService.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "InstantNotificationService-Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.eduardcazacu.instant.notifications;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 		9B3B545F8CBA1ACB550689D3 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -521,6 +639,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 844S7255R5;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -614,6 +733,15 @@
 			buildConfigurations = (
 				FCB48D8F88BCDB0ED9FADFD7 /* Debug */,
 				942EEBBACD6C88CAE7F29B29 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		8074348469ECA333301B095A /* Build configuration list for PBXNativeTarget "InstantNotificationService" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				81FF9470873B1A12EC229BA2 /* Debug */,
+				9985A4D0786FEC85B349F84A /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

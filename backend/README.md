@@ -207,6 +207,13 @@ because a free personal Apple team cannot sign an app declaring
 tokens it is given and simply has none to send to until the app is built with
 push enabled. See `ios/README.md`.
 
+The instant push carries the sender's id, name, theme and picture URL in `data`
+alongside `instantId`. That is for the iOS Notification Service Extension, which
+updates the home-screen widget on delivery and has no way to call the API — it
+holds no token. The payload still carries no media and no key material, and the
+title already reveals the sender's name, so this adds nothing the notification
+did not already disclose.
+
 Verify the sender without an Apple account:
 
 ```bash

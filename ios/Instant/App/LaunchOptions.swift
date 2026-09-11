@@ -20,6 +20,15 @@ public enum LaunchOptions {
         ProcessInfo.processInfo.arguments.contains(stubFlag)
     }
 
+    /// Lets a UI test put the app through the real notification-permission
+    /// prompt, which is the only way to authorise pushes on a Simulator —
+    /// `simctl privacy` has no notifications service.
+    public static let requestPushFlag = "-instantUITestRequestPush"
+
+    public static var requestsPush: Bool {
+        ProcessInfo.processInfo.arguments.contains(requestPushFlag)
+    }
+
     public static var startsSignedIn: Bool {
         ProcessInfo.processInfo.arguments.contains(signedInFlag)
     }
