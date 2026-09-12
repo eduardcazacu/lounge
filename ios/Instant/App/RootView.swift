@@ -29,6 +29,10 @@ struct RootView: View {
                 environment.store.clearSessionExpired()
             }
         }
+        // A tapped widget. The notification path comes in through the
+        // `UNUserNotificationCenter` delegate instead, and both end up in
+        // `openInbox`.
+        .onOpenURL { environment.handle($0) }
         .onChange(of: scenePhase) { _, phase in
             // Coming back from the background is exactly when a queued instant
             // is most likely waiting, and when the socket most likely died.
@@ -37,14 +41,12 @@ struct RootView: View {
         }
     }
 
+    /// Only the permission prompt happens here. Listening for taps is set up at
+    /// launch by `AppDelegate`, because a notification tapped from a cold start
+    /// is delivered only to a delegate that was already in place.
     private func registerForPush() async {
         guard !LaunchOptions.isStubbed || LaunchOptions.requestsPush else { return }
-        let registrar = PushRegistrar(userAPI: environment.userAPI) { instantId in
-            environment.pendingInstantId = instantId
-            environment.showsInbox = true
-        }
-        AppDelegate.registrar = registrar
-        await registrar.requestAuthorizationAndRegister()
+        await AppDelegate.registrar?.requestAuthorizationAndRegister()
     }
 }
 

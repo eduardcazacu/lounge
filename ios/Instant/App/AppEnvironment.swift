@@ -24,6 +24,32 @@ public final class AppEnvironment {
     public var pendingInstantId: String?
     public var showsInbox = false
 
+    /// Where every way in from outside the app lands.
+    ///
+    /// A notification and a widget both say "someone sent you something", so
+    /// both open the inbox — with the named instant on top of it when the
+    /// notification named one. The camera is where the app opens by itself, not
+    /// where someone who tapped a photo waiting for them wants to be.
+    /// Routes a URL the app was opened with — today, only a tapped widget.
+    /// Returns whether it was ours, which is what makes the decision testable
+    /// without a view.
+    @discardableResult
+    public func handle(_ url: URL) -> Bool {
+        guard case let .inbox(instantId)? = DeepLink(url: url) else { return false }
+        openInbox(instantId: instantId)
+        return true
+    }
+
+    public func openInbox(instantId: String? = nil) {
+        // Assigning the same id twice would not fire the observation the inbox
+        // watches, and a second push for an instant already pending is not a
+        // second thing to open.
+        if let instantId, instantId != pendingInstantId {
+            pendingInstantId = instantId
+        }
+        showsInbox = true
+    }
+
     /// The signed-in account, loaded once so the camera's profile button can
     /// show a real avatar rather than waiting for someone to open Settings.
     public private(set) var account: AccountProfile?

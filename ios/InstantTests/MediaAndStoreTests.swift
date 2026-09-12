@@ -742,12 +742,24 @@ struct PushAuthorizationTests {
     }
 
     /// Without a delegate a tapped notification opens the app but never routes
-    /// to the instant it names.
-    @Test("Sets itself as the notification delegate")
+    /// to the instant it names — and on a cold start the tap is dropped
+    /// outright, leaving the app on the camera.
+    @Test("Observing taps sets the notification delegate")
     func setsDelegate() async {
         let authorizer = RecordingAuthorizer()
-        await registrar(authorizer).requestAuthorizationAndRegister()
+        registrar(authorizer).observeTaps()
         #expect(authorizer.delegateSet)
+    }
+
+    /// The regression that made a cold-start tap land on the camera: the
+    /// delegate was only set on the way through the permission prompt, which
+    /// happens several awaits after launch. Listening has to stand on its own.
+    @Test("Listening for taps does not depend on the permission prompt")
+    func observesTapsWithoutPrompting() async {
+        let authorizer = RecordingAuthorizer()
+        registrar(authorizer).observeTaps()
+        #expect(authorizer.requestedOptions.isEmpty)
+        #expect(authorizer.registeredForRemote == 0)
     }
 }
 

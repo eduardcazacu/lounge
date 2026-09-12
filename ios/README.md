@@ -103,6 +103,28 @@ extension's code cannot be reached from the app's test bundle. `WidgetRenderTest
 rasterises every state to PNGs — the only way to see a widget, since XCUITest
 cannot drive one and the Simulator has no way to add one from the command line.
 
+## Where a tap from outside the app lands
+
+The inbox, never the camera. A widget showing that someone is waiting and a
+notification saying someone sent you something are both about an instant, so
+both open the list of them — the camera is where the app opens when *it* decides
+where to start.
+
+- The widget carries `instant://inbox` (`Shared/DeepLink.swift`, built by the
+  extension and parsed by the app, which is why it is shared rather than spelled
+  out twice). The scheme is declared in `Instant-Info.plist`; the rest of that
+  target's Info.plist is still generated from `INFOPLIST_KEY_*` settings, since
+  `CFBundleURLTypes` is an array of dictionaries and has no build-setting form.
+  The idle widget carries no URL and opens the app wherever it normally opens.
+- The notification goes through the `UNUserNotificationCenter` delegate, which
+  `AppDelegate` installs at launch rather than after sign-in. iOS hands a
+  notification tapped from a cold start to whatever delegate exists when
+  launching finishes, once — set it any later and the tap is dropped silently,
+  and the app comes up on the camera.
+- A notification names its instant, and that instant is usually not in the inbox
+  yet when the tap arrives on a cold start, so the id stays pending until it
+  lands rather than being dropped on the first miss.
+
 ## The protocol, and what is easy to get wrong
 
 Full contract in `backend/README.md`. The parts that fail *silently* if a port

@@ -42,11 +42,13 @@ struct InboxScreen: View {
         .sheet(item: $safetyNumberPeer) { peer in
             SafetyNumberScreen(peerUserId: peer.userId, peerName: peer.name)
         }
-        .onChange(of: environment.pendingInstantId) { _, id in
-            guard let id, let instant = store.instants.first(where: { $0.id == id }) else { return }
-            environment.pendingInstantId = nil
-            open(instant)
-        }
+        .onChange(of: environment.pendingInstantId) { _, _ in openPendingIfPossible() }
+        // A notification tapped from a cold start arrives before the inbox has
+        // been fetched, so the named instant is not here yet. Waiting for it to
+        // land is the difference between the deep link working and the inbox
+        // just sitting there with the instant one tap away.
+        .onChange(of: store.instants) { _, _ in openPendingIfPossible() }
+        .onAppear { openPendingIfPossible() }
     }
 
     private var header: some View {
@@ -191,6 +193,17 @@ struct InboxScreen: View {
         }
         .frame(maxWidth: .infinity)
         .accessibilityIdentifier("inbox.empty")
+    }
+
+    /// Opens whatever a notification asked for, once it is actually in the
+    /// inbox. Stays pending until then, and is cleared once spent.
+    private func openPendingIfPossible() {
+        guard viewing == nil,
+              let id = environment.pendingInstantId,
+              let instant = store.instants.first(where: { $0.id == id })
+        else { return }
+        environment.pendingInstantId = nil
+        open(instant)
     }
 
     private func open(_ instant: InstantDelivery) {

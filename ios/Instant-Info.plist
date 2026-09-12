@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The scheme the widget's tap URL uses. Everything else in this file is
+	     still generated from INFOPLIST_KEY_* build settings; CFBundleURLTypes
+	     is an array of dictionaries and has no build-setting form. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.eduardcazacu.instant</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>instant</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

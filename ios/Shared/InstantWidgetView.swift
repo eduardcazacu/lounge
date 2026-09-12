@@ -45,8 +45,17 @@ public struct InstantWidgetView: View {
 
     // MARK: - Someone is waiting
 
+    /// The tap lands in the inbox rather than on the camera: a widget showing
+    /// that someone is waiting is a promise about where it goes. The idle
+    /// widget carries no URL and opens the app where it normally opens.
     @ViewBuilder
     private func waiting(_ contact: InstantWidgetSnapshot.Contact) -> some View {
+        waitingBody(contact)
+            .widgetURL(DeepLink.inbox(instantId: nil).url)
+    }
+
+    @ViewBuilder
+    private func waitingBody(_ contact: InstantWidgetSnapshot.Contact) -> some View {
         switch family {
         case .systemMedium:
             HStack(spacing: 14) {

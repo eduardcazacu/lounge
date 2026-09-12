@@ -66,6 +66,18 @@ public final class PushRegistrar: NSObject {
         super.init()
     }
 
+    /// Starts routing tapped notifications, which is a separate job from asking
+    /// for permission and has to happen much earlier.
+    ///
+    /// iOS hands a notification tapped from a cold start to whatever delegate is
+    /// in place when launching finishes, once. Setting this after sign-in — the
+    /// old arrangement — was always too late: the tap was dropped and the app
+    /// came up on the camera. Permission is irrelevant here; if there was no
+    /// permission there would be no notification to tap.
+    public func observeTaps() {
+        notifications.setDelegate(self)
+    }
+
     /// Asks for permission, then registers for a token if it was given.
     ///
     /// This used to be behind an `#if INSTANT_PUSH` that was never defined in
@@ -79,7 +91,6 @@ public final class PushRegistrar: NSObject {
     /// returns the standing decision without prompting again, so calling this on
     /// every sign-in is safe.
     public func requestAuthorizationAndRegister() async {
-        notifications.setDelegate(self)
         let granted = (try? await notifications.requestAuthorization(
             options: [.alert, .sound, .badge]
         )) ?? false
