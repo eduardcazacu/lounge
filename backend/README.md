@@ -223,6 +223,21 @@ npx tsx scripts/verify-apns.ts
 It generates a throwaway P-256 key, checks the JWT against its own public key,
 and drives every response Apple can give through a stubbed `fetch`.
 
+If Apple rejects a send, the delivery log names the reason. To ask Apple about
+the key itself before blaming anything else:
+
+```bash
+npx tsx scripts/check-apns-key.ts ~/Downloads/AuthKey_XXXXXXXXXX.p8 \
+  --key-id XXXXXXXXXX --team-id 844S7255R5 --bundle com.eduardcazacu.instant
+```
+
+It signs a token locally — the `.p8` never leaves the machine — and pushes to a
+deliberately invalid device token on both hosts. `BadDeviceToken` back from a
+host means the key and topic were accepted there, which is the result you want.
+`BadEnvironmentKeyInToken` means the key is not enabled for that environment: an
+APNs key can be created restricted to one, and a development build's token can
+only ever be delivered through sandbox.
+
 **Only `sendPushToUsers` reaches APNs.** The five older senders
 (`notifyFollowersOfNewPost`, `sendTestNotificationToUser`,
 `sendBroadcastNotification`, `notifyPostAuthorOfReply`, `notifyMentionedUsers`)
