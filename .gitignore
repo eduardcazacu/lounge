@@ -1,0 +1,4 @@
+# Finder leaves one of these in every directory it has been asked to display.
+# Each package already ignores it locally; this catches the repo root and
+# anything new that has no .gitignore of its own.
+.DS_Store
