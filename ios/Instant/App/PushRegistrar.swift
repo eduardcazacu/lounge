@@ -116,21 +116,36 @@ public final class PushRegistrar: NSObject {
     }
 }
 
-extension PushRegistrar: UNUserNotificationCenterDelegate {
-    public nonisolated func userNotificationCenter(
+/// Both of these are main-actor isolated, inherited from the class rather than
+/// opted out of with `nonisolated` — which is not a style choice.
+///
+/// Swift turns an `async` delegate method into the `@objc` completion-handler
+/// method the system actually calls, and invokes that completion handler on
+/// whatever executor the method was isolated to. UIKit's handler for a tapped
+/// notification updates the app snapshot and state restoration, and asserts
+/// unless it is called on the main thread, so as `nonisolated` every tap ended
+/// in
+///
+///     NSInternalInconsistencyException: Call must be made on main thread
+///
+/// The app was killed before it could show anything: a cold start came up and
+/// died on the spot, and a tap with the app in the background did nothing at
+/// all. Hopping to the main actor *inside* the method — the old `MainActor.run`
+/// — is too late, because the completion handler is called after it returns.
+///
+/// `@preconcurrency` on the conformance is what lets an isolated method satisfy
+/// a requirement declared without isolation: `UNNotificationResponse` and
+/// friends are not `Sendable`, and the main-actor hop the compiler is warning
+/// about is the one that has to happen anyway.
+extension PushRegistrar: @preconcurrency UNUserNotificationCenterDelegate {
+    public func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
-        // Pull the id out here rather than sending the whole userInfo
-        // dictionary across the actor boundary — it is [AnyHashable: Any] and
-        // therefore not Sendable.
-        let instantId = Self.instantId(from: response.notification.request.content.userInfo)
-        await MainActor.run {
-            onOpenInstant(instantId)
-        }
+        onOpenInstant(Self.instantId(from: response.notification.request.content.userInfo))
     }
 
-    public nonisolated func userNotificationCenter(
+    public func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {

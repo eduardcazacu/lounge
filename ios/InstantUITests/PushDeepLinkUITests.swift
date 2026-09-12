@@ -48,10 +48,19 @@ final class PushDeepLinkUITests: XCTestCase {
 
         XCTAssertTrue(app.buttons["camera.shutter"].waitForExistence(timeout: 10))
 
+        // The banner's own element is `NotificationShortLookView` on older
+        // runtimes and unnamed on newer ones, where only its title is
+        // addressable — and an identifier that stopped matching is a test that
+        // fails before it can tap anything, which is how a crash on every tap
+        // went unnoticed. Tapping the title hits the same banner either way.
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-        let banner = springboard.otherElements["NotificationShortLookView"]
-        XCTAssertTrue(banner.waitForExistence(timeout: 20), "no notification arrived")
-        banner.tap()
+        let titled = springboard.staticTexts["Ana sent you an instant"].firstMatch
+        let named = springboard.otherElements["NotificationShortLookView"]
+        XCTAssertTrue(
+            titled.waitForExistence(timeout: 20) || named.waitForExistence(timeout: 5),
+            "no notification arrived"
+        )
+        (titled.exists ? titled : named).tap()
 
         XCTAssertTrue(app.images["viewer.image"].waitForExistence(timeout: 15))
     }
