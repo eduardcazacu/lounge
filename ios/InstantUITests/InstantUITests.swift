@@ -194,11 +194,12 @@ final class InstantUITests: XCTestCase {
         XCTAssertTrue(groups.allSatisfy { $0.count == 5 })
     }
 
-    /// A plain tap opens what is waiting and nothing else; with nothing waiting
-    /// it does nothing at all, and the row carries no instruction text.
-    func testTappingAConversationWithNothingWaitingDoesNothing() {
+    /// A plain tap opens what is waiting; with nothing waiting it means the
+    /// other direction — the camera, aimed at them.
+    func testTappingAConversationWithNothingWaitingOpensTheCameraAimedAtThem() {
         let app = launch(signedIn: true)
-        XCTAssertTrue(app.buttons["camera.shutter"].waitForExistence(timeout: 30))
+        let shutter = app.buttons["camera.shutter"]
+        XCTAssertTrue(shutter.waitForExistence(timeout: 30))
         app.buttons["camera.inbox"].tap()
 
         let row = app.buttons["inbox.conversation.Ana"]
@@ -210,16 +211,154 @@ final class InstantUITests: XCTestCase {
         app.images["viewer.image"].tap()
         waitForDisappearance(app.images["viewer.image"])
 
+        // Closing the instant lands back on the inbox, and the row now asks to
+        // be replied to rather than sitting inert.
         XCTAssertTrue(row.waitForExistence(timeout: 30))
-        XCTAssertFalse(row.label.contains("safety number"), "the hint text is gone")
+        let offersAReply = expectation(
+            for: NSPredicate(format: "label CONTAINS %@", "Tap to reply"), evaluatedWith: row
+        )
+        wait(for: [offersAReply], timeout: 30)
 
         row.tap()
-        // Short on purpose: this asserts something does *not* appear, so a long
-        // timeout would only slow the suite down.
-        XCTAssertFalse(
-            app.staticTexts["safety.number"].waitForExistence(timeout: 3),
-            "a tap must not open the safety number"
+
+        // The camera, with Ana already chosen — and the safety number, which is
+        // behind a long press, nowhere near this.
+        XCTAssertTrue(shutter.waitForExistence(timeout: 30))
+        XCTAssertFalse(app.staticTexts["safety.number"].exists)
+        let aim = app.staticTexts["camera.aim"]
+        XCTAssertTrue(aim.waitForExistence(timeout: 30))
+        XCTAssertEqual(aim.label, "Sending to Ana")
+    }
+
+    /// The point of aiming: the photo is taken and the send button already knows
+    /// who it is for, so there is no picker between the shutter and sending.
+    func testAnAimedCaptureSendsWithoutThePicker() {
+        let app = launch(signedIn: true)
+        let shutter = app.buttons["camera.shutter"]
+        XCTAssertTrue(shutter.waitForExistence(timeout: 30))
+        app.buttons["camera.inbox"].tap()
+
+        let row = app.buttons["inbox.conversation.Bo"]
+        XCTAssertTrue(row.waitForExistence(timeout: 30))
+        row.tap()
+
+        XCTAssertTrue(shutter.waitForExistence(timeout: 30))
+        shutter.tap()
+
+        let send = app.buttons["compose.sendTo"]
+        XCTAssertTrue(send.waitForExistence(timeout: 30))
+        XCTAssertEqual(send.label, "Send to Bo")
+        // Redirecting is still possible, or a wrong recipient would cost the photo.
+        XCTAssertTrue(app.buttons["compose.changeRecipient"].exists)
+
+        send.tap()
+
+        // Back on the camera with the aim spent: the next photo is for whoever
+        // is chosen then, not for Bo again.
+        XCTAssertTrue(shutter.waitForExistence(timeout: 30))
+        waitForDisappearance(app.staticTexts["camera.aim"])
+    }
+
+    /// Recency counts sends, not only what arrives: the stub's history still has
+    /// Ana an hour ago and Bo a month ago, and sending to Bo has to reorder them
+    /// before the server has any say in it.
+    func testSendingMakesSomeoneTheMostRecentContact() {
+        let app = launch(signedIn: true)
+        let shutter = app.buttons["camera.shutter"]
+        XCTAssertTrue(shutter.waitForExistence(timeout: 30))
+        shutter.tap()
+
+        XCTAssertTrue(app.buttons["compose.sendTo"].waitForExistence(timeout: 30))
+        app.buttons["compose.sendTo"].tap()
+
+        let olderContact = app.buttons["sendTo.row.Bo"]
+        XCTAssertTrue(olderContact.waitForExistence(timeout: 30))
+        XCTAssertLessThan(
+            app.buttons["sendTo.row.Ana"].frame.minY, olderContact.frame.minY,
+            "Ana leads to begin with"
         )
+        olderContact.tap()
+        app.buttons["sendTo.send"].tap()
+
+        // Take another photo and look again. The stub's conversations endpoint
+        // knows nothing about the send, so the new order can only have come from
+        // the client recording it.
+        XCTAssertTrue(shutter.waitForExistence(timeout: 30))
+        shutter.tap()
+        XCTAssertTrue(app.buttons["compose.sendTo"].waitForExistence(timeout: 30))
+        app.buttons["compose.sendTo"].tap()
+
+        let justSentTo = app.buttons["sendTo.row.Bo"]
+        let other = app.buttons["sendTo.row.Ana"]
+        XCTAssertTrue(justSentTo.waitForExistence(timeout: 30))
+        XCTAssertTrue(other.waitForExistence(timeout: 30))
+        XCTAssertLessThan(
+            justSentTo.frame.minY, other.frame.minY,
+            "the person just sent to is the most recent conversation"
+        )
+    }
+
+    /// A streak about to lapse asks for a send, and stops asking once one has
+    /// gone — which it can only know by counting what was sent, not received.
+    func testTheStreakPromptGoesAwayAfterSendingToThem() {
+        let app = launch(signedIn: true)
+        let shutter = app.buttons["camera.shutter"]
+        XCTAssertTrue(shutter.waitForExistence(timeout: 30))
+        app.buttons["camera.inbox"].tap()
+
+        // Dee's streak lapses in an hour and she sent last, so it is this
+        // reader's move.
+        let row = app.buttons["inbox.conversation.Dee"]
+        XCTAssertTrue(row.waitForExistence(timeout: 30))
+        let asksForASend = expectation(
+            for: NSPredicate(format: "label CONTAINS %@", "keep your streak"), evaluatedWith: row
+        )
+        wait(for: [asksForASend], timeout: 30)
+
+        // Tap through to the camera, aimed at her, and send.
+        row.tap()
+        XCTAssertTrue(shutter.waitForExistence(timeout: 30))
+        shutter.tap()
+        let send = app.buttons["compose.sendTo"]
+        XCTAssertTrue(send.waitForExistence(timeout: 30))
+        XCTAssertEqual(send.label, "Send to Dee")
+        send.tap()
+
+        XCTAssertTrue(shutter.waitForExistence(timeout: 30))
+        app.buttons["camera.inbox"].tap()
+
+        XCTAssertTrue(row.waitForExistence(timeout: 30))
+        let stopsAsking = expectation(
+            for: NSPredicate(format: "NOT (label CONTAINS %@)", "keep your streak"),
+            evaluatedWith: row
+        )
+        wait(for: [stopsAsking], timeout: 30)
+        // The streak itself is still running, and still about to lapse — what
+        // changed is whose move it is.
+        XCTAssertTrue(row.label.contains("12"), "the streak count stays: \(row.label)")
+    }
+
+    /// Dropping the aim is one tap, and what is left is the ordinary camera.
+    func testTheAimCanBeDropped() {
+        let app = launch(signedIn: true)
+        XCTAssertTrue(app.buttons["camera.shutter"].waitForExistence(timeout: 30))
+        app.buttons["camera.inbox"].tap()
+
+        let row = app.buttons["inbox.conversation.Bo"]
+        XCTAssertTrue(row.waitForExistence(timeout: 30))
+        row.tap()
+
+        let clear = app.buttons["camera.aim.clear"]
+        XCTAssertTrue(clear.waitForExistence(timeout: 30))
+        clear.tap()
+
+        waitForDisappearance(app.staticTexts["camera.aim"])
+
+        // And the send button is back to asking the question.
+        app.buttons["camera.shutter"].tap()
+        let send = app.buttons["compose.sendTo"]
+        XCTAssertTrue(send.waitForExistence(timeout: 30))
+        XCTAssertEqual(send.label, "Send To")
     }
 
     /// The indicator is absent whenever delivery is working, which is almost

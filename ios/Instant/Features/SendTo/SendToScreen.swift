@@ -75,12 +75,17 @@ struct SendToScreen: View {
         .preferredColorScheme(.dark)
         .task {
             if recipients == nil {
-                recipients = SendToModel(
+                let picker = SendToModel(
                     userAPI: environment.userAPI,
                     instantAPI: environment.instantAPI,
                     history: { environment.store.history },
                     currentUserId: environment.session.currentUserId
                 )
+                // Opened from an already-aimed capture: the picker is here to
+                // change the recipient, so it starts on the current one rather
+                // than making somebody re-pick the person they already chose.
+                picker.selectedId = model.recipient?.userId
+                recipients = picker
             }
             // The history may not have been fetched yet, and the picker is
             // exactly where its ordering shows. Load the list straight away and
@@ -156,9 +161,22 @@ struct SendToScreen: View {
     }
 
     private func send() async {
-        guard let recipientId = recipients?.selectedId else { return }
+        guard let recipients, let recipientId = recipients.selectedId else { return }
+
+        // Picking somebody here supersedes whatever the camera was aimed at, so
+        // the send button and the camera's chip cannot end up naming two
+        // different people if this send fails and the photo is kept.
+        if recipientId != model.recipient?.userId {
+            environment.clearAim()
+            model.recipient = recipients.candidates
+                .first { $0.id == recipientId }
+                .map { InstantRecipient(userId: $0.id, name: $0.user.displayName) }
+        }
+
         await model.send(to: recipientId)
         if case .sent = model.sendState {
+            environment.clearAim()
+            environment.store.noteSent(toUserId: recipientId)
             await environment.store.refreshHistory()
             dismiss()
             onSent()

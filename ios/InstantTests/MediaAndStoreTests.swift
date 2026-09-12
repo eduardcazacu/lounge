@@ -536,6 +536,194 @@ struct InstantStoreTests {
         #expect(store.conversations.first?.hasPending == false)
     }
 
+    // MARK: - Reply hints
+
+    /// Opening somebody's photo is the moment a reply is most likely, so their
+    /// row stops being inert and offers one.
+    @Test("Opening an instant leaves the sender offering a reply")
+    func suggestsReplyAfterOpening() {
+        let store = makeStore(api: FakeInstantAPI())
+        store.merge([InstantDelivery.fixture(id: "a", senderId: 2)])
+        store.applyHistory([.fixture(userId: 2, name: "Ana", streakCount: 4)])
+        #expect(store.conversations.first?.suggestsReply == false)
+
+        store.dismiss("a")
+        store.noteOpened(senderId: 2)
+
+        let conversation = try! #require(store.conversations.first)
+        #expect(conversation.suggestsReply)
+        #expect(conversation.hasPending == false, "the prompt replaces the unread marker")
+    }
+
+    @Test("Sending one back answers the prompt")
+    func sendingClearsTheReplyHint() {
+        let store = makeStore(api: FakeInstantAPI())
+        store.applyHistory([.fixture(userId: 2, name: "Ana")])
+        store.noteOpened(senderId: 2)
+        #expect(store.conversations.first?.suggestsReply == true)
+
+        store.noteSent(toUserId: 2)
+        #expect(store.conversations.first?.suggestsReply == false)
+    }
+
+    /// Only the person whose instant was opened, and only for as long as this
+    /// session: a prompt that outlived a sign-out would be somebody else's.
+    @Test("A prompt belongs to one person and does not survive a reset")
+    func replyHintsAreScoped() {
+        let store = makeStore(api: FakeInstantAPI())
+        store.applyHistory([.fixture(userId: 2, name: "Ana"), .fixture(userId: 3, name: "Bo")])
+        store.noteOpened(senderId: 2)
+
+        #expect(store.conversations.first { $0.userId == 3 }?.suggestsReply == false)
+
+        store.reset()
+        store.applyHistory([.fixture(userId: 2, name: "Ana")])
+        #expect(store.conversations.first?.suggestsReply == false)
+    }
+
+    /// Something new from the same person outranks the prompt: the row says one
+    /// thing, and what is waiting is the more urgent of the two.
+    @Test("A new instant from them still shows as waiting")
+    func waitingOutranksTheReplyHint() {
+        let store = makeStore(api: FakeInstantAPI())
+        store.applyHistory([.fixture(userId: 2, name: "Ana")])
+        store.noteOpened(senderId: 2)
+        store.merge([InstantDelivery.fixture(id: "b", senderId: 2)])
+
+        #expect(store.conversations.first?.hasPending == true)
+    }
+
+    // MARK: - Recency
+
+    /// Later than every fixture timestamp, so "after" is not a question of when
+    /// the suite happens to run.
+    private let afterwards = Date(timeIntervalSince1970: 1_800_000_000)
+
+    /// Recency is about the conversation, not about one direction of it: a photo
+    /// you have just sent is the most recent thing between you.
+    @Test("Sending makes that person the most recent conversation")
+    func sendingLeadsTheOrder() {
+        let store = makeStore(api: FakeInstantAPI())
+        store.applyHistory([
+            .fixture(userId: 2, name: "Ana", lastInteractionAt: "2026-01-09T00:00:00.000Z"),
+            .fixture(userId: 3, name: "Bo", lastInteractionAt: "2026-01-01T00:00:00.000Z"),
+        ])
+        #expect(store.conversations.map(\.userId) == [2, 3])
+
+        store.noteSent(toUserId: 3, at: afterwards)
+
+        #expect(store.conversations.map(\.userId) == [3, 2], "the one just sent to leads")
+    }
+
+    /// The stamp is local, and the server's view of the same conversation can
+    /// come back a moment behind. The later of the two marks wins, so a refresh
+    /// cannot walk a send that has already happened backwards.
+    @Test("A refresh that hasn't caught up does not undo a send")
+    func staleHistoryKeepsTheSend() {
+        let store = makeStore(api: FakeInstantAPI())
+        let stale: [InstantConversationSummary] = [
+            .fixture(userId: 2, name: "Ana", lastInteractionAt: "2026-01-09T00:00:00.000Z"),
+            .fixture(userId: 3, name: "Bo", lastInteractionAt: "2026-01-01T00:00:00.000Z"),
+        ]
+        store.applyHistory(stale)
+        store.noteSent(toUserId: 3, at: afterwards)
+
+        store.applyHistory(stale)
+
+        #expect(store.conversations.map(\.userId) == [3, 2])
+        let bo = try! #require(store.history.first { $0.userId == 3 })
+        #expect(bo.lastSentAt == WireTimestamp.string(from: afterwards))
+        #expect(bo.lastInteractionAt == WireTimestamp.string(from: afterwards))
+    }
+
+    /// The picker's "Recent" section reads the same history, so a send has to
+    /// move somebody there too.
+    @Test("The send shows up in the history the recipient picker reads")
+    func historyCarriesTheSend() {
+        let store = makeStore(api: FakeInstantAPI())
+        store.applyHistory([.fixture(userId: 3, name: "Bo", lastInteractionAt: "2026-01-01T00:00:00.000Z")])
+        store.noteSent(toUserId: 3, at: afterwards)
+
+        let ordered = SendToModel.ordered(
+            [
+                UserSummary(id: 2, name: "Ana", themeKey: "rose", profilePictureUrl: nil),
+                UserSummary(id: 3, name: "Bo", themeKey: "forest", profilePictureUrl: nil),
+            ],
+            history: store.history
+        )
+        #expect(ordered.map(\.id) == [3, 2])
+    }
+
+    /// A streak lapses on whichever side went quiet first. One waiting on them
+    /// is not something the reader can act on, so it neither nags nor outranks
+    /// somebody they have just sent to.
+    @Test("A streak waiting on them does not jump the queue")
+    func onlyYourOwnMoveIsUrgent() {
+        let store = makeStore(api: FakeInstantAPI())
+        store.applyHistory([
+            // You sent an hour ago, they went quiet a day ago: their move.
+            .fixture(
+                userId: 2, name: "Ana",
+                lastInteractionAt: "2026-01-09T00:00:00.000Z",
+                lastSentAt: "2026-01-09T00:00:00.000Z",
+                lastReceivedAt: "2026-01-08T00:00:00.000Z",
+                streakCount: 9, streakAtRisk: true
+            ),
+            // The other way round: yours to keep alive.
+            .fixture(
+                userId: 3, name: "Bo",
+                lastInteractionAt: "2026-01-07T00:00:00.000Z",
+                lastSentAt: "2026-01-06T00:00:00.000Z",
+                lastReceivedAt: "2026-01-07T00:00:00.000Z",
+                streakCount: 4, streakAtRisk: true
+            ),
+        ])
+
+        let ana = try! #require(store.conversations.first { $0.userId == 2 })
+        let bo = try! #require(store.conversations.first { $0.userId == 3 })
+        #expect(ana.streakNeedsYourSend == false, "already sent: nothing to nag about")
+        #expect(bo.streakNeedsYourSend)
+        #expect(store.conversations.map(\.userId) == [3, 2], "the one waiting on you leads")
+    }
+
+    @Test("Sending settles a streak that was waiting on you")
+    func sendingSettlesTheStreak() {
+        let store = makeStore(api: FakeInstantAPI())
+        store.applyHistory([.fixture(
+            userId: 3, name: "Bo",
+            lastInteractionAt: "2026-01-07T00:00:00.000Z",
+            lastSentAt: "2026-01-06T00:00:00.000Z",
+            lastReceivedAt: "2026-01-07T00:00:00.000Z",
+            streakCount: 4, streakAtRisk: true
+        )])
+        #expect(store.conversations.first?.streakNeedsYourSend == true)
+
+        store.noteSent(toUserId: 3, at: afterwards)
+
+        #expect(store.conversations.first?.streakNeedsYourSend == false)
+        #expect(store.conversations.first?.streak?.atRisk == true, "the streak is still at risk")
+    }
+
+    /// Never sent, and the streak is about to lapse: there is nobody else it
+    /// could be waiting on.
+    @Test("A streak with nothing sent from here is yours to answer")
+    func noSendMeansYourMove() {
+        let store = makeStore(api: FakeInstantAPI())
+        store.applyHistory([.fixture(userId: 3, name: "Bo", streakCount: 4, streakAtRisk: true)])
+        #expect(store.conversations.first?.streakNeedsYourSend == true)
+    }
+
+    @Test("Signing out forgets what was sent")
+    func resetClearsSends() {
+        let store = makeStore(api: FakeInstantAPI())
+        store.applyHistory([.fixture(userId: 3, name: "Bo", lastInteractionAt: "2026-01-01T00:00:00.000Z")])
+        store.noteSent(toUserId: 3, at: afterwards)
+        store.reset()
+
+        store.applyHistory([.fixture(userId: 3, name: "Bo", lastInteractionAt: "2026-01-01T00:00:00.000Z")])
+        #expect(store.history.first?.lastInteractionAt == "2026-01-01T00:00:00.000Z")
+    }
+
     // MARK: - Widget
 
     /// The widget shows who is waiting, so only people with something unopened

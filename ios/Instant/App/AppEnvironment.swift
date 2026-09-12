@@ -4,6 +4,24 @@ import SwiftUI
 import UIKit
 #endif
 
+/// Someone a photo is already aimed at.
+///
+/// The name travels with the id because the two places that show it — the
+/// camera's chip and the compose screen's send button — have no conversation
+/// list to look it up in, and an instant aimed at "user 3" tells the sender
+/// nothing about whether it is going to the right person.
+public struct InstantRecipient: Identifiable, Equatable, Sendable {
+    public let userId: Int
+    public let name: String
+
+    public var id: Int { userId }
+
+    public init(userId: Int, name: String) {
+        self.userId = userId
+        self.name = name
+    }
+}
+
 /// Everything the views need, assembled once.
 ///
 /// It is a concrete type rather than a protocol soup because the seams that
@@ -24,6 +42,12 @@ public final class AppEnvironment {
     public var pendingInstantId: String?
     public var showsInbox = false
 
+    /// Who the next photo is already going to, set by tapping someone in the
+    /// inbox. The camera draws it, so an aim is never a surprise waiting on the
+    /// send button — and it outlives a discarded capture, because it came from
+    /// the inbox rather than from the photo.
+    public private(set) var aimedAt: InstantRecipient?
+
     /// Where every way in from outside the app lands.
     ///
     /// A notification and a widget both say "someone sent you something", so
@@ -38,6 +62,22 @@ public final class AppEnvironment {
         guard case let .inbox(instantId)? = DeepLink(url: url) else { return false }
         openInbox(instantId: instantId)
         return true
+    }
+
+    /// Tapping someone in the inbox: the camera, already aimed at them.
+    ///
+    /// The camera rather than a recipient picker, because the thing being sent
+    /// does not exist yet — Snapchat's order, where you take the photo and then
+    /// say who it is for, with the "who" already answered here.
+    public func aim(at recipient: InstantRecipient) {
+        aimedAt = recipient
+        showsInbox = false
+    }
+
+    /// Dropped once something has been sent, or when the sender taps the chip's
+    /// cross. Not dropped by discarding a capture: the aim survives a retake.
+    public func clearAim() {
+        aimedAt = nil
     }
 
     public func openInbox(instantId: String? = nil) {
@@ -104,6 +144,7 @@ public final class AppEnvironment {
         store.reset()
         session.signOut()
         account = nil
+        aimedAt = nil
     }
 
     public func handleSignIn(token: String) async {

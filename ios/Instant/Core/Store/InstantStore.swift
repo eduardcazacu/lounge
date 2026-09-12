@@ -10,9 +10,25 @@ import Observation
 @Observable
 public final class InstantStore {
     public private(set) var instants: [InstantDelivery] = []
+
     /// From `GET /api/v1/instant/conversations`: everyone you have talked to,
-    /// whether or not a streak is running.
-    public private(set) var history: [InstantConversationSummary] = []
+    /// whether or not a streak is running — with anything sent from this client
+    /// folded in, so the order reflects a send the moment it happens rather than
+    /// on the round trip that follows it.
+    public var history: [InstantConversationSummary] {
+        guard !sendsByUser.isEmpty else { return serverHistory }
+        return serverHistory.map { entry in
+            guard let sentAt = sendsByUser[entry.userId] else { return entry }
+            return entry.withSend(at: sentAt)
+        }
+    }
+
+    private var serverHistory: [InstantConversationSummary] = []
+
+    /// When this client last sent to each person. Kept rather than dropped on
+    /// the next refresh: `withSend` takes the later of the two marks, so a
+    /// server still catching up cannot walk a send backwards.
+    private var sendsByUser: [Int: String] = [:]
 
     /// Live streaks only, derived from the history rather than fetched
     /// separately — `/streaks` is a strict subset of what `/conversations`
@@ -29,6 +45,14 @@ public final class InstantStore {
     /// the inbox is drained again, and the inbox has no idea the client already
     /// dealt with it.
     private var seenIds: Set<String> = []
+
+    /// People whose instant has just been opened, so their row can offer a
+    /// reply rather than sitting inert.
+    ///
+    /// Session-scoped on purpose. The prompt is the tail end of "you just
+    /// looked at their photo"; one that survived a relaunch would be a chore
+    /// list rather than a nudge.
+    public private(set) var replyHints: Set<Int> = []
 
     private let api: InstantAPIProtocol
     private let identities: DeviceIdentityProviding
@@ -111,6 +135,14 @@ public final class InstantStore {
         /// server. Nil only for one that arrived over the socket before the
         /// first history refresh caught up.
         public let lastInteractionAt: String?
+        /// Their instant has been opened and nothing has gone back yet. What is
+        /// waiting still comes first where both are true — the row says one
+        /// thing, and "open this" beats "answer that".
+        public let suggestsReply: Bool
+        /// A streak about to lapse that is waiting on *you*. One waiting on them
+        /// is not something the reader can act on, so it neither nags nor jumps
+        /// the queue.
+        public let streakNeedsYourSend: Bool
 
         public var id: Int { userId }
         public var hasPending: Bool { pending != nil }
@@ -131,7 +163,9 @@ public final class InstantStore {
                 streak: entry.streak,
                 pending: nil,
                 pendingCount: 0,
-                lastInteractionAt: entry.lastInteractionAt
+                lastInteractionAt: entry.lastInteractionAt,
+                suggestsReply: replyHints.contains(entry.userId),
+                streakNeedsYourSend: entry.streakNeedsYourSend
             )
         }
 
@@ -154,17 +188,21 @@ public final class InstantStore {
                 streak: existing?.streak,
                 pending: existing?.pending ?? instant,
                 pendingCount: (existing?.pendingCount ?? 0) + 1,
-                lastInteractionAt: existing?.lastInteractionAt ?? instant.createdAt
+                lastInteractionAt: existing?.lastInteractionAt ?? instant.createdAt,
+                suggestsReply: existing?.suggestsReply ?? replyHints.contains(instant.senderId),
+                streakNeedsYourSend: existing?.streakNeedsYourSend ?? false
             )
         }
 
-        // Anything waiting comes first, then a streak about to lapse, then
-        // simply whoever you spoke to most recently.
+        // Anything waiting comes first, then a streak waiting on a send from
+        // you, then simply whoever you interacted with most recently — in
+        // either direction, so somebody you have just sent to leads somebody
+        // who sent to you an hour ago.
         return byUser.values.sorted { lhs, rhs in
             if lhs.hasPending != rhs.hasPending { return lhs.hasPending }
-            let lhsRisk = lhs.streak?.atRisk ?? false
-            let rhsRisk = rhs.streak?.atRisk ?? false
-            if lhsRisk != rhsRisk { return lhsRisk }
+            if lhs.streakNeedsYourSend != rhs.streakNeedsYourSend {
+                return lhs.streakNeedsYourSend
+            }
             let lhsSeen = lhs.lastInteractionAt ?? ""
             let rhsSeen = rhs.lastInteractionAt ?? ""
             if lhsSeen != rhsSeen { return lhsSeen > rhsSeen }
@@ -228,10 +266,12 @@ public final class InstantStore {
     public func reset() {
         stop()
         instants = []
-        history = []
+        serverHistory = []
+        sendsByUser = [:]
         // Signing out must not leave a stranger's name on the home screen.
         Task { [widgets] in await widgets.clear() }
         seenIds = []
+        replyHints = []
         device = nil
         userId = nil
         enrollmentError = nil
@@ -289,12 +329,12 @@ public final class InstantStore {
 
     /// Seam for tests and for anything that already holds fresh history.
     func applyHistory(_ history: [InstantConversationSummary]) {
-        self.history = history
+        serverHistory = history
     }
 
     public func refreshHistory() async {
         do {
-            history = try await api.conversations()
+            serverHistory = try await api.conversations()
             refreshWidget()
         } catch let error as APIError where error.isAuthFailure {
             sessionExpired = true
@@ -318,12 +358,31 @@ public final class InstantStore {
         let senderId = instants.first { $0.id == id }?.senderId
         instants.removeAll { $0.id == id }
         if let senderId {
-            history = history.map { entry in
+            serverHistory = serverHistory.map { entry in
                 entry.userId == senderId
                     ? entry.withUnopenedCount(entry.unopenedCount - 1)
                     : entry
             }
         }
+        refreshWidget()
+    }
+
+    /// Records that something from this person has actually been seen, which is
+    /// the moment a reply is most likely. Paired with `dismiss`, which is also
+    /// called for an instant that was already gone or could not be decrypted —
+    /// neither of which anyone opened, so neither earns a prompt.
+    public func noteOpened(senderId: Int) {
+        replyHints.insert(senderId)
+    }
+
+    /// Records an instant this client has just sent.
+    ///
+    /// Two things happen on a send, and both have to be visible before the
+    /// server is asked again: the conversation becomes the most recent one in
+    /// either direction, and a reply prompt from them is answered.
+    public func noteSent(toUserId userId: Int, at now: Date = Date()) {
+        sendsByUser[userId] = WireTimestamp.string(from: now)
+        replyHints.remove(userId)
         refreshWidget()
     }
 

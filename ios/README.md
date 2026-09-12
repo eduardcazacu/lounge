@@ -57,12 +57,56 @@ What is openable is still decided locally. The server's `unopenedCount` counts
 every device the recipient owns, including instants this one holds no envelope
 for, so the local inbox list is what decides whether a row can be tapped.
 
-Rows order by what is time-sensitive: anything waiting, then a streak about to
-lapse, then simply whoever you spoke to most recently.
+Rows order by what is time-sensitive: anything waiting, then a streak that is
+waiting on a send from *you*, then simply whoever you interacted with most
+recently.
+
+Recency means either direction. A photo you have just sent is the most recent
+thing between you, so the person you send to goes to the top of that tier —
+`lastInteractionAt` is the newer of the two marks, and `InstantStore` stamps a
+send locally the moment it lands (`noteSent`) rather than waiting for the
+round trip. `withSend` takes the *later* of the local and server marks, so a
+refresh that has not caught up yet cannot walk a send backwards.
+
+Which side a streak is waiting on comes from the same pair of marks. The
+deadline is set by whoever went quiet first, so a streak about to lapse because
+*they* have not sent in a day is not something this reader can fix: it neither
+says "Send one today to keep your streak" nor outranks somebody they have just
+sent to. Never having sent counts as your move, because there is nobody else it
+could be waiting on.
 
 The Send To picker's "Recent" section reads the same history, so recency
 survives a reinstall and is identical on every device you sign in from. It used
 to come from a device-local store, which was neither.
+
+## Tapping someone in the inbox
+
+A row means one of two things, and which one depends on whether they have
+something waiting:
+
+- **Something waiting** — it opens. That is the unread marker's promise, and the
+  same thing a tapped notification does.
+- **Nothing waiting** — the camera, already aimed at them. There is nothing to
+  read, so the tap means the other direction, and the photo does not exist yet:
+  tapping a person has answered who it is for before there is anything to send.
+
+The aim lives on `AppEnvironment` as `aimedAt`, not on the camera or the capture,
+because it outlives both: it is set before there is a photo and survives a
+retake. The camera draws it as a chip with a cross, so an aim set several taps
+ago is never a surprise discovered on the send button — and `ComposeScreen` reads
+it when it builds its model, which is what turns "Send To" into "Send to Ana"
+and makes sending one tap instead of a trip through the picker. The picker is
+still one button away, because the alternative way out of a wrong recipient
+would be discarding the photo. Sending spends the aim, whichever path sent it.
+
+Closing an instant lands back on the inbox with the sender's row offering
+**Tap to reply** — the same tap, now meaning the camera. The prompt is
+`InstantStore.replyHints`, set from `ViewerModel.wasSeen` rather than from the
+close itself: an instant that was already opened elsewhere or that this device
+holds no envelope for was seen by nobody, and there is nothing to reply to. It
+is session-scoped on purpose; one that survived a relaunch would be a chore list
+rather than a nudge. Anything newly waiting from the same person outranks it,
+since a row says one thing and "open this" beats "answer that".
 
 ## The widget
 

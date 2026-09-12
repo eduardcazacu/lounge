@@ -59,7 +59,8 @@ struct ComposeScreen: View {
                 model = ComposeModel(
                     image: image,
                     instantAPI: environment.instantAPI,
-                    senderUserId: environment.session.currentUserId ?? 0
+                    senderUserId: environment.session.currentUserId ?? 0,
+                    recipient: environment.aimedAt
                 )
             }
         }
@@ -109,12 +110,35 @@ struct ComposeScreen: View {
 
             Spacer()
 
+            // An aimed capture still has to be redirectable: the only other way
+            // out of a wrong recipient would be discarding the photo.
+            if model.recipient != nil {
+                CircleIconButton(systemName: "person.2.fill") { showsRecipients = true }
+                    .disabled(model.isSending)
+                    .accessibilityIdentifier("compose.changeRecipient")
+                    .accessibilityLabel("Send to somebody else")
+                    .padding(.trailing, 10)
+            }
+
             Button {
-                showsRecipients = true
+                if let recipient = model.recipient {
+                    Task { await send(model, to: recipient.userId) }
+                } else {
+                    showsRecipients = true
+                }
             } label: {
                 HStack(spacing: 8) {
-                    Text("Send To").font(.system(size: 16, weight: .bold))
-                    Image(systemName: "paperplane.fill")
+                    // Named rather than "Send To" when the camera was opened
+                    // from a conversation: the recipient was chosen before the
+                    // photo existed, so the button confirms it instead of
+                    // asking the question again.
+                    Text(model.recipient.map { "Send to \($0.name)" } ?? "Send To")
+                        .font(.system(size: 16, weight: .bold))
+                    if model.isSending {
+                        ProgressView().tint(.black)
+                    } else {
+                        Image(systemName: "paperplane.fill")
+                    }
                 }
                 .foregroundStyle(.black)
                 .padding(.horizontal, 20)
@@ -125,6 +149,19 @@ struct ComposeScreen: View {
             .disabled(model.isSending)
             .accessibilityIdentifier("compose.sendTo")
         }
+    }
+
+    /// The one-tap path, for a capture that already knows who it is for. The
+    /// picker's own send goes through `SendToScreen`, and both finish the same
+    /// way: the aim is spent, the send is recorded so the inbox reorders without
+    /// waiting on the server, and the camera comes back.
+    private func send(_ model: ComposeModel, to recipientId: Int) async {
+        await model.send(to: recipientId)
+        guard case .sent = model.sendState else { return }
+        environment.clearAim()
+        environment.store.noteSent(toUserId: recipientId)
+        await environment.store.refreshHistory()
+        onDiscard()
     }
 
     /// The overlay is positioned against the *image* rect, not the container.

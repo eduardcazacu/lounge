@@ -50,22 +50,7 @@ struct DeepLinkTests {
 @MainActor
 @Suite("Opening from outside the app")
 struct DeepLinkRoutingTests {
-    private func makeEnvironment() -> AppEnvironment {
-        let identities = DeviceIdentityStore(
-            keychain: InMemoryKeychain(),
-            secureEnclaveAvailable: { false }
-        )
-        let api = FakeInstantAPI()
-        return AppEnvironment(
-            config: .localWorker,
-            session: SessionStore(keychain: InMemoryKeychain()),
-            userAPI: FakeUserAPI(),
-            instantAPI: api,
-            identities: identities,
-            store: InstantStore(api: api, identities: identities, makeSocket: { _ in StubSocket() }),
-            makeCamera: { StubCameraController(frame: UIImage()) }
-        )
-    }
+    private func makeEnvironment() -> AppEnvironment { makeTestEnvironment() }
 
     /// The app opens on the camera. A widget saying someone is waiting has to
     /// override that, or the tap lands somewhere that says nothing about why it
@@ -92,5 +77,60 @@ struct DeepLinkRoutingTests {
         #expect(!environment.handle(URL(string: "https://example.com")!))
         #expect(!environment.showsInbox)
         #expect(environment.pendingInstantId == nil)
+    }
+}
+
+/// The other direction: out of a conversation and into the camera, with the
+/// person already chosen.
+@MainActor
+@Suite("Aiming the camera at someone")
+struct CameraAimTests {
+    private let ana = InstantRecipient(userId: 2, name: "Ana")
+
+    @Test("Tapping someone leaves the inbox with them already chosen")
+    func aimingOpensTheCamera() {
+        let environment = makeTestEnvironment()
+        environment.openInbox()
+        #expect(environment.showsInbox)
+
+        environment.aim(at: ana)
+
+        #expect(!environment.showsInbox, "the camera is where a new photo gets taken")
+        #expect(environment.aimedAt == ana)
+    }
+
+    @Test("The aim is dropped on request")
+    func clearingTheAim() {
+        let environment = makeTestEnvironment()
+        environment.aim(at: ana)
+        environment.clearAim()
+        #expect(environment.aimedAt == nil)
+    }
+
+    /// The aim is the name on the send button. Carrying one across a sign-out
+    /// would put the last account's contact on the next account's camera.
+    @Test("Signing out forgets who was aimed at")
+    func signingOutClearsTheAim() async {
+        let environment = makeTestEnvironment()
+        environment.aim(at: ana)
+        await environment.signOut()
+        #expect(environment.aimedAt == nil)
+    }
+
+    /// The compose screen reads the aim when it builds its model, which is what
+    /// turns "Send To" into "Send to Ana".
+    @Test("A capture inherits the aim as its recipient")
+    func composeInheritsTheAim() {
+        let environment = makeTestEnvironment()
+        environment.aim(at: ana)
+
+        let model = ComposeModel(
+            image: UIImage(),
+            instantAPI: environment.instantAPI,
+            senderUserId: 1,
+            recipient: environment.aimedAt
+        )
+
+        #expect(model.recipient == ana)
     }
 }

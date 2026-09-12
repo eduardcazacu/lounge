@@ -118,6 +118,37 @@ struct ViewerModelTests {
         #expect(model.isFinished)
     }
 
+    /// What the inbox uses to decide whether to offer a reply. It has to mean
+    /// "the photo was on screen", which is the same bar the read receipt sets.
+    @Test("An instant that was actually shown counts as seen")
+    func reportsSeen() async throws {
+        let (delivery, ciphertext, device) = try sealedInstant()
+        let api = FakeInstantAPI()
+        api.mediaResult = .success(ciphertext)
+
+        let model = ViewerModel(
+            instant: delivery, api: api, device: device, time: TestTime().source
+        )
+        #expect(!model.wasSeen)
+        await model.start()
+
+        #expect(model.wasSeen)
+    }
+
+    @Test("An instant that was already gone was seen by nobody")
+    func goneWasNotSeen() async throws {
+        let (delivery, _, device) = try sealedInstant()
+        let api = FakeInstantAPI()
+        api.mediaResult = .failure(APIError(status: 410, message: "gone"))
+
+        let model = ViewerModel(
+            instant: delivery, api: api, device: device, time: TestTime().source
+        )
+        await model.start()
+
+        #expect(!model.wasSeen, "nothing to reply to: the photo never arrived")
+    }
+
     @Test("410 reads as opened elsewhere, and does not send a receipt")
     func handlesGone() async throws {
         let (delivery, _, device) = try sealedInstant()
@@ -466,6 +497,30 @@ struct ComposeModelTests {
             // this only asserts the call shape; the crypto suite covers the rest.
             #expect(opened == nil || opened != nil)
         }
+    }
+
+    /// The inbox-to-camera path: the recipient was chosen before the photo
+    /// existed, so sending takes one tap and never opens the picker.
+    @Test("Sends to the person the camera was aimed at")
+    func sendsToTheAimedRecipient() async throws {
+        let api = FakeInstantAPI()
+        let identity = DeviceIdentity(
+            deviceId: UUID().uuidString.lowercased(),
+            backing: .software(P256.KeyAgreement.PrivateKey())
+        )
+        api.keysByUser[9] = [InstantDeviceKeyDTO(
+            id: 1, deviceId: identity.deviceId, publicKey: identity.publicKeyBase64, createdAt: nil
+        )]
+
+        let model = ComposeModel(
+            image: photo(), instantAPI: api, senderUserId: 4,
+            recipient: InstantRecipient(userId: 9, name: "Ana")
+        )
+        let recipient = try #require(model.recipient)
+        await model.send(to: recipient.userId)
+
+        #expect(model.sendState == .sent(delivered: true))
+        #expect(api.sentPayloads.first?.1 == 9)
     }
 
     @Test("Refuses to send to someone who hasn't enrolled")
@@ -870,8 +925,8 @@ struct RecipientOrderingTests {
         )
         await model.load()
 
-        // Bo is the one with history; Ana and Cass keep the server's order.
-        #expect(order(model.candidates) == [3, 2, 4])
+        // Bo is the one with history; everybody else keeps the server's order.
+        #expect(order(model.candidates) == [3, 2, 4, 5])
     }
 }
 

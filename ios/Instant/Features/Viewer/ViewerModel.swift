@@ -50,6 +50,12 @@ public final class ViewerModel {
         instant.durationMode != .infinite && phase == .showing
     }
 
+    /// Whether the photo actually reached the screen — the same condition as the
+    /// read receipt. One that was already gone, or that this device holds no
+    /// envelope for, was opened by nobody, so the inbox must not go on to offer
+    /// a reply to something that was never seen.
+    public var wasSeen: Bool { hasSentReceipt }
+
     public func start() async {
         guard !hasStartedFetch else { return }
         hasStartedFetch = true

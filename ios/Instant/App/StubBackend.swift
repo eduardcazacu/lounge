@@ -105,6 +105,7 @@ final class StubAPIClient: APIClientProtocol, @unchecked Sendable {
                     // No history with this one, so the picker has an "Everyone"
                     // section to put somebody in.
                     ["id": 4, "name": "Cass", "themeKey": "gold", "profilePictureUrl": NSNull()],
+                    ["id": 5, "name": "Dee", "themeKey": "indigo", "profilePictureUrl": NSNull()],
                 ],
             ])
 
@@ -140,15 +141,32 @@ final class StubAPIClient: APIClientProtocol, @unchecked Sendable {
         case ("GET", "api/v1/instant/conversations"):
             return try encode([
                 "conversations": [
-                    // A live streak, with something waiting.
+                    // A live streak, with something waiting. Sent to 21 hours
+                    // ago and received from an hour ago: a nine-day streak
+                    // means both sides have sent, and which side sent longer
+                    // ago is what decides whose move it is.
                     [
                         "userId": 2, "name": "Ana", "themeKey": "rose",
                         "profilePictureUrl": NSNull(),
                         "lastInteractionAt": StubBackend.receivedAt,
-                        "lastSentAt": NSNull(), "lastReceivedAt": StubBackend.receivedAt,
+                        "lastSentAt": StubBackend.timestamp(offsetBySeconds: -21 * 3600),
+                        "lastReceivedAt": StubBackend.receivedAt,
                         "unopenedCount": state.mediaFetched ? 0 : 1,
                         "streakCount": 9,
                         "streakDeadline": StubBackend.expiresAt, "streakAtRisk": true,
+                    ],
+                    // A streak about to lapse on *this* side, with nothing
+                    // waiting: the one row that asks for a send.
+                    [
+                        "userId": 5, "name": "Dee", "themeKey": "indigo",
+                        "profilePictureUrl": NSNull(),
+                        "lastInteractionAt": StubBackend.timestamp(offsetBySeconds: -2 * 3600),
+                        "lastSentAt": StubBackend.timestamp(offsetBySeconds: -23 * 3600),
+                        "lastReceivedAt": StubBackend.timestamp(offsetBySeconds: -2 * 3600),
+                        "unopenedCount": 0,
+                        "streakCount": 12,
+                        "streakDeadline": StubBackend.timestamp(offsetBySeconds: 3600),
+                        "streakAtRisk": true,
                     ],
                     // The case this endpoint exists for: talked to once, streak
                     // long lapsed, nothing waiting. `/streaks` would drop them.

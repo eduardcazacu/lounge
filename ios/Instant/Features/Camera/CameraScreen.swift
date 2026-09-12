@@ -84,6 +84,11 @@ struct CameraScreen: View {
 
             VStack {
                 topBar(model)
+                if let recipient = environment.aimedAt {
+                    aimChip(recipient)
+                        .padding(.top, 12)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
                 Spacer()
                 if model.isZooming, model.canZoom {
                     zoomIndicator(model)
@@ -96,7 +101,40 @@ struct CameraScreen: View {
             .padding(.top, 8)
             .padding(.bottom, 28)
             .animation(.easeOut(duration: 0.15), value: model.isZooming)
+            .animation(.easeOut(duration: 0.2), value: environment.aimedAt)
         }
+    }
+
+    /// Who the shot is already for, shown while framing rather than only on the
+    /// send button — an aim set a few taps ago in the inbox must not be a
+    /// surprise discovered after the photo is taken. The cross drops it.
+    private func aimChip(_ recipient: InstantRecipient) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "paperplane.fill")
+                .font(.system(size: 11, weight: .bold))
+            // The identifier sits on the text rather than the row: a plain
+            // `HStack` is no accessibility element, and the cross has to stay a
+            // button of its own rather than being combined into a label.
+            Text("Sending to \(recipient.name)")
+                .font(.system(size: 14, weight: .semibold))
+                .accessibilityIdentifier("camera.aim")
+            Button {
+                environment.clearAim()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .bold))
+                    .padding(5)
+                    .background(Circle().fill(Color.white.opacity(0.18)))
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("camera.aim.clear")
+            .accessibilityLabel("Stop sending to \(recipient.name)")
+        }
+        .foregroundStyle(.white)
+        .padding(.leading, 14)
+        .padding(.trailing, 6)
+        .padding(.vertical, 6)
+        .background(Capsule().fill(Color.black.opacity(0.45)))
     }
 
     private func zoomIndicator(_ model: CameraModel) -> some View {

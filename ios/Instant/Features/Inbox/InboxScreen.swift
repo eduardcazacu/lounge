@@ -35,6 +35,14 @@ struct InboxScreen: View {
         .fullScreenCover(item: $viewing) { model in
             ViewerScreen(model: model) {
                 store.dismiss(model.instant.id)
+                // Closing an instant lands back here rather than on the camera,
+                // with the sender's row now offering a reply — the one thing
+                // somebody who has just looked at a photo is likely to want.
+                // `showsInbox` is already true on every path that opens a
+                // viewer; setting it is what makes that a rule rather than a
+                // coincidence of how the viewer was reached.
+                if model.wasSeen { store.noteOpened(senderId: model.instant.senderId) }
+                environment.showsInbox = true
                 viewing = nil
                 Task { await store.refreshHistory() }
             }
@@ -104,8 +112,15 @@ struct InboxScreen: View {
     /// the reader has to join to this one by eye.
     private func conversationRow(_ conversation: InstantStore.Conversation) -> some View {
         Button {
-            guard let instant = conversation.pending else { return }
-            open(instant)
+            if let instant = conversation.pending {
+                open(instant)
+            } else {
+                // Nothing to read, so the tap means the other direction: the
+                // camera, already aimed at them.
+                environment.aim(
+                    at: InstantRecipient(userId: conversation.userId, name: conversation.name)
+                )
+            }
         } label: {
             HStack(spacing: 12) {
                 AvatarView(
@@ -128,11 +143,15 @@ struct InboxScreen: View {
 
                 Spacer()
 
-                if conversation.hasPending {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(InstantStyle.secondaryText)
-                }
+                // Every row leads somewhere now, and the glyph says where: into
+                // what is waiting, or out to the camera aimed at them.
+                Image(systemName: conversation.hasPending ? "chevron.right" : "camera.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(
+                        conversation.hasPending
+                            ? InstantStyle.secondaryText
+                            : InstantStyle.secondaryText.opacity(0.7)
+                    )
             }
             .padding(.vertical, 6)
             .contentShape(Rectangle())
@@ -149,7 +168,11 @@ struct InboxScreen: View {
         .listRowBackground(InstantStyle.background)
         .listRowSeparatorTint(InstantStyle.surfaceRaised)
         .accessibilityIdentifier("inbox.conversation.\(conversation.name)")
-        .accessibilityHint("Press and hold to check the safety number")
+        .accessibilityHint(
+            conversation.hasPending
+                ? "Press and hold to check the safety number"
+                : "Opens the camera to send \(conversation.name) an instant. Press and hold to check the safety number."
+        )
     }
 
     @ViewBuilder
@@ -170,7 +193,20 @@ struct InboxScreen: View {
                 .font(.system(size: 13))
                 .foregroundStyle(InstantStyle.secondaryText)
             }
-        } else if conversation.streak?.atRisk == true {
+        } else if conversation.suggestsReply {
+            // Ranked above the streak warning: replying keeps the streak too,
+            // and this is the more specific thing to do.
+            HStack(spacing: 5) {
+                Image(systemName: "arrowshape.turn.up.left.fill")
+                    .font(.system(size: 11, weight: .bold))
+                Text("Tap to reply")
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            .foregroundStyle(InstantStyle.flame)
+        } else if conversation.streakNeedsYourSend {
+            // Only when it is actually your move. A streak lapsing because they
+            // have gone quiet is not something this reader can fix, and telling
+            // them to send again right after they have is just wrong.
             Text("Send one today to keep your streak")
                 .font(.system(size: 13))
                 .foregroundStyle(InstantStyle.unread)

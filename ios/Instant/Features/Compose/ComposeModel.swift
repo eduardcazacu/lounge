@@ -18,14 +18,25 @@ public final class ComposeModel {
     public var duration: InstantDurationMode = .fiveSeconds
     public private(set) var sendState: SendState = .idle
 
+    /// Who this is already going to, when the camera was opened from a
+    /// conversation. The send button names them instead of opening a picker,
+    /// which is the whole point of having tapped them in the first place.
+    public var recipient: InstantRecipient?
+
     public let image: UIImage
     private let instantAPI: InstantAPIProtocol
     private let senderUserId: Int
 
-    public init(image: UIImage, instantAPI: InstantAPIProtocol, senderUserId: Int) {
+    public init(
+        image: UIImage,
+        instantAPI: InstantAPIProtocol,
+        senderUserId: Int,
+        recipient: InstantRecipient? = nil
+    ) {
         self.image = image
         self.instantAPI = instantAPI
         self.senderUserId = senderUserId
+        self.recipient = recipient
     }
 
     public var isSending: Bool { sendState == .sending }

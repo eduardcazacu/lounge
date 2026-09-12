@@ -129,6 +129,39 @@ public struct InstantConversationSummary: Codable, Equatable, Sendable, Identifi
     public var id: Int { userId }
     public var displayName: String { name ?? "Someone" }
 
+    /// A copy carrying a send this client has just made.
+    ///
+    /// Both marks move, because both are read: `lastInteractionAt` is what the
+    /// inbox orders by, and `lastSentAt` is how it knows whether a streak about
+    /// to lapse is still waiting on you. `max` rather than assignment — the
+    /// server's view of the same conversation can come back a moment stale, and
+    /// a refresh must never undo a send that has already happened.
+    public func withSend(at timestamp: String) -> InstantConversationSummary {
+        InstantConversationSummary(
+            userId: userId, name: name, themeKey: themeKey,
+            profilePictureUrl: profilePictureUrl,
+            lastInteractionAt: max(lastInteractionAt, timestamp),
+            lastSentAt: max(lastSentAt ?? timestamp, timestamp),
+            lastReceivedAt: lastReceivedAt,
+            unopenedCount: unopenedCount,
+            streakCount: streakCount, streakDeadline: streakDeadline,
+            streakAtRisk: streakAtRisk
+        )
+    }
+
+    /// Whether keeping this streak alive is your move.
+    ///
+    /// The deadline is set by whichever side went quiet first, so a streak about
+    /// to lapse because *they* have not sent in a day is not a thing to nag the
+    /// reader about — and not a reason to float their row over somebody the
+    /// reader just sent to.
+    public var streakNeedsYourSend: Bool {
+        guard streakAtRisk else { return false }
+        guard let lastSentAt else { return true }
+        guard let lastReceivedAt else { return false }
+        return lastSentAt < lastReceivedAt
+    }
+
     /// A copy with a different waiting count, for optimistic updates.
     public func withUnopenedCount(_ count: Int) -> InstantConversationSummary {
         InstantConversationSummary(
@@ -176,6 +209,25 @@ public struct InstantConversationSummary: Codable, Equatable, Sendable, Identifi
 }
 
 struct ConversationsResponse: Codable { let conversations: [InstantConversationSummary] }
+
+/// The wire's timestamp spelling, for the one case where the client writes one
+/// instead of reading it: a send it has just made.
+///
+/// Matches the server's `Date.toISOString()` — milliseconds and a `Z` — because
+/// these are compared as plain strings. The same instant spelled differently
+/// would sort wrongly against everything that came from the server.
+public enum WireTimestamp {
+    private nonisolated(unsafe) static let formatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        return formatter
+    }()
+
+    public static func string(from date: Date) -> String {
+        formatter.string(from: date)
+    }
+}
 
 public struct InstantDeviceKeyDTO: Codable, Equatable, Sendable, Identifiable {
     public let id: Int

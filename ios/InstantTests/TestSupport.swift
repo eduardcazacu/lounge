@@ -1,6 +1,7 @@
 import Foundation
 import Synchronization
 import Testing
+import UIKit
 @testable import Instant
 
 /// Waits for a condition that a fire-and-forget `Task` will satisfy.
@@ -374,6 +375,32 @@ final class FakeUserAPI: UserAPIProtocol, @unchecked Sendable {
     func users() async throws -> [UserSummary] { usersResult }
 }
 
+// MARK: - Environment
+
+/// A whole `AppEnvironment` on fakes, for the decisions that live on it rather
+/// than on a view model — where a tap lands, and who the camera is aimed at.
+@MainActor
+func makeTestEnvironment(
+    userAPI: FakeUserAPI = FakeUserAPI(),
+    instantAPI: FakeInstantAPI = FakeInstantAPI()
+) -> AppEnvironment {
+    let identities = DeviceIdentityStore(
+        keychain: InMemoryKeychain(),
+        secureEnclaveAvailable: { false }
+    )
+    return AppEnvironment(
+        config: .localWorker,
+        session: SessionStore(keychain: InMemoryKeychain()),
+        userAPI: userAPI,
+        instantAPI: instantAPI,
+        identities: identities,
+        store: InstantStore(
+            api: instantAPI, identities: identities, makeSocket: { _ in StubSocket() }
+        ),
+        makeCamera: { StubCameraController(frame: UIImage()) }
+    )
+}
+
 // MARK: - Builders
 
 extension InstantConversationSummary {
@@ -381,6 +408,8 @@ extension InstantConversationSummary {
         userId: Int,
         name: String = "Ana",
         lastInteractionAt: String = "2026-01-01T00:00:00.000Z",
+        lastSentAt: String? = nil,
+        lastReceivedAt: String? = nil,
         unopenedCount: Int = 0,
         streakCount: Int = 0,
         streakAtRisk: Bool = false
@@ -388,7 +417,7 @@ extension InstantConversationSummary {
         InstantConversationSummary(
             userId: userId, name: name, themeKey: "rose", profilePictureUrl: nil,
             lastInteractionAt: lastInteractionAt,
-            lastSentAt: nil, lastReceivedAt: lastInteractionAt,
+            lastSentAt: lastSentAt, lastReceivedAt: lastReceivedAt ?? lastInteractionAt,
             unopenedCount: unopenedCount,
             streakCount: streakCount,
             streakDeadline: streakCount > 0 ? "2026-01-02T00:00:00.000Z" : nil,
