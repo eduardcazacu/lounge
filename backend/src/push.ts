@@ -1083,12 +1083,38 @@ export async function sendPushToUsers(input: GenericPushInput): Promise<PushDeli
     const deliveryResults = flattenSettledDeliveryResults(responses);
     const failedResults = deliveryResults.filter((result) => !result.success);
 
+    // Counts alone cannot explain a failure, and the providers fail for
+    // completely different reasons — a dead Web Push endpoint looks nothing
+    // like a rejected APNs provider token.
+    const providerBySubscription = new Map(
+      subscriptions.map((subscription) => [subscription.id, subscription.provider])
+    );
+    const attemptedByProvider: Record<string, number> = {};
+    for (const subscription of subscriptions) {
+      attemptedByProvider[subscription.provider] =
+        (attemptedByProvider[subscription.provider] ?? 0) + 1;
+    }
+
     console.log("[push] completed delivery", {
       topic: input.topic,
       attempted: deliveryResults.length,
       delivered: deliveryResults.length - failedResults.length,
       failed: failedResults.length,
+      attemptedByProvider,
     });
+
+    if (failedResults.length > 0) {
+      console.warn(
+        "[push] delivery failures",
+        failedResults.map((result) => ({
+          provider: providerBySubscription.get(result.subscriptionId ?? -1) ?? "unknown",
+          // Already truncated; a full APNs device token never reaches the log.
+          endpoint: result.endpoint,
+          statusCode: result.statusCode,
+          error: result.errorMessage,
+        }))
+      );
+    }
 
     const invalidSubscriptionIds = deliveryResults.flatMap((result) =>
       !result.success && (result.statusCode === 404 || result.statusCode === 410) && result.subscriptionId
