@@ -11,6 +11,7 @@ import { Admin } from './pages/Admin'
 import { VerifyEmail } from './pages/VerifyEmail'
 import { ForgotPassword } from './pages/ForgotPassword'
 import { ResetPassword } from './pages/ResetPassword'
+import { Privacy, Support, Terms } from './pages/Legal'
 import { getAuthHeader, refreshAccessToken } from './lib/auth'
 import { enablePushIfPermissionGranted } from './lib/push'
 import { NotificationPrompt } from './components/NotificationPrompt'
@@ -97,6 +98,9 @@ function App() {
           <Route path="/instant" element={<Instant />} />
           <Route path="/admin" element={<Admin />} />
           <Route path="/verify-email" element={<VerifyEmail />} />
+          <Route path="/privacy" element={<Privacy />} />
+          <Route path="/terms" element={<Terms />} />
+          <Route path="/support" element={<Support />} />
         </Routes>
         <NotificationPrompt />
         <ChatDrawer />

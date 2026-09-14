@@ -161,6 +161,14 @@ export const Auth = ({type}: {type: "signup" | "signin"}) => {
             }}/>
 
           <button onClick={sendRequest} type="button" className="mt-6 w-full text-white bg-gray-800 hover:bg-gray-900 focus:outline-none focus:ring-4 focus:ring-gray-300 font-medium rounded-lg text-sm px-5 py-2.5 me-2 mb-2 dark:bg-gray-800 dark:hover:bg-gray-700 dark:focus:ring-gray-700 dark:border-gray-700">{type === "signup" ? "Sign Up" : "Sign In"}</button>
+          {type === "signup" ? (
+            <p className="mt-1 text-sm text-slate-500">
+              By signing up you agree to the{" "}
+              <Link className="underline text-slate-700" to="/terms">Terms &amp; Community Guidelines</Link>
+              {" "}and the{" "}
+              <Link className="underline text-slate-700" to="/privacy">Privacy Policy</Link>.
+            </p>
+          ) : null}
           {type === "signin" ? (
             <div className="mt-1 text-sm">
               <Link className="underline text-slate-700" to="/forgot-password">

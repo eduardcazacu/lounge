@@ -3,6 +3,7 @@ import axios from "axios";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Appbar } from "../components/Appbar";
+import { AdminReports } from "../components/AdminReports";
 import { BACKEND_URL } from "../config";
 import { clearAuthStorage, getAuthHeader, isAuthErrorStatus } from "../lib/auth";
 import { Navigate } from "react-router-dom";
@@ -320,6 +321,14 @@ export const Admin = () => {
               </div>
             )}
           </div>
+
+          {/* First after the stats: reports are the one thing here with a deadline. */}
+          <AdminReports
+            onAuthError={() => {
+              clearAuthStorage();
+              setAuthExpired(true);
+            }}
+          />
 
           <div className="mt-6 rounded-lg border border-slate-200 bg-slate-50 p-4 sm:p-5">
             <div className="text-lg font-semibold text-slate-900">Push Broadcast</div>
