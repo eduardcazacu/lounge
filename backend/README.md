@@ -82,6 +82,50 @@ It writes to whatever `DATABASE_URL` resolves to. The password comes from
 it reaches the database only as a bcrypt hash; **never commit it** — it belongs
 in App Store Connect's review notes and a password manager.
 
+## Moderation
+
+What App Store Guideline 1.2 asks of an app where people send each other
+content: agree to terms, report, block, and someone who acts on reports within
+24 hours.
+
+**Terms.** `users.terms_accepted_at` is null until `POST /user/me/accept-terms`;
+`GET /user/me` returns it, and the iOS app will not let anyone in until it is
+set. Server-side, so agreeing once covers every device.
+
+**Blocks** (`/api/v1/moderation/blocks`: `GET`, `POST {userId}`,
+`DELETE /:userId`). A block cuts both directions, whoever made it: neither
+person appears in the other's `/user/list`, conversations or streaks, the key
+directory returns no devices, and a send answers 404 exactly as it would for
+someone who does not exist, so a block cannot be probed for. Un-opened instants
+between the two are deleted when the block lands. Unblocking removes only the
+caller's own block. Blocks cover Instant and the user list; blog posts and chat
+on the web are not filtered.
+
+**Reports** (`POST /api/v1/moderation/reports`, multipart). A `payload` JSON part
+(`reportedUserId`, `reason`, optional `instantId` and `details`, `alsoBlock`
+defaulting to true) and an optional `evidence` image. Evidence is the one way
+the plaintext of an instant ever reaches the server: the recipient, who already
+sees it decrypted, chooses to attach it. It is stored privately under
+`reports/` in R2, streamed only through `GET /admin/reports/:id/evidence`, and
+deleted when the report is resolved. Every address in `ADMIN_EMAILS` is emailed
+on arrival; without `RESEND_API_KEY` the report is still stored and a warning is
+logged.
+
+**Resolving** (`GET /admin/reports`, `PUT /admin/reports/:id/resolve
+{action}`). `dismiss` closes it. `suspend` sets the reported account to
+`rejected`, which sign-in and refresh already refuse, and revokes its sessions —
+its current access token still works until it expires, at most 15 minutes.
+Reports survive either account being deleted, with that side set to null.
+
+## Account deletion
+
+`POST /user/me/delete {password}` — Guideline 5.1.1(v). The password is asked
+again, and a wrong one answers **400**, not 403: clients treat 403 as an expired
+session, so a typo would otherwise sign the person out. Profile picture, post
+images and un-opened instant ciphertext are deleted from R2 first, then the user
+row, whose cascade takes everything else. It is the whole Lounge account, blog
+posts included, not just Instant.
+
 ## Instant
 
 Expiring, end-to-end encrypted 1:1 photos, served at `/api/v1/instant` and
@@ -179,13 +223,13 @@ entirely if the `BLOG_IMAGES` binding is missing (reported as
 `skippedWithoutBucket`). Clearing the key first would strand the ciphertext:
 the row is the only thing that knows which object belongs to it.
 
-**Known limitation.** Deleting a user cascades their `instants` rows away in
-Postgres but leaves any un-opened ciphertext in R2 with nothing pointing at it,
-so the cron sweep can never find it. This is reachable in practice — admin
-*reject* deletes the user. The exposure is bounded and the bytes are useless
-without the recipient's private key, but it is the specific case the R2
-lifecycle rule exists to mop up, which is another reason not to skip it. **The lifecycle rule is not expressible in `wrangler.toml` and
-must be added by hand** in the Cloudflare dashboard: on the
+**Deleting an account deletes its objects first.** `POST /user/me/delete`
+removes the R2 objects for every un-opened instant the person sent or received,
+before the cascade takes the rows that name them — deleting the user first would
+leave ciphertext with nothing pointing at it, which the sweep could never find.
+A user row deleted by any other route (by hand, say) still strands them, and
+that is the case the R2 lifecycle rule mops up. **The lifecycle rule is not
+expressible in `wrangler.toml` and must be added by hand** in the Cloudflare dashboard: on the
 `eddies-lounge-images` bucket, expire objects under the `instant/` prefix after
 1 day.
 

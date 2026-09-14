@@ -25,6 +25,9 @@ model User {
   notificationsEnabled         Boolean   @default(true) @map("notifications_enabled")
   profilePictureKey            String?   @map("profile_picture_key")
   groupId                      Int       @map("group_id")
+  // When the person agreed to the Community Guidelines. Null means the app
+  // must ask before letting them in. Server-side, so once covers every device.
+  termsAcceptedAt              DateTime? @map("terms_accepted_at")
 
   group      Group     @relation(fields: [groupId], references: [id])
   posts      Post[]
@@ -39,6 +42,10 @@ model User {
   instantsReceived Instant[] @relation("InstantRecipient")
   streaksAsLow     InstantStreak[] @relation("StreakLow")
   streaksAsHigh    InstantStreak[] @relation("StreakHigh")
+  blocksMade       UserBlock[]     @relation("BlockBlocker")
+  blocksReceived   UserBlock[]     @relation("BlockBlocked")
+  reportsMade      ContentReport[] @relation("ReportReporter")
+  reportsReceived  ContentReport[] @relation("ReportReported")
 
   @@index([groupId])
   @@map("users")
@@ -252,4 +259,54 @@ model InstantStreak {
   @@unique([userLowId, userHighId])
   @@index([count])
   @@map("instant_streaks")
+}
+
+// ---------------------------------------------------------------------------
+// Moderation — App Store Guideline 1.2 for user-generated content.
+//
+// A block cuts both directions: neither person can find, key or send to the
+// other. A report reaches the admins by email and sits in /admin until it is
+// resolved. See backend/README.md.
+// ---------------------------------------------------------------------------
+
+model UserBlock {
+  id        Int      @id @default(autoincrement())
+  blockerId Int      @map("blocker_id")
+  blockedId Int      @map("blocked_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  blocker User @relation("BlockBlocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked User @relation("BlockBlocked", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+  @@index([blockedId])
+  @@map("user_blocks")
+}
+
+model ContentReport {
+  id             Int       @id @default(autoincrement())
+  // Both nullable so a report outlives either account being deleted.
+  reporterId     Int?      @map("reporter_id")
+  reportedUserId Int?      @map("reported_user_id")
+  // Plain string rather than a relation: instants are swept, reports are not.
+  instantId      String?   @map("instant_id")
+  // "nudity" | "harassment" | "violence" | "spam" | "other"
+  reason         String
+  details        String?
+  // R2 key of a photo the reporter chose to attach, under `reports/`. The one
+  // way plaintext of an instant ever reaches the server, and only by the
+  // recipient's explicit choice. Deleted when the report is resolved.
+  evidenceKey    String?   @map("evidence_key")
+  // "open" | "resolved"
+  status         String    @default("open")
+  // "dismissed" | "suspended", set on resolution.
+  resolution     String?
+  createdAt      DateTime  @default(now()) @map("created_at")
+  resolvedAt     DateTime? @map("resolved_at")
+
+  reporter     User? @relation("ReportReporter", fields: [reporterId], references: [id], onDelete: SetNull)
+  reportedUser User? @relation("ReportReported", fields: [reportedUserId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@map("content_reports")
 }

@@ -37,7 +37,9 @@ export async function listConversationsForUser(
   prisma: PrismaClient,
   userId: number,
   buildProfilePictureUrl: (key: string | null) => string | null,
-  now: Date = new Date()
+  now: Date = new Date(),
+  // People on the other side of a block. Their conversation disappears for both.
+  hiddenUserIds: ReadonlySet<number> = new Set()
 ): Promise<InstantConversation[]> {
   const [streaks, waiting] = await Promise.all([
     prisma.instantStreak.findMany({
@@ -72,6 +74,10 @@ export async function listConversationsForUser(
   for (const streak of streaks) {
     const iAmLow = streak.userLowId === userId;
     const partner = iAmLow ? streak.userHigh : streak.userLow;
+
+    if (hiddenUserIds.has(partner.id)) {
+      continue;
+    }
 
     // Same gate as the rest of the API: someone unapproved or unverified is not
     // addressable, so listing them would only offer a send that 404s.

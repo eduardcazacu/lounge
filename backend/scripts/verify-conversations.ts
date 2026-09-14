@@ -229,6 +229,23 @@ async function main() {
     check("a row with no send on either side is skipped", result.length === 0, result);
   }
 
+  console.log("\nblocks");
+  {
+    // Ana is on the other side of a block; Bo is not. Which of them did the
+    // blocking is not this module's concern — the route passes both directions.
+    const prisma = makePrisma(
+      [approved(me, "Me"), approved(2, "Ana"), approved(3, "Bo")],
+      [
+        { userLowId: 1, userHighId: 2, count: 12, lastLowSentAt: ago(1), lastHighSentAt: ago(2) },
+        { userLowId: 1, userHighId: 3, count: 0, lastLowSentAt: ago(5), lastHighSentAt: null },
+      ],
+      [{ senderId: 2, recipientId: me, openedAt: null, mediaKey: "instant/a", expiresAt: ago(-10) }]
+    );
+    const result = await listConversationsForUser(prisma, me, url, now, new Set([2]));
+    check("a blocked partner is hidden, streak and waiting instant included", result.every((c) => c.userId !== 2), result);
+    check("everyone else is still listed", result.map((c) => c.userId).join(",") === "3", result.map((c) => c.userId));
+  }
+
   console.log("\nprofile pictures");
   {
     const withPicture: FakeUser = { ...approved(2, "Ana"), profilePictureKey: "profile-pictures/2/a.webp" };

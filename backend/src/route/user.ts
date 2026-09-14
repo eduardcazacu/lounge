@@ -2,7 +2,7 @@ import { Hono, type Context, type Next } from "hono";
 import { Prisma } from "@prisma/client";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { sign, verify } from "hono/jwt";
-import { signinInput, signupInput, themeKeySchema } from "@blogging-app/common";
+import { deleteAccountInput, signinInput, signupInput, themeKeySchema } from "@blogging-app/common";
 import z from "zod";
 import { getConfig } from "../env";
 import { getAdminEmails, isAdminEmail } from "../admin-config";
@@ -19,6 +19,7 @@ import {
 } from "../verification";
 import { sendPasswordResetEmail, sendPendingApprovalEmail, sendVerificationEmail } from "../email";
 import { getUserGroupId, MAIN_GROUP_KEY } from "../groups";
+import { blockedUserIds } from "../blocks";
 
 type UserRouteEnv = {
 	Bindings: {
@@ -38,7 +39,7 @@ type UserRouteEnv = {
 				customMetadata?: Record<string, string>
 			}) => Promise<unknown>,
 			head: (key: string) => Promise<unknown | null>,
-			delete: (key: string) => Promise<unknown>
+			delete: (key: string | string[]) => Promise<unknown>
 		}
 	},
 	Variables: {
@@ -972,6 +973,8 @@ userRouter.get("/list", async (c) => {
 			c.status(403);
 			return c.json({ msg: "Invalid user" });
 		}
+		// Someone on the other side of a block is simply not in the list.
+		const blocked = await blockedUserIds(prisma, c.get("userId"));
 		const [recentPosters, allUsers] = await Promise.all([
 			prisma.post.groupBy({
 				by: ["authorId"],
@@ -983,6 +986,7 @@ userRouter.get("/list", async (c) => {
 			prisma.user.findMany({
 				where: {
 					groupId,
+					...(blocked.size > 0 ? { id: { notIn: [...blocked] } } : {}),
 					status: "approved",
 					emailVerifiedAt: { not: null },
 				},
@@ -1048,6 +1052,7 @@ userRouter.get("/me", async (c) => {
 				themeKey: true,
 				notificationsEnabled: true,
 				profilePictureKey: true,
+				termsAcceptedAt: true,
 			}
 		});
 		if (!user) {
@@ -1056,11 +1061,125 @@ userRouter.get("/me", async (c) => {
 		}
 		const isAdmin = isAdminEmail(user.email, getAdminEmails(c));
 		const profilePictureUrl = buildPublicImageUrl(r2PublicBaseUrl, user.profilePictureKey);
-		return c.json({ user: { ...user, isAdmin, profilePictureUrl } });
+		return c.json({
+			user: {
+				...user,
+				termsAcceptedAt: user.termsAcceptedAt ? user.termsAcceptedAt.toISOString() : null,
+				isAdmin,
+				profilePictureUrl,
+			},
+		});
 	} catch (e) {
 		console.error(e);
 		c.status(500);
 		return c.json({ msg: "Failed to load profile" });
+	}
+});
+
+// The Community Guidelines. Recorded once per account, so agreeing on one
+// device covers every other.
+userRouter.post("/me/accept-terms", async (c) => {
+	try {
+		const { databaseUrl } = getConfig(c);
+		const prisma = getPrismaClient(databaseUrl);
+		const user = await prisma.user.update({
+			where: { id: c.get("userId") },
+			data: { termsAcceptedAt: new Date() },
+			select: { termsAcceptedAt: true },
+		});
+		return c.json({ termsAcceptedAt: user.termsAcceptedAt?.toISOString() ?? null });
+	} catch (e) {
+		if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2025") {
+			c.status(404);
+			return c.json({ msg: "User not found" });
+		}
+		console.error(e);
+		c.status(500);
+		return c.json({ msg: "Failed to record your agreement" });
+	}
+});
+
+// Deletes the account and everything it owns, immediately — App Store
+// Guideline 5.1.1(v). The password is asked again so that a phone left
+// unlocked cannot be used to erase someone.
+//
+// Objects in R2 go first. The rows are the only record of which objects belong
+// to this person, so deleting the user first would strand their picture, their
+// post images and any unopened ciphertext with nothing left pointing at them.
+userRouter.post("/me/delete", async (c) => {
+	try {
+		const parsed = deleteAccountInput.safeParse(await c.req.json());
+		if (!parsed.success) {
+			c.status(400);
+			return c.json({ msg: "Enter your password to delete your account." });
+		}
+
+		const { databaseUrl } = getConfig(c);
+		const prisma = getPrismaClient(databaseUrl);
+		const userId = c.get("userId");
+		const user = await prisma.user.findUnique({
+			where: { id: userId },
+			select: { password: true, profilePictureKey: true },
+		});
+		if (!user) {
+			c.status(404);
+			return c.json({ msg: "User not found" });
+		}
+
+		const validPassword = await verifyPassword({
+			plainPassword: parsed.data.password,
+			storedPassword: user.password,
+		});
+		if (!validPassword) {
+			// 400, not 403: clients treat 403 as an expired session and refresh,
+			// which would turn a typo into being signed out.
+			c.status(400);
+			return c.json({ msg: "That password is not correct." });
+		}
+
+		const [posts, instants] = await Promise.all([
+			prisma.post.findMany({
+				where: { authorId: userId, imageKey: { not: null } },
+				select: { imageKey: true },
+			}),
+			prisma.instant.findMany({
+				where: {
+					OR: [{ senderId: userId }, { recipientId: userId }],
+					mediaKey: { not: null },
+				},
+				select: { mediaKey: true },
+			}),
+		]);
+		const objectKeys = [
+			user.profilePictureKey,
+			...posts.map((post) => post.imageKey),
+			...instants.map((instant) => instant.mediaKey),
+		].filter((key): key is string => Boolean(key));
+
+		const bucket = c.env?.BLOG_IMAGES;
+		if (objectKeys.length > 0) {
+			if (!bucket) {
+				// Refuse rather than strand the objects: see above.
+				c.status(500);
+				return c.json({ msg: "BLOG_IMAGES R2 binding is not configured." });
+			}
+			// R2 takes up to 1000 keys per call.
+			for (let i = 0; i < objectKeys.length; i += 1000) {
+				await bucket.delete(objectKeys.slice(i, i + 1000));
+			}
+		}
+
+		// Cascades take sessions, device keys, instants, streaks, posts, comments,
+		// likes, chat messages, push subscriptions and blocks. Reports survive
+		// with this side set to null.
+		await prisma.user.delete({ where: { id: userId } });
+		clearRefreshTokenCookie(c);
+
+		return c.json({ msg: "Your account has been deleted." });
+	} catch (e) {
+		console.error(e);
+		c.status(500);
+		return c.json({ msg: "Failed to delete your account." });
 	}
 });
 

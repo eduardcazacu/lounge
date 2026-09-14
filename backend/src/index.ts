@@ -4,6 +4,7 @@ import { blogRouter } from './route/blog'
 import { adminRouter } from './route/admin'
 import { chatRouter } from './route/chat'
 import { instantRouter } from './route/instant'
+import { moderationRouter } from './route/moderation'
 import type { InstantInbox } from './instant-inbox'
 import { cors } from 'hono/cors'
 
@@ -39,7 +40,7 @@ app.use('/*', (c, next) => {
 
   const corsMiddleware = cors({
     origin: [frontendOrigin, "http://localhost:5173", "http://127.0.0.1:5173"],
-    allowMethods: ["GET", "POST", "PUT", "OPTIONS"],
+    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowHeaders: ["Content-Type", "Authorization"],
     credentials: true,
   });
@@ -50,6 +51,7 @@ app.route("api/v1/blog", blogRouter)
 app.route("api/v1/admin", adminRouter)
 app.route("api/v1/chat", chatRouter)
 app.route("api/v1/instant", instantRouter)
+app.route("api/v1/moderation", moderationRouter)
 
 app.use('/message/*', async (c, next) => {
   await next()

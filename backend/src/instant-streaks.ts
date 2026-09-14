@@ -216,7 +216,9 @@ export async function listStreaksForUser(
   prisma: PrismaClient,
   userId: number,
   buildProfilePictureUrl: (key: string | null) => string | null,
-  now: Date = new Date()
+  now: Date = new Date(),
+  // People on the other side of a block.
+  hiddenUserIds: ReadonlySet<number> = new Set()
 ): Promise<InstantStreakSummary[]> {
   const streaks = await prisma.instantStreak.findMany({
     where: {
@@ -230,6 +232,7 @@ export async function listStreaksForUser(
   });
 
   return streaks
+    .filter((streak) => !hiddenUserIds.has(streak.userLowId === userId ? streak.userHighId : streak.userLowId))
     .map((streak) => {
       const partner = streak.userLowId === userId ? streak.userHigh : streak.userLow;
       const deadline = streakDeadline(streak.lastLowSentAt, streak.lastHighSentAt);

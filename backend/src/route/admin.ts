@@ -8,6 +8,7 @@ import { sendBroadcastEmail, sendWelcomeEmail } from "../email";
 import { sendBroadcastNotification } from "../push";
 import { runInstantSweep } from "../scheduled";
 import z from "zod";
+import { resolveReportInput } from "@blogging-app/common";
 
 type AdminEnv = {
   Bindings: {
@@ -440,6 +441,156 @@ adminRouter.post("/push/broadcast", async (c) => {
     console.error(e);
     c.status(500);
     return c.json({ msg: "Failed to send broadcast notification." });
+  }
+});
+
+// --- reports ----------------------------------------------------------------
+//
+// Reports span every group: whoever administers the app answers for all of it.
+
+adminRouter.get("/reports", async (c) => {
+  try {
+    const { databaseUrl } = getConfig(c);
+    const prisma = getPrismaClient(databaseUrl);
+    const userSelect = { select: { id: true, name: true, email: true, status: true } } as const;
+    const reports = await prisma.contentReport.findMany({
+      // Open first ("open" < "resolved"), oldest open report on top.
+      orderBy: [{ status: "asc" }, { createdAt: "asc" }],
+      take: 200,
+      select: {
+        id: true,
+        instantId: true,
+        reason: true,
+        details: true,
+        evidenceKey: true,
+        status: true,
+        resolution: true,
+        createdAt: true,
+        resolvedAt: true,
+        reporter: userSelect,
+        reportedUser: userSelect,
+      },
+    });
+
+    return c.json({
+      reports: reports.map((report) => ({
+        id: report.id,
+        instantId: report.instantId,
+        reason: report.reason,
+        details: report.details,
+        hasEvidence: report.evidenceKey !== null,
+        status: report.status,
+        resolution: report.resolution,
+        createdAt: report.createdAt.toISOString(),
+        resolvedAt: report.resolvedAt ? report.resolvedAt.toISOString() : null,
+        reporter: report.reporter,
+        reportedUser: report.reportedUser,
+      })),
+    });
+  } catch (e) {
+    console.error(e);
+    c.status(500);
+    return c.json({ msg: "Failed to load reports" });
+  }
+});
+
+// Streamed through the API rather than linked from the public bucket domain:
+// evidence is a private photo someone chose to show the moderators, not
+// anybody holding a URL.
+adminRouter.get("/reports/:id/evidence", async (c) => {
+  const reportId = Number(c.req.param("id"));
+  if (!Number.isInteger(reportId) || reportId <= 0) {
+    c.status(400);
+    return c.json({ msg: "Invalid report id" });
+  }
+  try {
+    const { databaseUrl } = getConfig(c);
+    const prisma = getPrismaClient(databaseUrl);
+    const report = await prisma.contentReport.findUnique({
+      where: { id: reportId },
+      select: { evidenceKey: true },
+    });
+    const bucket = c.env?.BLOG_IMAGES;
+    const object = report?.evidenceKey && bucket ? await bucket.get(report.evidenceKey) : null;
+    if (!object) {
+      c.status(404);
+      return c.json({ msg: "No photo is attached to this report." });
+    }
+    const bytes = await object.arrayBuffer();
+    return c.body(bytes, 200, {
+      "Content-Type": object.httpMetadata?.contentType ?? "application/octet-stream",
+      "Content-Length": String(bytes.byteLength),
+      "Cache-Control": "no-store",
+    });
+  } catch (e) {
+    console.error(e);
+    c.status(500);
+    return c.json({ msg: "Failed to load the attached photo" });
+  }
+});
+
+adminRouter.put("/reports/:id/resolve", async (c) => {
+  const reportId = Number(c.req.param("id"));
+  if (!Number.isInteger(reportId) || reportId <= 0) {
+    c.status(400);
+    return c.json({ msg: "Invalid report id" });
+  }
+  try {
+    const parsed = resolveReportInput.safeParse(await c.req.json());
+    if (!parsed.success) {
+      c.status(400);
+      return c.json({ msg: "Invalid resolution", errors: parsed.error.flatten() });
+    }
+
+    const { databaseUrl } = getConfig(c);
+    const prisma = getPrismaClient(databaseUrl);
+    const report = await prisma.contentReport.findUnique({
+      where: { id: reportId },
+      select: { id: true, evidenceKey: true, reportedUserId: true },
+    });
+    if (!report) {
+      c.status(404);
+      return c.json({ msg: "Report not found" });
+    }
+
+    const now = new Date();
+    if (parsed.data.action === "suspend" && report.reportedUserId !== null) {
+      // "rejected" is what sign-in and refresh already refuse, and revoking the
+      // sessions ends the one they are in within an access token's lifetime.
+      await prisma.$transaction([
+        prisma.user.update({
+          where: { id: report.reportedUserId },
+          data: { status: "rejected" },
+        }),
+        prisma.session.updateMany({
+          where: { userId: report.reportedUserId, revokedAt: null },
+          data: { revokedAt: now },
+        }),
+      ]);
+    }
+
+    // The photo was shared for this decision and nothing else.
+    const bucket = c.env?.BLOG_IMAGES;
+    if (report.evidenceKey && bucket) {
+      await bucket.delete(report.evidenceKey);
+    }
+
+    const updated = await prisma.contentReport.update({
+      where: { id: report.id },
+      data: {
+        status: "resolved",
+        resolution: parsed.data.action === "suspend" ? "suspended" : "dismissed",
+        resolvedAt: now,
+        evidenceKey: bucket ? null : report.evidenceKey,
+      },
+      select: { id: true, status: true, resolution: true },
+    });
+
+    return c.json({ report: updated });
+  } catch (e) {
+    console.error(e);
+    c.status(500);
+    return c.json({ msg: "Failed to resolve the report" });
   }
 });
 

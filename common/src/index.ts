@@ -179,3 +179,45 @@ export type InstantStreakSummary = {
     deadline: string | null;
     atRisk: boolean;
 };
+
+// ---------------------------------------------------------------------------
+// Moderation — reporting and blocking, for App Store Guideline 1.2.
+// ---------------------------------------------------------------------------
+
+export const reportReasons = ["nudity", "harassment", "violence", "spam", "other"] as const;
+
+export const reportReason = z.enum(reportReasons);
+
+export type ReportReason = z.infer<typeof reportReason>;
+
+// The JSON `payload` part of POST /moderation/reports. The optional photo rides
+// alongside it as the multipart `evidence` part.
+export const createReportInput = z.object({
+    reportedUserId: z.number().int().positive(),
+    instantId: z.string().uuid().optional(),
+    reason: reportReason,
+    details: z.string().trim().max(1000).optional(),
+    // Reporting someone blocks them too unless the reporter says otherwise.
+    alsoBlock: z.boolean().default(true),
+})
+
+export type CreateReportInput = z.infer<typeof createReportInput>
+
+export const blockUserInput = z.object({
+    userId: z.number().int().positive(),
+})
+
+export type BlockUserInput = z.infer<typeof blockUserInput>
+
+export const resolveReportInput = z.object({
+    // "suspend" rejects the reported account and ends its sessions.
+    action: z.enum(["dismiss", "suspend"]),
+})
+
+export type ResolveReportInput = z.infer<typeof resolveReportInput>
+
+export const deleteAccountInput = z.object({
+    password: z.string().min(1),
+})
+
+export type DeleteAccountInput = z.infer<typeof deleteAccountInput>

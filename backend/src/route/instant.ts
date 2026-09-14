@@ -9,6 +9,7 @@ import {
 import { getConfig } from "../env";
 import { getPrismaClient } from "../prisma";
 import { getUserGroupId } from "../groups";
+import { blockedUserIds, isBlockedEitherWay } from "../blocks";
 import { scheduleBackgroundWork } from "../background";
 import { sendPushToUsers } from "../push";
 import { listStreaksForUser, recordSend } from "../instant-streaks";
@@ -244,7 +245,9 @@ instantRouter.get("/keys/:userId", async (c) => {
     }
 
     const deviceSelect = { id: true, deviceId: true, publicKey: true, createdAt: true } as const;
-    const devices = await prisma.instantDeviceKey.findMany({
+    // Across a block there is nobody to encrypt to.
+    const blocked = targetId !== userId && (await isBlockedEitherWay(prisma, userId, targetId));
+    const devices = blocked ? [] : await prisma.instantDeviceKey.findMany({
       where: {
         userId: targetId,
         // Someone outside your group has no published keys as far as you can tell.
@@ -450,7 +453,9 @@ instantRouter.post("/", async (c) => {
       where: { id: recipientId, groupId, status: "approved", emailVerifiedAt: { not: null } },
       select: { id: true },
     });
-    if (!recipient) {
+    // A block reads exactly like someone who does not exist, so it cannot be
+    // probed for.
+    if (!recipient || (await isBlockedEitherWay(prisma, userId, recipientId))) {
       c.status(404);
       return c.json({ msg: "Recipient not found" });
     }
@@ -629,9 +634,11 @@ instantRouter.get("/inbox", async (c) => {
       prisma.instantDeviceKey.update({ where: { id: device.id }, data: { lastSeenAt: new Date() } })
     );
 
+    const blocked = await blockedUserIds(prisma, userId);
     const rows = await prisma.instant.findMany({
       where: {
         recipientId: userId,
+        ...(blocked.size > 0 ? { senderId: { notIn: [...blocked] } } : {}),
         openedAt: null,
         mediaKey: { not: null },
         expiresAt: { gt: new Date() },
@@ -802,8 +809,12 @@ instantRouter.get("/conversations", async (c) => {
     const prisma = getPrismaClient(databaseUrl);
     const userId = c.get("userId");
 
-    const conversations = await listConversationsForUser(prisma, userId, (key) =>
-      buildPublicImageUrl(r2PublicBaseUrl, key)
+    const conversations = await listConversationsForUser(
+      prisma,
+      userId,
+      (key) => buildPublicImageUrl(r2PublicBaseUrl, key),
+      new Date(),
+      await blockedUserIds(prisma, userId)
     );
 
     return c.json({ conversations });
@@ -820,8 +831,12 @@ instantRouter.get("/streaks", async (c) => {
     const prisma = getPrismaClient(databaseUrl);
     const userId = c.get("userId");
 
-    const streaks = await listStreaksForUser(prisma, userId, (key) =>
-      buildPublicImageUrl(r2PublicBaseUrl, key)
+    const streaks = await listStreaksForUser(
+      prisma,
+      userId,
+      (key) => buildPublicImageUrl(r2PublicBaseUrl, key),
+      new Date(),
+      await blockedUserIds(prisma, userId)
     );
 
     return c.json({ streaks });

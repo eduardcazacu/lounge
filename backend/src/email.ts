@@ -206,6 +206,80 @@ export async function sendPendingApprovalEmail(input: PendingApprovalEmailInput)
   }
 }
 
+type ReportEmailInput = {
+  apiKey: string;
+  from: string;
+  to: string[];
+  appName: string;
+  reportId: number;
+  reporterName?: string | null;
+  reportedUserName?: string | null;
+  reason: string;
+  details?: string | null;
+  hasEvidence: boolean;
+  adminUrl?: string;
+};
+
+// Sent to every admin the moment a report lands. Guideline 1.2 expects
+// objectionable content to be acted on within 24 hours, which only works if
+// somebody finds out without having to go and look.
+export async function sendReportEmail(input: ReportEmailInput) {
+  const reporter = input.reporterName?.trim() || "Someone";
+  const reported = input.reportedUserName?.trim() || "a user";
+  const subject = `${input.appName}: ${reporter} reported ${reported} (${input.reason})`;
+  const html = `
+    <div style="font-family: Arial, sans-serif; line-height: 1.5; color: #111827;">
+      <p>A new report needs review. Please act on it within 24 hours.</p>
+      <p><strong>Report:</strong> #${input.reportId}</p>
+      <p><strong>Reported by:</strong> ${escapeHtml(reporter)}</p>
+      <p><strong>Reported user:</strong> ${escapeHtml(reported)}</p>
+      <p><strong>Reason:</strong> ${escapeHtml(input.reason)}</p>
+      ${input.details ? `<p><strong>Details:</strong> ${escapeHtml(input.details)}</p>` : ""}
+      <p><strong>Photo attached:</strong> ${input.hasEvidence ? "yes" : "no"}</p>
+      ${input.adminUrl
+        ? `<p style="margin: 24px 0;">
+        <a href="${escapeHtml(input.adminUrl)}" style="background: #111827; color: #ffffff; text-decoration: none; padding: 10px 16px; border-radius: 8px; display: inline-block;">
+          Review in the admin console
+        </a>
+      </p>`
+        : ""}
+    </div>
+  `;
+
+  const text = [
+    "A new report needs review. Please act on it within 24 hours.",
+    `Report: #${input.reportId}`,
+    `Reported by: ${reporter}`,
+    `Reported user: ${reported}`,
+    `Reason: ${input.reason}`,
+    input.details ? `Details: ${input.details}` : "",
+    `Photo attached: ${input.hasEvidence ? "yes" : "no"}`,
+    input.adminUrl ? `Admin console: ${input.adminUrl}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${input.apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: input.from,
+      to: input.to,
+      subject,
+      html,
+      text,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Resend API error (${response.status}): ${errorBody}`);
+  }
+}
+
 export async function sendPasswordResetEmail(input: PasswordResetEmailInput) {
   const recipient = input.recipientName?.trim() || "there";
   const subject = `${input.appName}: reset your password`;
