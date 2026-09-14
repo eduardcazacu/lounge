@@ -7,6 +7,7 @@ import { getConfig } from "../env";
 import { getPrismaClient } from "../prisma";
 import { notifyFollowersOfNewPost, notifyPostAuthorOfReply, notifyMentionedUsers } from "../push";
 import { scheduleBackgroundWork } from "../background";
+import { getUserGroupId } from "../groups";
 
 const MAX_MENTIONS_PER_COMMENT = 10;
 
@@ -174,8 +175,15 @@ blogRouter.post('/:id/comments', async (c) => {
     const { databaseUrl, vapidPublicKey, vapidPrivateKey, vapidSubject } = getConfig(c);
     const prisma = getPrismaClient(databaseUrl);
     try {
-      const post = await prisma.post.findUnique({
-        where: { id: postId },
+      const groupId = await getUserGroupId(prisma, authorId);
+      if (groupId === null) {
+        c.status(403);
+        return c.json({ msg: "Invalid user" });
+      }
+      // A post outside the caller's group is reported as missing, not forbidden,
+      // so its existence is not disclosed.
+      const post = await prisma.post.findFirst({
+        where: { id: postId, author: { groupId } },
         select: {
           id: true,
           title: true,
@@ -226,6 +234,7 @@ blogRouter.post('/:id/comments', async (c) => {
         const candidates = await prisma.user.findMany({
           where: {
             id: { in: requestedMentionIds },
+            groupId,
             status: "approved",
             emailVerifiedAt: { not: null },
           },
@@ -294,6 +303,16 @@ blogRouter.post('/:id/likes/toggle', async (c) => {
     const { databaseUrl } = getConfig(c);
     const prisma = getPrismaClient(databaseUrl);
 
+    const groupId = await getUserGroupId(prisma, userId);
+    const post = groupId === null ? null : await prisma.post.findFirst({
+      where: { id: postId, author: { groupId } },
+      select: { id: true },
+    });
+    if (!post) {
+      c.status(404);
+      return c.json({ msg: "Blog not found" });
+    }
+
     const existing = await prisma.postLike.findUnique({
       where: {
         postId_userId: {
@@ -352,8 +371,9 @@ blogRouter.post('/:id/comments/:commentId/likes/toggle', async (c) => {
     const { databaseUrl } = getConfig(c);
     const prisma = getPrismaClient(databaseUrl);
 
-    const comment = await prisma.comment.findUnique({
-      where: { id: commentId },
+    const groupId = await getUserGroupId(prisma, userId);
+    const comment = groupId === null ? null : await prisma.comment.findFirst({
+      where: { id: commentId, post: { author: { groupId } } },
       select: { postId: true },
     });
     if (!comment || comment.postId !== postId) {
@@ -585,8 +605,14 @@ blogRouter.post('/:id/comments/:commentId/likes/toggle', async (c) => {
         const userId = c.get("userId");
         const { databaseUrl, r2PublicBaseUrl } = getConfig(c);
         const prisma = getPrismaClient(databaseUrl);
+        const groupId = await getUserGroupId(prisma, userId);
+        if (groupId === null) {
+          c.status(403);
+          return c.json({ msg: "Invalid user" });
+        }
         const blogRows = await prisma.post.findMany({
           where: {
+            author: { groupId },
             ...(cursor ? { id: { lt: cursor } } : {}),
             ...(filterAuthorId !== undefined ? { authorId: filterAuthorId } : {}),
           },
@@ -713,8 +739,9 @@ blogRouter.post('/:id/comments/:commentId/likes/toggle', async (c) => {
     const { databaseUrl, r2PublicBaseUrl } = getConfig(c);
     const prisma = getPrismaClient(databaseUrl);
     try {
-    const blog = await prisma.post.findUnique({
-      where: { id },
+    const groupId = await getUserGroupId(prisma, userId);
+    const blog = groupId === null ? null : await prisma.post.findFirst({
+      where: { id, author: { groupId } },
       select: {
         id: true,
         title: true,

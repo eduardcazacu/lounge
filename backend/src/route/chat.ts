@@ -4,6 +4,7 @@ import { createChatMessageInput, chatSettingsInput } from "@blogging-app/common"
 import { getConfig } from "../env";
 import { getAdminEmails, isAdminEmail } from "../admin-config";
 import { getPrismaClient } from "../prisma";
+import { getUserGroupId } from "../groups";
 import type { PrismaClient } from "@prisma/client";
 
 type ChatEnv = {
@@ -132,6 +133,11 @@ chatRouter.get("/messages", async (c) => {
 	try {
 		const { databaseUrl, r2PublicBaseUrl } = getConfig(c);
 		const prisma = getPrismaClient(databaseUrl);
+		const groupId = await getUserGroupId(prisma, c.get("userId"));
+		if (groupId === null) {
+			c.status(403);
+			return c.json({ msg: "Invalid user" });
+		}
 		const retentionHours = await getRetentionHours(prisma);
 		const cutoff = new Date(Date.now() - retentionHours * 3600_000);
 
@@ -143,6 +149,7 @@ chatRouter.get("/messages", async (c) => {
 			// Incremental poll: everything newer than the last seen id, oldest first.
 			messages = await prisma.chatMessage.findMany({
 				where: {
+					author: { groupId },
 					createdAt: { gt: cutoff },
 					id: { gt: since },
 				},
@@ -152,7 +159,7 @@ chatRouter.get("/messages", async (c) => {
 		} else {
 			// Initial load: newest page, then reverse to ascending for display.
 			const newest = await prisma.chatMessage.findMany({
-				where: { createdAt: { gt: cutoff } },
+				where: { author: { groupId }, createdAt: { gt: cutoff } },
 				orderBy: { id: "desc" },
 				take: MESSAGES_PAGE_SIZE,
 				select: messageAuthorSelect,

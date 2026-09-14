@@ -32,6 +32,8 @@ type TestNotificationInput = {
 
 type BroadcastNotificationInput = {
   databaseUrl: string;
+  /** Only members of this group receive the broadcast. */
+  groupId: number;
   title: string;
   body: string;
   vapidConfig: VapidConfig;
@@ -218,6 +220,12 @@ export async function notifyFollowersOfNewPost(input: NewPostNotificationInput) 
       where: {
         id: {
           not: input.authorId,
+        },
+        // Only the author's own group can see the post.
+        group: {
+          users: {
+            some: { id: input.authorId },
+          },
         },
         notificationsEnabled: true,
         pushSubscriptions: {
@@ -480,6 +488,7 @@ export async function sendBroadcastNotification(input: BroadcastNotificationInpu
   const prisma = getPrismaClient(input.databaseUrl);
   const recipients = await prisma.user.findMany({
     where: {
+      groupId: input.groupId,
       notificationsEnabled: true,
       pushSubscriptions: {
         some: {},

@@ -18,6 +18,7 @@ import {
 	sha256Hex
 } from "../verification";
 import { sendPasswordResetEmail, sendPendingApprovalEmail, sendVerificationEmail } from "../email";
+import { getUserGroupId, MAIN_GROUP_KEY } from "../groups";
 
 type UserRouteEnv = {
 	Bindings: {
@@ -225,6 +226,7 @@ userRouter.post('/signup', async (c) => {
 				status: requestedStatus,
 				emailVerificationTokenHash: verificationTokenHash,
 				emailVerificationExpiresAt: verificationExpiry,
+				group: { connect: { key: MAIN_GROUP_KEY } },
 			},
 			select: {
 				id: true,
@@ -965,15 +967,22 @@ userRouter.get("/list", async (c) => {
 	try {
 		const { databaseUrl, r2PublicBaseUrl } = getConfig(c);
 		const prisma = getPrismaClient(databaseUrl);
+		const groupId = await getUserGroupId(prisma, c.get("userId"));
+		if (groupId === null) {
+			c.status(403);
+			return c.json({ msg: "Invalid user" });
+		}
 		const [recentPosters, allUsers] = await Promise.all([
 			prisma.post.groupBy({
 				by: ["authorId"],
+				where: { author: { groupId } },
 				_max: { createdAt: true },
 				orderBy: { _max: { createdAt: "desc" } },
 				take: 200,
 			}),
 			prisma.user.findMany({
 				where: {
+					groupId,
 					status: "approved",
 					emailVerifiedAt: { not: null },
 				},

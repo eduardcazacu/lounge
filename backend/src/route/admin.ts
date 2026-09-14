@@ -26,6 +26,9 @@ type AdminEnv = {
   Variables: {
     userId: number;
     adminEmail: string;
+    // Broadcasts reach only the admin's own group, so review accounts in
+    // "testing" never receive messages meant for the community.
+    groupId: number;
   };
 };
 
@@ -64,7 +67,7 @@ adminRouter.use("/*", async (c, next) => {
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { email: true },
+      select: { email: true, groupId: true },
     });
     if (!user) {
       c.status(403);
@@ -79,6 +82,7 @@ adminRouter.use("/*", async (c, next) => {
 
     c.set("userId", userId);
     c.set("adminEmail", user.email);
+    c.set("groupId", user.groupId);
     await next();
   } catch (e) {
     c.status(403);
@@ -300,7 +304,7 @@ adminRouter.get("/email/recipients", async (c) => {
     const { databaseUrl } = getConfig(c);
     const prisma = getPrismaClient(databaseUrl);
     const recipients = await prisma.user.findMany({
-      where: { status: "approved" },
+      where: { groupId: c.get("groupId"), status: "approved" },
       orderBy: { email: "asc" },
       select: { id: true, email: true, name: true },
     });
@@ -337,7 +341,7 @@ adminRouter.post("/email/broadcast", async (c) => {
     const { databaseUrl } = getConfig(c);
     const prisma = getPrismaClient(databaseUrl);
     const recipients = await prisma.user.findMany({
-      where: { status: "approved" },
+      where: { groupId: c.get("groupId"), status: "approved" },
       select: { email: true, name: true },
     });
 
@@ -406,6 +410,7 @@ adminRouter.post("/push/broadcast", async (c) => {
     const { databaseUrl, vapidPublicKey, vapidPrivateKey, vapidSubject } = getConfig(c);
     const result = await sendBroadcastNotification({
       databaseUrl,
+      groupId: c.get("groupId"),
       title: parsed.data.title,
       body: parsed.data.body,
       vapidConfig: {

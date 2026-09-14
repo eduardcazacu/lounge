@@ -24,7 +24,9 @@ model User {
   passwordResetExpiresAt       DateTime? @map("password_reset_expires_at")
   notificationsEnabled         Boolean   @default(true) @map("notifications_enabled")
   profilePictureKey            String?   @map("profile_picture_key")
+  groupId                      Int       @map("group_id")
 
+  group      Group     @relation(fields: [groupId], references: [id])
   posts      Post[]
   comments   Comment[] @relation("CommentAuthor")
   postLikes  PostLike[]
@@ -38,7 +40,22 @@ model User {
   streaksAsLow     InstantStreak[] @relation("StreakLow")
   streaksAsHigh    InstantStreak[] @relation("StreakHigh")
 
+  @@index([groupId])
   @@map("users")
+}
+
+// Groups partition the app: a user only ever sees people, posts, chat messages
+// and instants from their own group. "main" holds the real community; "testing"
+// holds the App Store review accounts. See backend/README.md.
+model Group {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  users User[]
+
+  @@map("groups")
 }
 
 model UserPushSubscription {

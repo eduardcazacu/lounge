@@ -46,6 +46,42 @@ npm run prisma:deploy
 - User must verify email before signing in.
 - Non-admin accounts still require admin approval after email verification.
 
+## Groups
+
+Every user belongs to exactly one group, and a group is a sealed-off copy of the
+community: people only see users, posts, comments, likes, chat messages and
+Instant key directories from their own group, and can only mention, like,
+comment on or send instants to their own group. Anything outside it answers 404,
+as if it did not exist.
+
+Two groups are seeded by the migration:
+
+- `main` — the real community. Every account that existed before groups did was
+  put here, and every signup lands here.
+- `testing` — the App Store review accounts. Reviewers get a working app with
+  nobody else's content in it.
+
+The caller's group is looked up per request rather than carried in the JWT, so
+moving a user takes effect immediately.
+
+Admin broadcasts (email and push) reach only the admin's own group. Admin
+approval and `/admin/stats` still span every group.
+
+### Creating accounts in a group
+
+Signup cannot choose a group, so review accounts are made with a script. It
+creates the account approved and already verified, so it can sign in straight
+away without an inbox:
+
+```bash
+npx tsx scripts/create-account.ts --email review@example.com --name "App Review" --group testing
+```
+
+It writes to whatever `DATABASE_URL` resolves to. The password comes from
+`ACCOUNT_PASSWORD` if set, otherwise it is generated and printed once. Either way
+it reaches the database only as a bcrypt hash; **never commit it** — it belongs
+in App Store Connect's review notes and a password manager.
+
 ## Instant
 
 Expiring, end-to-end encrypted 1:1 photos, served at `/api/v1/instant` and

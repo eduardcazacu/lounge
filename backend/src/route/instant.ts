@@ -8,6 +8,7 @@ import {
 } from "@blogging-app/common";
 import { getConfig } from "../env";
 import { getPrismaClient } from "../prisma";
+import { getUserGroupId } from "../groups";
 import { scheduleBackgroundWork } from "../background";
 import { sendPushToUsers } from "../push";
 import { listStreaksForUser, recordSend } from "../instant-streaks";
@@ -236,12 +237,18 @@ instantRouter.get("/keys/:userId", async (c) => {
     const { databaseUrl } = getConfig(c);
     const prisma = getPrismaClient(databaseUrl);
     const userId = c.get("userId");
+    const groupId = await getUserGroupId(prisma, userId);
+    if (groupId === null) {
+      c.status(403);
+      return c.json({ msg: "Invalid user" });
+    }
 
     const deviceSelect = { id: true, deviceId: true, publicKey: true, createdAt: true } as const;
     const devices = await prisma.instantDeviceKey.findMany({
       where: {
         userId: targetId,
-        user: { status: "approved", emailVerifiedAt: { not: null } },
+        // Someone outside your group has no published keys as far as you can tell.
+        user: { groupId, status: "approved", emailVerifiedAt: { not: null } },
       },
       select: deviceSelect,
       orderBy: { id: "asc" },
@@ -438,8 +445,9 @@ instantRouter.post("/", async (c) => {
       return c.json({ msg: "Send an instant to someone else." });
     }
 
-    const recipient = await prisma.user.findFirst({
-      where: { id: recipientId, status: "approved", emailVerifiedAt: { not: null } },
+    const groupId = await getUserGroupId(prisma, userId);
+    const recipient = groupId === null ? null : await prisma.user.findFirst({
+      where: { id: recipientId, groupId, status: "approved", emailVerifiedAt: { not: null } },
       select: { id: true },
     });
     if (!recipient) {
