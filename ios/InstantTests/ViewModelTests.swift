@@ -229,6 +229,97 @@ struct ViewerModelTests {
         }
         #expect(message.contains("gone either way"))
     }
+
+    // MARK: - Sensitive content and reporting
+
+    /// Hidden because the on-device classifier flagged it. Nobody has seen it
+    /// yet, so nothing that means "seen" may happen until it is revealed.
+    @Test("A sensitive photo is concealed: no receipt, no clock, until revealed")
+    func concealsSensitivePhoto() async throws {
+        let (delivery, ciphertext, device) = try sealedInstant()
+        let api = FakeInstantAPI()
+        api.mediaResult = .success(ciphertext)
+
+        let model = ViewerModel(
+            instant: delivery, api: api, device: device, time: TestTime().source,
+            sensitivity: FixedSensitivity(sensitive: true)
+        )
+        await model.start()
+
+        #expect(model.phase == .showing)
+        #expect(model.isConcealed)
+        #expect(model.image != nil, "kept, so it can be revealed or attached to a report")
+        #expect(api.viewedIds.isEmpty)
+        #expect(!model.wasSeen)
+        #expect(!model.showsCountdown)
+        for _ in 0..<50 { await Task.yield() }
+        #expect(!model.isFinished, "a concealed photo's clock has not started")
+
+        await model.reveal()
+        #expect(!model.isConcealed)
+        #expect(api.viewedIds == ["i1"])
+        #expect(model.wasSeen)
+    }
+
+    @Test("A photo the classifier passes is shown as sent")
+    func showsUnflaggedPhoto() async throws {
+        let (delivery, ciphertext, device) = try sealedInstant()
+        let api = FakeInstantAPI()
+        api.mediaResult = .success(ciphertext)
+
+        let model = ViewerModel(
+            instant: delivery, api: api, device: device, time: TestTime().source,
+            sensitivity: FixedSensitivity(sensitive: false)
+        )
+        await model.start()
+
+        #expect(!model.isConcealed)
+        #expect(api.viewedIds == ["i1"])
+    }
+
+    /// Reporting pauses the countdown, so the photo being reported is still
+    /// there to attach when the sheet is filled in.
+    @Test("Pausing holds the countdown and resuming finishes it")
+    func pauseHoldsCountdown() async throws {
+        let (delivery, ciphertext, device) = try sealedInstant(durationMode: .fiveSeconds)
+        let api = FakeInstantAPI()
+        api.mediaResult = .success(ciphertext)
+
+        let model = ViewerModel(
+            instant: delivery, api: api, device: device, time: TestTime().source,
+            sensitivity: FixedSensitivity(sensitive: false)
+        )
+        await model.start()
+        model.pause()
+        let heldAt = model.progress
+
+        for _ in 0..<200 { await Task.yield() }
+        #expect(!model.isFinished)
+        #expect(model.progress == heldAt)
+        #expect(model.image != nil)
+
+        model.resume()
+        #expect(await eventually { model.isFinished })
+    }
+
+    @Test("Pausing a finished viewer does nothing, and resuming it does not reopen")
+    func pauseAfterFinish() async throws {
+        let (delivery, ciphertext, device) = try sealedInstant(durationMode: .infinite)
+        let api = FakeInstantAPI()
+        api.mediaResult = .success(ciphertext)
+
+        let model = ViewerModel(
+            instant: delivery, api: api, device: device, time: TestTime().source,
+            sensitivity: FixedSensitivity(sensitive: false)
+        )
+        await model.start()
+        model.finish()
+        model.pause()
+        model.resume()
+
+        #expect(model.isFinished)
+        #expect(!model.isPaused)
+    }
 }
 
 /// Records whether an `@Observable` property actually notified.

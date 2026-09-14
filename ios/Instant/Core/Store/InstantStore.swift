@@ -386,6 +386,17 @@ public final class InstantStore {
         refreshWidget()
     }
 
+    /// Drops everything this device holds about someone who has just been
+    /// blocked. The server already hides them; this makes it true before the
+    /// next refresh instead of after.
+    public func forget(userId: Int) {
+        instants.removeAll { $0.senderId == userId }
+        serverHistory.removeAll { $0.userId == userId }
+        sendsByUser[userId] = nil
+        replyHints.remove(userId)
+        refreshWidget()
+    }
+
     public func clearSessionExpired() {
         sessionExpired = false
     }

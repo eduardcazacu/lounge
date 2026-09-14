@@ -34,6 +34,7 @@ public final class AppEnvironment {
     public let session: SessionStore
     public let userAPI: UserAPIProtocol
     public let instantAPI: InstantAPIProtocol
+    public let moderationAPI: ModerationAPIProtocol
     public let store: InstantStore
     public let identities: DeviceIdentityProviding
     public let makeCamera: @MainActor () -> CameraControlling
@@ -102,11 +103,28 @@ public final class AppEnvironment {
     /// show a real avatar rather than waiting for someone to open Settings.
     public private(set) var account: AccountProfile?
 
+    /// Signed in, account loaded, and the Community Guidelines not yet agreed
+    /// to. Guideline 1.2: nobody gets past this until they have said yes.
+    ///
+    /// Keyed off a loaded account rather than a missing one, so a network
+    /// failure fetching `/me` does not lock someone out behind a sheet that
+    /// cannot submit either.
+    public var needsTermsAcceptance: Bool {
+        guard session.isSignedIn, let account else { return false }
+        return account.termsAcceptedAt == nil
+    }
+
+    public func acceptTerms() async throws {
+        _ = try await userAPI.acceptTerms()
+        await loadAccount()
+    }
+
     public init(
         config: AppConfig,
         session: SessionStore,
         userAPI: UserAPIProtocol,
         instantAPI: InstantAPIProtocol,
+        moderationAPI: ModerationAPIProtocol,
         identities: DeviceIdentityProviding,
         store: InstantStore,
         makeCamera: @escaping @MainActor () -> CameraControlling
@@ -115,6 +133,7 @@ public final class AppEnvironment {
         self.session = session
         self.userAPI = userAPI
         self.instantAPI = instantAPI
+        self.moderationAPI = moderationAPI
         self.identities = identities
         self.store = store
         self.makeCamera = makeCamera
@@ -137,6 +156,7 @@ public final class AppEnvironment {
             session: session,
             userAPI: UserAPI(client: client),
             instantAPI: instantAPI,
+            moderationAPI: ModerationAPI(client: client),
             identities: identities,
             store: store,
             makeCamera: { CameraController() }
@@ -153,6 +173,23 @@ public final class AppEnvironment {
         session.signOut()
         account = nil
         aimedAt = nil
+    }
+
+    /// Someone was just blocked, from wherever: their conversation and anything
+    /// waiting from them leave this device now, and an aim at them is dropped.
+    public func didBlock(userId: Int) {
+        store.forget(userId: userId)
+        if aimedAt?.userId == userId { aimedAt = nil }
+    }
+
+    /// The account is already gone on the server. This device's key for it goes
+    /// too — Keychain items outlive the app, and a key for an account that no
+    /// longer exists is nothing but a thing to leak — and then it signs out.
+    public func didDeleteAccount() async {
+        if let userId = session.currentUserId {
+            identities.reset(forUserId: userId)
+        }
+        await signOut()
     }
 
     public func handleSignIn(token: String) async {

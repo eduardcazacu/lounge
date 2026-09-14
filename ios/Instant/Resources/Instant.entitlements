@@ -7,6 +7,14 @@
 	<!-- Shared with the widget extension: the app writes the snapshot the
 	     widget draws, because an extension can reach neither the access token
 	     nor the refresh cookie it would need to fetch for itself. -->
+	<!-- On-device nudity detection for received instants, which the server
+	     cannot inspect because it only ever holds ciphertext. It runs only for
+	     people who turned on Sensitive Content Warnings or Communication
+	     Safety. See Core/Media/SensitivityCheck.swift. -->
+	<key>com.apple.developer.sensitivecontentanalysis.client</key>
+	<array>
+		<string>analysis</string>
+	</array>
 	<key>com.apple.security.application-groups</key>
 	<array>
 		<string>group.com.eduardcazacu.instant</string>

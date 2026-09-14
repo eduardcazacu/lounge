@@ -29,6 +29,14 @@ public enum LaunchOptions {
         ProcessInfo.processInfo.arguments.contains(requestPushFlag)
     }
 
+    /// Serves an account that has not agreed to the Community Guidelines, so a
+    /// UI test can drive the gate.
+    public static let termsPendingFlag = "-instantUITestTermsPending"
+
+    public static var termsPending: Bool {
+        ProcessInfo.processInfo.arguments.contains(termsPendingFlag)
+    }
+
     public static var startsSignedIn: Bool {
         ProcessInfo.processInfo.arguments.contains(signedInFlag)
     }
@@ -67,6 +75,7 @@ public enum LaunchOptions {
             session: session,
             userAPI: UserAPI(client: client),
             instantAPI: instantAPI,
+            moderationAPI: ModerationAPI(client: client),
             identities: identities,
             store: store,
             makeCamera: { StubCameraController(frame: StubBackend.cameraFrame()) }

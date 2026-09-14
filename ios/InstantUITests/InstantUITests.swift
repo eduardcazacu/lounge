@@ -12,10 +12,11 @@ final class InstantUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-    private func launch(signedIn: Bool) -> XCUIApplication {
+    private func launch(signedIn: Bool, termsPending: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-instantUITestStubs"]
         if signedIn { app.launchArguments.append("-instantUITestSignedIn") }
+        if termsPending { app.launchArguments.append("-instantUITestTermsPending") }
         app.launch()
         return app
     }
@@ -185,6 +186,13 @@ final class InstantUITests: XCTestCase {
         let row = app.buttons["inbox.conversation.Ana"]
         XCTAssertTrue(row.waitForExistence(timeout: 30))
         row.press(forDuration: 1.0)
+
+        // Press and hold opens a menu now, with reporting and blocking beside it.
+        let menuItem = app.buttons["inbox.menu.safetyNumber"]
+        XCTAssertTrue(menuItem.waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["inbox.menu.report"].exists)
+        XCTAssertTrue(app.buttons["inbox.menu.block"].exists)
+        menuItem.tap()
 
         let number = app.staticTexts["safety.number"]
         XCTAssertTrue(number.waitForExistence(timeout: 30))
@@ -683,5 +691,109 @@ final class InstantUITests: XCTestCase {
         app.buttons["settings.save"].tap()
         // Saving keeps the sheet open; the absence of an error is the assertion.
         XCTAssertTrue(app.staticTexts["settings.name"].waitForExistence(timeout: 30))
+    }
+
+    // MARK: - App Store: guidelines, reporting, blocking, deleting
+
+    /// Guideline 1.2. Nothing past this screen until it has been agreed to.
+    func testTheCommunityGuidelinesMustBeAgreedToFirst() {
+        let app = launch(signedIn: true, termsPending: true)
+
+        XCTAssertTrue(app.staticTexts["terms.title"].waitForExistence(timeout: 30))
+        XCTAssertFalse(app.buttons["camera.shutter"].exists)
+
+        app.buttons["terms.agree"].tap()
+
+        XCTAssertTrue(app.buttons["camera.shutter"].waitForExistence(timeout: 30))
+        XCTAssertFalse(app.staticTexts["terms.title"].exists)
+    }
+
+    func testReportingAPhotoClosesItAndBlocksTheSender() {
+        let app = launch(signedIn: true)
+        XCTAssertTrue(app.buttons["camera.shutter"].waitForExistence(timeout: 30))
+        app.buttons["camera.inbox"].tap()
+
+        let row = app.buttons["inbox.conversation.Ana"]
+        XCTAssertTrue(row.waitForExistence(timeout: 30))
+        row.tap()
+        XCTAssertTrue(app.images["viewer.image"].waitForExistence(timeout: 30))
+
+        // Five seconds on the clock: opening the report has to hold it, or the
+        // photo would close underneath the sheet.
+        app.buttons["viewer.more"].tap()
+        let send = app.buttons["report.send"]
+        XCTAssertTrue(send.waitForExistence(timeout: 15))
+        XCTAssertFalse(send.isEnabled, "no reason chosen yet")
+        XCTAssertTrue(app.switches["report.includePhoto"].exists)
+
+        sleep(6)
+        app.buttons["report.reason.harassment"].tap()
+        XCTAssertTrue(send.isEnabled)
+        send.tap()
+
+        // Closed, and Ana is gone because reporting blocks by default.
+        waitForDisappearance(app.images["viewer.image"])
+        waitForDisappearance(row)
+    }
+
+    func testBlockingFromTheInboxAndUnblockingFromSettings() {
+        let app = launch(signedIn: true)
+        XCTAssertTrue(app.buttons["camera.shutter"].waitForExistence(timeout: 30))
+        app.buttons["camera.inbox"].tap()
+
+        let row = app.buttons["inbox.conversation.Bo"]
+        XCTAssertTrue(row.waitForExistence(timeout: 30))
+        row.press(forDuration: 1.0)
+        let block = app.buttons["inbox.menu.block"]
+        XCTAssertTrue(block.waitForExistence(timeout: 15))
+        block.tap()
+
+        // A confirmation dialog surfaces its buttons twice in the tree.
+        let confirm = app.buttons["inbox.block.confirm"].firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 15))
+        confirm.tap()
+        waitForDisappearance(row)
+
+        app.buttons["camera.profile"].tap()
+        let blocked = app.buttons["settings.blocked"]
+        XCTAssertTrue(scrollTo(blocked, in: app))
+        blocked.tap()
+
+        let unblock = app.buttons["blocked.unblock.Bo"]
+        XCTAssertTrue(unblock.waitForExistence(timeout: 30))
+        unblock.tap()
+        XCTAssertTrue(app.staticTexts["blocked.empty"].waitForExistence(timeout: 30))
+    }
+
+    /// Guideline 5.1.1(v). A wrong password stays on the sheet; the right one
+    /// ends at sign-in.
+    func testDeletingTheAccountReturnsToSignIn() {
+        let app = launch(signedIn: true)
+        XCTAssertTrue(app.buttons["camera.profile"].waitForExistence(timeout: 30))
+        app.buttons["camera.profile"].tap()
+
+        let delete = app.buttons["settings.deleteAccount"]
+        XCTAssertTrue(scrollTo(delete, in: app))
+        delete.tap()
+
+        let password = app.secureTextFields["deleteAccount.password"]
+        XCTAssertTrue(password.waitForExistence(timeout: 15))
+        password.tap()
+        password.typeText("wrong")
+        app.buttons["deleteAccount.submit"].tap()
+        let confirm = app.buttons["deleteAccount.confirm"].firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 15))
+        confirm.tap()
+        XCTAssertTrue(app.staticTexts["deleteAccount.error"].waitForExistence(timeout: 15))
+
+        // A secure field offers no Select All; deleting past the start is harmless.
+        password.tap()
+        password.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 12))
+        password.typeText("correct-horse")
+        app.buttons["deleteAccount.submit"].tap()
+        XCTAssertTrue(confirm.waitForExistence(timeout: 15))
+        confirm.tap()
+
+        waitForSignIn(app)
     }
 }

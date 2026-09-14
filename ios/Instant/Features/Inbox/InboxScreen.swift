@@ -10,6 +10,9 @@ struct InboxScreen: View {
     @Environment(AppEnvironment.self) private var environment
     @State private var viewing: ViewerModel?
     @State private var safetyNumberPeer: InstantStore.Conversation?
+    @State private var report: ReportModel?
+    @State private var blockCandidate: InstantStore.Conversation?
+    @State private var blockError: String?
 
     private var store: InstantStore { environment.store }
 
@@ -35,7 +38,7 @@ struct InboxScreen: View {
             }
         }
         .fullScreenCover(item: $viewing) { model in
-            ViewerScreen(model: model) {
+            ViewerScreen(model: model, onClose: {
                 store.dismiss(model.instant.id)
                 // Closing an instant lands back here rather than on the camera,
                 // with the sender's row now offering a reply — the one thing
@@ -47,7 +50,38 @@ struct InboxScreen: View {
                 environment.showsInbox = true
                 viewing = nil
                 Task { await store.refreshHistory() }
+            }, onBlocked: { environment.didBlock(userId: $0) })
+        }
+        .sheet(item: $report) { report in
+            ReportScreen(
+                model: report,
+                termsURL: environment.config.webAppURL.appendingPathComponent("terms")
+            ) { blocked in
+                if blocked { environment.didBlock(userId: report.reportedUserId) }
             }
+        }
+        .confirmationDialog(
+            "Block \(blockCandidate?.name ?? "them")?",
+            isPresented: Binding(
+                get: { blockCandidate != nil },
+                set: { if !$0 { blockCandidate = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: blockCandidate
+        ) { conversation in
+            Button("Block", role: .destructive) { Task { await block(conversation) } }
+                .accessibilityIdentifier("inbox.block.confirm")
+            Button("Cancel", role: .cancel) {}
+        } message: { conversation in
+            Text("You and \(conversation.name) won't be able to see or send instants to each other. Anything waiting from them is deleted. You can unblock them from your account.")
+        }
+        .alert(
+            "Couldn't block",
+            isPresented: Binding(get: { blockError != nil }, set: { if !$0 { blockError = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(blockError ?? "")
         }
         .sheet(item: $safetyNumberPeer) { peer in
             SafetyNumberScreen(peerUserId: peer.userId, peerName: peer.name)
@@ -176,21 +210,43 @@ struct InboxScreen: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        // Long press for the safety number. `simultaneousGesture` rather than
-        // `onLongPressGesture` so the row's tap keeps working inside the List.
-        .simultaneousGesture(
-            LongPressGesture(minimumDuration: 0.45).onEnded { _ in
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        // Press and hold for everything about the person rather than the
+        // conversation: reporting and blocking (Guideline 1.2) and the safety
+        // number. A menu makes all three discoverable where a bare long press
+        // hid the one it had.
+        .contextMenu {
+            Button {
                 safetyNumberPeer = conversation
+            } label: {
+                Label("Safety number", systemImage: "checkmark.shield")
             }
-        )
+            .accessibilityIdentifier("inbox.menu.safetyNumber")
+
+            Button {
+                report = ReportModel(
+                    reportedUserId: conversation.userId,
+                    reportedName: conversation.name,
+                    api: environment.moderationAPI
+                )
+            } label: {
+                Label("Report…", systemImage: "exclamationmark.bubble")
+            }
+            .accessibilityIdentifier("inbox.menu.report")
+
+            Button(role: .destructive) {
+                blockCandidate = conversation
+            } label: {
+                Label("Block", systemImage: "hand.raised")
+            }
+            .accessibilityIdentifier("inbox.menu.block")
+        }
         .listRowBackground(InstantStyle.background)
         .listRowSeparatorTint(InstantStyle.surfaceRaised)
         .accessibilityIdentifier("inbox.conversation.\(conversation.name)")
         .accessibilityHint(
             conversation.hasPending
-                ? "Press and hold to check the safety number"
-                : "Opens the camera to send \(conversation.name) an instant. Press and hold to check the safety number."
+                ? "Press and hold to report, block, or check the safety number"
+                : "Opens the camera to send \(conversation.name) an instant. Press and hold to report, block, or check the safety number."
         )
     }
 
@@ -259,6 +315,15 @@ struct InboxScreen: View {
         else { return }
         environment.pendingInstantId = nil
         open(instant)
+    }
+
+    private func block(_ conversation: InstantStore.Conversation) async {
+        do {
+            try await environment.moderationAPI.block(userId: conversation.userId)
+            environment.didBlock(userId: conversation.userId)
+        } catch {
+            blockError = "Check your connection and try again."
+        }
     }
 
     private func open(_ instant: InstantDelivery) {

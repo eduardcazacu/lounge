@@ -23,31 +23,47 @@ public final class ViewerModel {
     public private(set) var progress: Double = 1
     public private(set) var isFinished = false
 
+    /// Decrypted, but hidden behind a warning because the on-device classifier
+    /// flagged it. Not yet seen: no receipt and no countdown until `reveal()`.
+    public private(set) var isConcealed = false
+
+    /// The countdown is held while something is on top of the photo — a report
+    /// sheet — so reporting does not cost the reporter the photo they are
+    /// reporting.
+    public private(set) var isPaused = false
+
     /// The fetch is destructive on the server, so it must happen exactly once.
     /// Not "once per render", not "once unless something re-entered" — once.
     private var hasStartedFetch = false
     private var hasSentReceipt = false
     private var countdown: Task<Void, Never>?
+    private var countdownTotal: Double = 0
+    /// Seconds left as of `countdownStartedAt`. Updated on every pause.
+    private var countdownRemaining: Double = 0
+    private var countdownStartedAt: Date?
 
     public let instant: InstantDelivery
     private let api: InstantAPIProtocol
     private let device: DeviceIdentity
     private let time: TimeSource
+    private let sensitivity: SensitivityChecking
 
     public init(
         instant: InstantDelivery,
         api: InstantAPIProtocol,
         device: DeviceIdentity,
-        time: TimeSource = .live
+        time: TimeSource = .live,
+        sensitivity: SensitivityChecking = SystemSensitivityChecker()
     ) {
         self.instant = instant
         self.api = api
         self.device = device
         self.time = time
+        self.sensitivity = sensitivity
     }
 
     public var showsCountdown: Bool {
-        instant.durationMode != .infinite && phase == .showing
+        instant.durationMode != .infinite && phase == .showing && !isConcealed
     }
 
     /// Whether the photo actually reached the screen — the same condition as the
@@ -82,6 +98,7 @@ public final class ViewerModel {
             return
         }
 
+        let decoded: UIImage
         do {
             let plaintext = try InstantCrypto.open(
                 ciphertext: ciphertext,
@@ -94,19 +111,58 @@ public final class ViewerModel {
                 ),
                 device: device
             )
-            guard let decoded = UIImage(data: plaintext) else {
+            guard let opened = UIImage(data: plaintext) else {
                 phase = .failed("That instant could not be displayed.")
                 return
             }
-            image = decoded
-            phase = .showing
+            decoded = opened
         } catch {
             phase = .undecryptable
             return
         }
+        image = decoded
 
+        if await sensitivity.isSensitive(decoded) {
+            isConcealed = true
+            phase = .showing
+            return
+        }
+
+        phase = .showing
         await sendReceipt()
         startCountdown()
+    }
+
+    /// "View anyway" on a concealed photo. This is the moment it is seen, so
+    /// this is when the receipt goes and the clock starts.
+    public func reveal() async {
+        guard isConcealed, phase == .showing, !isFinished else { return }
+        isConcealed = false
+        await sendReceipt()
+        startCountdown()
+    }
+
+    public func pause() {
+        guard !isPaused, !isFinished else { return }
+        isPaused = true
+        guard let countdown, let startedAt = countdownStartedAt else { return }
+        countdown.cancel()
+        self.countdown = nil
+        countdownRemaining = max(0, countdownRemaining - time.now().timeIntervalSince(startedAt))
+        countdownStartedAt = nil
+    }
+
+    public func resume() {
+        guard isPaused, !isFinished else { return }
+        isPaused = false
+        // Only a clock that was running comes back; pausing before the photo was
+        // revealed, or on an infinite instant, had nothing to hold.
+        guard countdownTotal > 0 else { return }
+        if countdownRemaining <= 0 {
+            finish()
+        } else {
+            runCountdown()
+        }
     }
 
     /// Sent once the image is actually on screen, not when the fetch began —
@@ -119,9 +175,19 @@ public final class ViewerModel {
 
     private func startCountdown() {
         guard let total = instant.durationMode.duration else { return }
-        let totalSeconds = Double(total.components.seconds)
+        countdownTotal = Double(total.components.seconds)
             + Double(total.components.attoseconds) / 1e18
+        countdownRemaining = countdownTotal
+        // Revealed while a sheet was already up: the clock starts when it closes.
+        guard !isPaused else { return }
+        runCountdown()
+    }
+
+    private func runCountdown() {
         let startedAt = time.now()
+        let remainingAtStart = countdownRemaining
+        let totalSeconds = countdownTotal
+        countdownStartedAt = startedAt
 
         countdown = Task { [weak self] in
             guard let self else { return }
@@ -129,7 +195,7 @@ public final class ViewerModel {
                 try? await time.sleep(.milliseconds(50))
                 guard !Task.isCancelled else { return }
                 let elapsed = time.now().timeIntervalSince(startedAt)
-                let remaining = max(0, totalSeconds - elapsed)
+                let remaining = max(0, remainingAtStart - elapsed)
                 progress = totalSeconds > 0 ? remaining / totalSeconds : 0
                 if remaining <= 0 {
                     finish()

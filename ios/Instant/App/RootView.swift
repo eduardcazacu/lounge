@@ -8,7 +8,14 @@ struct RootView: View {
     var body: some View {
         Group {
             if environment.session.isSignedIn {
-                MainPager()
+                if environment.needsTermsAcceptance {
+                    // Instead of the app rather than over it, so nothing behind
+                    // it — a tapped notification opening the viewer, say — can
+                    // be reached before the guidelines are agreed to.
+                    TermsScreen()
+                } else {
+                    MainPager()
+                }
             } else {
                 SignInView()
             }

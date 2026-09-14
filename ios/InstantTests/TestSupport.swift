@@ -340,6 +340,9 @@ final class FakeUserAPI: UserAPIProtocol, @unchecked Sendable {
     var notificationsError: Error?
     var apnsRegistrations: [(String, Bool)] = []
     var signOutCount = 0
+    var acceptTermsCount = 0
+    var deleteAccountResult: Result<Void, Error> = .success(())
+    var deleteAccountPasswords: [String] = []
 
     func signIn(email: String, password: String) async throws -> String {
         signInCalls.append((email, password))
@@ -373,6 +376,72 @@ final class FakeUserAPI: UserAPIProtocol, @unchecked Sendable {
     }
 
     func users() async throws -> [UserSummary] { usersResult }
+
+    func acceptTerms() async throws -> String? {
+        acceptTermsCount += 1
+        profile.termsAcceptedAt = "2026-09-14T10:00:00.000Z"
+        return profile.termsAcceptedAt
+    }
+
+    func deleteAccount(password: String) async throws {
+        deleteAccountPasswords.append(password)
+        try deleteAccountResult.get()
+    }
+}
+
+final class FakeModerationAPI: ModerationAPIProtocol, @unchecked Sendable {
+    private let storage = Mutex(State())
+
+    struct State {
+        var blocked: [BlockedUser] = []
+        var blockedIds: [Int] = []
+        var unblockedIds: [Int] = []
+        var reports: [ReportDraft] = []
+        var reportError: Error?
+        var unblockError: Error?
+    }
+
+    var blocked: [BlockedUser] {
+        get { storage.withLock { $0.blocked } }
+        set { storage.withLock { $0.blocked = newValue } }
+    }
+    var reportError: Error? {
+        get { storage.withLock { $0.reportError } }
+        set { storage.withLock { $0.reportError = newValue } }
+    }
+    var unblockError: Error? {
+        get { storage.withLock { $0.unblockError } }
+        set { storage.withLock { $0.unblockError = newValue } }
+    }
+    var blockedIds: [Int] { storage.withLock { $0.blockedIds } }
+    var unblockedIds: [Int] { storage.withLock { $0.unblockedIds } }
+    var reports: [ReportDraft] { storage.withLock { $0.reports } }
+
+    func blockedUsers() async throws -> [BlockedUser] { blocked }
+
+    func block(userId: Int) async throws {
+        storage.withLock { $0.blockedIds.append(userId) }
+    }
+
+    func unblock(userId: Int) async throws {
+        try storage.withLock { state in
+            if let error = state.unblockError { throw error }
+            state.unblockedIds.append(userId)
+        }
+    }
+
+    func report(_ draft: ReportDraft) async throws {
+        try storage.withLock { state in
+            if let error = state.reportError { throw error }
+            state.reports.append(draft)
+        }
+    }
+}
+
+/// Says whatever the test needs about a photo.
+struct FixedSensitivity: SensitivityChecking {
+    let sensitive: Bool
+    func isSensitive(_ image: UIImage) async -> Bool { sensitive }
 }
 
 // MARK: - Environment
@@ -382,7 +451,9 @@ final class FakeUserAPI: UserAPIProtocol, @unchecked Sendable {
 @MainActor
 func makeTestEnvironment(
     userAPI: FakeUserAPI = FakeUserAPI(),
-    instantAPI: FakeInstantAPI = FakeInstantAPI()
+    instantAPI: FakeInstantAPI = FakeInstantAPI(),
+    moderationAPI: FakeModerationAPI = FakeModerationAPI(),
+    session: SessionStore = SessionStore(keychain: InMemoryKeychain())
 ) -> AppEnvironment {
     let identities = DeviceIdentityStore(
         keychain: InMemoryKeychain(),
@@ -390,9 +461,10 @@ func makeTestEnvironment(
     )
     return AppEnvironment(
         config: .localWorker,
-        session: SessionStore(keychain: InMemoryKeychain()),
+        session: session,
         userAPI: userAPI,
         instantAPI: instantAPI,
+        moderationAPI: moderationAPI,
         identities: identities,
         store: InstantStore(
             api: instantAPI, identities: identities, makeSocket: { _ in StubSocket() }

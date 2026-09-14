@@ -309,31 +309,60 @@ What none of this covers is Apple accepting the request the backend sends —
 `backend/scripts/verify-apns.ts` checks the ES256 signing and request shape
 against a stubbed Apple instead.
 
-## Push is off by default
+## Push
 
-The Push Notifications capability requires the `aps-environment` entitlement, and
-**a free personal team cannot sign an app that declares it** — Xcode refuses the
-build outright, so the app cannot reach a device at all. `INSTANT_PUSH_ENABLED`
-is therefore `NO`, which drops both the entitlement and the registration code.
+Push is compiled into every build. The app declares `aps-environment` in
+`Instant/Resources/Instant.entitlements`, which needs a paid Apple Developer
+membership to sign, and asks for notification permission once someone has
+signed in — never on the sign-in screen, where iOS's one prompt would be spent
+before there is any reason to say yes. Debug builds register their token as
+`apns-sandbox` and Release builds (TestFlight, App Store) as `apns`.
 
-Turn it on with one setting once there is a paid membership:
+The backend half records tokens whatever happens and delivers once the `APNS_*`
+Worker secrets exist; see `backend/README.md`.
 
-```bash
-xcodebuild build -project ios/Instant.xcodeproj -scheme Instant INSTANT_PUSH_ENABLED=YES
-```
+## Guidelines, reporting, blocking and deleting
 
-or set `INSTANT_PUSH_ENABLED` to `YES` in the target's build settings to make it
-permanent. That restores `Instant/Resources/Instant.entitlements` and defines the
-`INSTANT_PUSH` compilation condition, which is the only thing gating
-`PushRegistrar.requestAuthorizationAndRegister()`.
+What App Review requires of an app where people send each other content. The
+submission checklist, review notes and privacy answers are in
+[`APP_STORE.md`](APP_STORE.md).
 
-While it is off the app never asks for notification permission — iOS gives one
-chance to ask, and spending it when no token can be issued wastes it. Handling a
-*tapped* notification is compiled either way, so nothing else changes when it is
-switched on. The backend half is already live and inert: it records APNs tokens
-and reports the provider as unconfigured until the `APNS_*` secrets exist.
+- **Community Guidelines** — `TermsScreen` replaces the app after sign-in until
+  `AppEnvironment.needsTermsAcceptance` is false. It keys off a *loaded* account
+  whose `termsAcceptedAt` is null, not a missing one, so a failed `/me` never
+  traps someone behind a screen that could not submit either. It sits in place of
+  `MainPager` rather than over it, so nothing behind it — a notification opening
+  the viewer — is reachable first.
+- **Reporting** — `ReportScreen`, from the viewer's ••• button or a conversation's
+  context menu. From the viewer the photo can be attached; that is off by default
+  and says why, because it is the one way plaintext leaves the device. Opening the
+  sheet pauses the countdown (`ViewerModel.pause`), so the photo being reported
+  is still there, and sending closes the viewer rather than resuming it.
+  Reporting blocks too unless the toggle is turned off.
+- **Blocking** — the conversation context menu, which replaced the bare long
+  press for the safety number: one gesture now offers all three.
+  `AppEnvironment.didBlock` drops the person's conversation, anything waiting
+  from them and any aim at them straight away, without waiting for the server.
+  Settings → Blocked people lists and unblocks.
+- **Filtering** — `SystemSensitivityChecker` runs Apple's SensitiveContentAnalysis
+  on each decrypted photo. The server cannot inspect ciphertext, so on-device is
+  the only place filtering can happen. A flagged photo is shown blurred with
+  *View anyway* and *Report*; it counts as unseen — no read receipt, no
+  countdown — until revealed. The classifier only runs when the person has
+  Sensitive Content Warnings or Communication Safety turned on; otherwise the
+  policy is `.disabled` and photos are shown as sent. Needs the
+  `com.apple.developer.sensitivecontentanalysis.client` entitlement.
+- **Deleting the account** — Settings → Delete account asks for the password and
+  confirms. A wrong password comes back as 400, deliberately not 403, which
+  `APIClient` would treat as an expired session and answer with a refresh. On
+  success the device's key for that account is deleted from the Keychain before
+  signing out: Keychain items outlive the app.
 
 ## What this deliberately does not do
+
+The app is iPhone only (`TARGETED_DEVICE_FAMILY = 1`): the camera and the pager
+are phone-shaped, and a portrait-only app that declares iPad support fails App
+Store validation. iPads still run it in compatibility mode.
 
 Sign-up and password reset link out to the web app: both need an email
 verification link and then admin approval, so an in-app form could only ever end

@@ -18,6 +18,9 @@ public struct AppConfig: Sendable {
         self.webAppURL = webAppURL
     }
 
+    /// Published in the app and on /support, as Guideline 1.2 asks.
+    public static let supportEmail = "hello@eduardcazacu.com"
+
     public static let production = AppConfig(
         apiBaseURL: URL(string: "https://api.lounge.eduardcazacu.com")!,
         webAppURL: URL(string: "https://lounge.eduardcazacu.com")!

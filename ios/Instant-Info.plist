@@ -18,5 +18,12 @@
 			</array>
 		</dict>
 	</array>
+	<!-- Export compliance, answered once here instead of on every upload.
+	     Every cryptographic operation goes through Apple's operating system:
+	     CryptoKit and the Secure Enclave for Instant's end-to-end encryption,
+	     and URLSession for TLS. Encryption limited to what the OS provides is
+	     exempt. See ios/APP_STORE.md before changing this. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>

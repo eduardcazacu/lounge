@@ -26,6 +26,10 @@ enum StubBackend {
         return formatter
     }()
 
+    static func name(forUserId id: Int) -> String {
+        [1: "Tester", 2: "Ana", 3: "Bo", 4: "Cass", 5: "Dee"][id] ?? "Someone"
+    }
+
     static func timestamp(offsetBySeconds offset: TimeInterval) -> String {
         iso.string(from: Date().addingTimeInterval(offset))
     }
@@ -64,6 +68,12 @@ final class StubAPIClient: APIClientProtocol, @unchecked Sendable {
         var sealed: (ciphertext: Data, delivery: InstantDelivery)?
         var mediaFetched = false
         var sentInstants: [Data] = []
+        var termsAcceptedAt: String? = LaunchOptions.termsPending
+            ? nil
+            : StubBackend.timestamp(offsetBySeconds: -86_400)
+        var blockedUserIds: [Int] = []
+        /// Raw `payload` parts, kept as bytes so the state stays Sendable.
+        var reports: [Data] = []
     }
 
     private let state = OSAllocatedUnfairLock(initialState: State())
@@ -93,12 +103,51 @@ final class StubAPIClient: APIClientProtocol, @unchecked Sendable {
                     "bio": "Testing Instant", "themeKey": "ocean",
                     "notificationsEnabled": true, "isAdmin": false,
                     "profilePictureKey": NSNull(), "profilePictureUrl": NSNull(),
+                    // Already agreed unless a test asks to see the gate.
+                    "termsAcceptedAt": state.termsAcceptedAt.map { $0 as Any } ?? NSNull(),
                 ],
             ])
 
-        case ("GET", "api/v1/user/list"):
+        case ("POST", "api/v1/user/me/accept-terms"):
+            state.termsAcceptedAt = StubBackend.timestamp(offsetBySeconds: 0)
+            return try encode(["termsAcceptedAt": state.termsAcceptedAt ?? NSNull()])
+
+        case ("POST", "api/v1/user/me/delete"):
+            guard (request.jsonBody?["password"] as? String) == "correct-horse" else {
+                throw APIError(status: 400, message: "That password is not correct.")
+            }
+            return try encode(["msg": "Your account has been deleted."])
+
+        case ("GET", "api/v1/moderation/blocks"):
             return try encode([
-                "users": [
+                "blocks": state.blockedUserIds.map { id in
+                    [
+                        "userId": id, "name": StubBackend.name(forUserId: id), "themeKey": "rose",
+                        "profilePictureUrl": NSNull(), "blockedAt": StubBackend.timestamp(offsetBySeconds: 0),
+                    ] as [String: Any]
+                },
+            ])
+
+        case ("POST", "api/v1/moderation/blocks"):
+            if let id = request.jsonBody?["userId"] as? Int, !state.blockedUserIds.contains(id) {
+                state.blockedUserIds.append(id)
+            }
+            return try encode(["ok": true])
+
+        case ("POST", "api/v1/moderation/reports"):
+            if case .multipart(let parts) = request.body,
+               let payload = parts.first(where: { $0.name == "payload" }),
+               let json = try? JSONSerialization.jsonObject(with: payload.data) as? [String: Any] {
+                state.reports.append(payload.data)
+                if (json["alsoBlock"] as? Bool) != false, let id = json["reportedUserId"] as? Int,
+                   !state.blockedUserIds.contains(id) {
+                    state.blockedUserIds.append(id)
+                }
+            }
+            return try encode(["report": ["id": state.reports.count], "blocked": true])
+
+        case ("GET", "api/v1/user/list"):
+            let users: [[String: Any]] = [
                     ["id": 1, "name": "Tester", "themeKey": "ocean", "profilePictureUrl": NSNull()],
                     ["id": 2, "name": "Ana", "themeKey": "rose", "profilePictureUrl": NSNull()],
                     ["id": 3, "name": "Bo", "themeKey": "forest", "profilePictureUrl": NSNull()],
@@ -106,7 +155,9 @@ final class StubAPIClient: APIClientProtocol, @unchecked Sendable {
                     // section to put somebody in.
                     ["id": 4, "name": "Cass", "themeKey": "gold", "profilePictureUrl": NSNull()],
                     ["id": 5, "name": "Dee", "themeKey": "indigo", "profilePictureUrl": NSNull()],
-                ],
+            ]
+            return try encode([
+                "users": users.filter { !state.blockedUserIds.contains($0["id"] as? Int ?? 0) },
             ])
 
         case ("PUT", "api/v1/user/me"):
@@ -139,8 +190,7 @@ final class StubAPIClient: APIClientProtocol, @unchecked Sendable {
             return try JSONEncoder().encode(InboxResponse(instants: pending))
 
         case ("GET", "api/v1/instant/conversations"):
-            return try encode([
-                "conversations": [
+            let conversations: [[String: Any]] = [
                     // A live streak, with something waiting. Sent to 21 hours
                     // ago and received from an hour ago: a nine-day streak
                     // means both sides have sent, and which side sent longer
@@ -180,7 +230,12 @@ final class StubAPIClient: APIClientProtocol, @unchecked Sendable {
                         "streakCount": 0,
                         "streakDeadline": NSNull(), "streakAtRisk": false,
                     ],
-                ],
+            ]
+            // A block hides the conversation, as the real endpoint does.
+            return try encode([
+                "conversations": conversations.filter {
+                    !state.blockedUserIds.contains($0["userId"] as? Int ?? 0)
+                },
             ])
 
         case ("GET", "api/v1/instant/streaks"):
@@ -213,6 +268,11 @@ final class StubAPIClient: APIClientProtocol, @unchecked Sendable {
             ])
 
         default:
+            if request.method == "DELETE", path.hasPrefix("api/v1/moderation/blocks/"),
+               let id = Int(path.dropFirst("api/v1/moderation/blocks/".count)) {
+                state.blockedUserIds.removeAll { $0 == id }
+                return try encode(["ok": true])
+            }
             if path.hasPrefix("api/v1/instant/keys/") {
                 return try JSONEncoder().encode(
                     InstantKeysResponse(userId: 2, devices: state.deviceKeys, myDevices: state.deviceKeys)

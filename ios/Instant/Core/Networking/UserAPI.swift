@@ -10,6 +10,11 @@ public protocol UserAPIProtocol: Sendable {
     func setNotificationsEnabled(_ enabled: Bool) async throws -> Bool
     func registerAPNsToken(_ token: String, sandbox: Bool) async throws
     func users() async throws -> [UserSummary]
+    /// Agrees to the Community Guidelines. Returns the recorded timestamp.
+    func acceptTerms() async throws -> String?
+    /// Deletes the account and everything it owns. A wrong password is a 400,
+    /// deliberately not a 403, so it surfaces as an error rather than a refresh.
+    func deleteAccount(password: String) async throws
 }
 
 public struct UserAPI: UserAPIProtocol {
@@ -114,5 +119,17 @@ public struct UserAPI: UserAPIProtocol {
 
     public func users() async throws -> [UserSummary] {
         try await client.decode(UserListResponse.self, from: .get("\(Self.base)/list")).users
+    }
+
+    private struct TermsResponse: Decodable { let termsAcceptedAt: String? }
+
+    public func acceptTerms() async throws -> String? {
+        try await client.decode(TermsResponse.self, from: .post("\(Self.base)/me/accept-terms")).termsAcceptedAt
+    }
+
+    private struct DeleteAccountBody: Encodable { let password: String }
+
+    public func deleteAccount(password: String) async throws {
+        try await client.send(.post("\(Self.base)/me/delete", json: DeleteAccountBody(password: password)))
     }
 }

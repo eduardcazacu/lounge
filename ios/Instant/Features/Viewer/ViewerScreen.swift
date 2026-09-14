@@ -4,8 +4,13 @@ import SwiftUI
 /// Full-screen, black, one photo, one countdown. Tap anywhere to close.
 struct ViewerScreen: View {
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(AppEnvironment.self) private var environment
     @Bindable var model: ViewerModel
     let onClose: () -> Void
+    /// Called when the sender was blocked from here, after the viewer closes.
+    var onBlocked: (Int) -> Void = { _ in }
+
+    @State private var report: ReportModel?
 
     var body: some View {
         ZStack {
@@ -20,8 +25,12 @@ struct ViewerScreen: View {
                     Image(uiImage: image)
                         .resizable()
                         .scaledToFit()
+                        .blur(radius: model.isConcealed ? 48 : 0, opaque: true)
                         .ignoresSafeArea()
-                        .accessibilityIdentifier("viewer.image")
+                        .accessibilityIdentifier(model.isConcealed ? "viewer.concealedImage" : "viewer.image")
+                }
+                if model.isConcealed {
+                    sensitiveWarning
                 }
 
             case .gone(let text):
@@ -61,6 +70,23 @@ struct ViewerScreen: View {
                             .frame(width: 34, height: 34)
                             .accessibilityIdentifier("viewer.countdown")
                     }
+
+                    // Always offered, whatever state the photo is in: someone
+                    // who sent something that would not open is no less
+                    // reportable. A Button, so it wins over the close-on-tap.
+                    Button {
+                        openReport()
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 17, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 34, height: 34)
+                            .background(.ultraThinMaterial, in: Circle())
+                            .environment(\.colorScheme, .dark)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Report \(model.instant.displayName)")
+                    .accessibilityIdentifier("viewer.more")
                 }
                 Spacer()
 
@@ -85,6 +111,58 @@ struct ViewerScreen: View {
             if phase != .active, model.phase == .showing { model.finish() }
         }
         .statusBarHidden()
+        .sheet(item: $report, onDismiss: { model.resume() }) { report in
+            ReportScreen(
+                model: report,
+                termsURL: environment.config.webAppURL.appendingPathComponent("terms")
+            ) { blocked in
+                // A reported photo is closed rather than resumed: nobody who
+                // just reported something wants the rest of its countdown.
+                model.finish()
+                if blocked { onBlocked(model.instant.senderId) }
+            }
+        }
+    }
+
+    private func openReport() {
+        model.pause()
+        report = ReportModel(
+            reportedUserId: model.instant.senderId,
+            reportedName: model.instant.displayName,
+            instantId: model.instant.id,
+            photo: model.isConcealed || model.phase == .showing ? model.image : nil,
+            api: environment.moderationAPI
+        )
+    }
+
+    private var sensitiveWarning: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "eye.slash.fill")
+                .font(.system(size: 40))
+            Text("This photo may be sensitive")
+                .font(.headline)
+            Text("It was hidden on this device because it may contain nudity. Nothing was sent to anyone to check it.")
+                .font(.subheadline)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(Color(white: 0.8))
+            HStack(spacing: 12) {
+                Button("View anyway") {
+                    Task { await model.reveal() }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.white)
+                .foregroundStyle(.black)
+                .accessibilityIdentifier("viewer.reveal")
+
+                Button("Report") { openReport() }
+                    .buttonStyle(.bordered)
+                    .tint(.white)
+                    .accessibilityIdentifier("viewer.concealedReport")
+            }
+            .padding(.top, 4)
+        }
+        .foregroundStyle(.white)
+        .padding(36)
     }
 
     private func notice(_ text: String, systemName: String) -> some View {

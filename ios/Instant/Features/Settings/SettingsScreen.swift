@@ -7,6 +7,7 @@ struct SettingsScreen: View {
     @Environment(\.dismiss) private var dismiss
     @State private var model: SettingsModel?
     @State private var pickerItem: PhotosPickerItem?
+    @State private var showsDeleteAccount = false
 
     var body: some View {
         NavigationStack {
@@ -18,6 +19,7 @@ struct SettingsScreen: View {
                         identitySection(model)
                         profileSection(model)
                         notificationsSection(model)
+                        safetySection
                         deviceSection
                         accountSection
                     }
@@ -49,6 +51,7 @@ struct SettingsScreen: View {
             }
         }
         .preferredColorScheme(.dark)
+        .sheet(isPresented: $showsDeleteAccount) { DeleteAccountScreen() }
         .task {
             if model == nil { model = SettingsModel(userAPI: environment.userAPI) }
             await model?.load()
@@ -156,6 +159,36 @@ struct SettingsScreen: View {
         .listRowBackground(InstantStyle.surface)
     }
 
+    /// Guideline 1.2 asks for published contact information alongside the
+    /// tools for reporting and blocking, so all of it lives together.
+    private var safetySection: some View {
+        Section {
+            NavigationLink {
+                BlockedPeopleScreen()
+            } label: {
+                Label("Blocked people", systemImage: "hand.raised")
+            }
+            .accessibilityIdentifier("settings.blocked")
+
+            Link(destination: environment.config.webAppURL.appendingPathComponent("terms")) {
+                Label("Community Guidelines", systemImage: "doc.text")
+            }
+            Link(destination: environment.config.webAppURL.appendingPathComponent("privacy")) {
+                Label("Privacy Policy", systemImage: "lock.shield")
+            }
+            Link(destination: URL(string: "mailto:\(AppConfig.supportEmail)")!) {
+                Label("Contact support", systemImage: "envelope")
+            }
+            .accessibilityIdentifier("settings.support")
+        } header: {
+            Text("Safety & support")
+        } footer: {
+            Text("To report someone, press and hold them in your conversations, or tap ••• on a photo they sent.")
+        }
+        .foregroundStyle(InstantStyle.primaryText)
+        .listRowBackground(InstantStyle.surface)
+    }
+
     private var deviceSection: some View {
         Section {
             if let device = environment.store.device {
@@ -187,6 +220,11 @@ struct SettingsScreen: View {
                 }
             }
             .accessibilityIdentifier("settings.signOut")
+
+            Button("Delete account", role: .destructive) {
+                showsDeleteAccount = true
+            }
+            .accessibilityIdentifier("settings.deleteAccount")
         }
         .listRowBackground(InstantStyle.surface)
     }

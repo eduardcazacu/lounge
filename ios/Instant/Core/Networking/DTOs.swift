@@ -318,6 +318,10 @@ public struct AccountProfile: Codable, Equatable, Sendable {
     public let profilePictureKey: String?
     public let isAdmin: Bool
     public let profilePictureUrl: String?
+    /// When the Community Guidelines were agreed to. `nil` means the app must
+    /// ask before letting this person in. Last and defaulted so an older
+    /// payload without it still decodes.
+    public var termsAcceptedAt: String? = nil
 }
 
 struct MeResponse: Codable { let user: AccountProfile }
