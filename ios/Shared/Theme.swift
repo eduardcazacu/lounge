@@ -50,4 +50,43 @@ enum InstantStyle {
     static let secondaryText = Color(white: 0.62)
     static let unread = Color.hex(0xF43F5E)
     static let flame = Color.hex(0xF59E0B)
+
+    /// The camera viewport and the compose preview are the same rectangle, and
+    /// it is the same shape as the photo that comes out of it: 16:9, standing
+    /// up. Framing and reviewing a shot on differently shaped surfaces means
+    /// the sender never quite knows what they took.
+    static let viewportAspectRatio: CGFloat = 9.0 / 16.0
+    /// Enough to read as a card against the black, not so much that it reads as
+    /// a widget.
+    static let viewportCornerRadius: CGFloat = 22
+
+    /// Defined once because the camera and the compose screen have to clip to
+    /// the same outline — a corner that changes between framing and reviewing
+    /// is a corner the eye catches.
+    static var viewportShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: viewportCornerRadius, style: .continuous)
+    }
+
+    /// How far the controls sit inside the viewport's edge. Clear of the corner
+    /// radius, and clear of the photo's own edge.
+    static let viewportInset: CGFloat = 16
+
+    /// Where the viewport lands on a screen of this size: as wide as the screen
+    /// until 16:9 would run off the bottom, then as tall as the screen, centred
+    /// either way.
+    ///
+    /// The controls are positioned from this rather than from the screen's own
+    /// margins — on a tall phone those margins are the black band outside the
+    /// photo, which is not where a control for the photo belongs.
+    static func viewportRect(in screen: CGSize) -> CGRect {
+        guard screen.width > 0, screen.height > 0 else { return .zero }
+        let width = min(screen.width, screen.height * viewportAspectRatio)
+        let height = width / viewportAspectRatio
+        return CGRect(
+            x: (screen.width - width) / 2,
+            y: (screen.height - height) / 2,
+            width: width,
+            height: height
+        )
+    }
 }

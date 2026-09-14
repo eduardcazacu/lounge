@@ -81,6 +81,71 @@ struct StreakBadge: View {
     }
 }
 
+/// Lays content out inside the camera viewport — the rounded 16:9 rectangle the
+/// preview and the compose preview share — rather than against the edges of the
+/// screen.
+///
+/// The controls used to sit on the screen's own margins, which on a tall phone
+/// is the black band *outside* the photo. A control for the frame belongs on
+/// the frame.
+struct ViewportOverlay<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        GeometryReader { proxy in
+            let viewport = InstantStyle.viewportRect(in: proxy.size)
+            content
+                .padding(insets(viewport: viewport, screen: proxy.size, safeArea: proxy.safeAreaInsets))
+                .frame(width: viewport.width, height: viewport.height)
+                .offset(x: viewport.minX, y: viewport.minY)
+        }
+        .ignoresSafeArea()
+    }
+
+    /// The inset from the viewport's own edge, opened up wherever the status bar
+    /// or the home indicator got there first. On a 16:9 phone the viewport is
+    /// the whole screen, so the two overlap; on a tall one they never do.
+    private func insets(viewport: CGRect, screen: CGSize, safeArea: EdgeInsets) -> EdgeInsets {
+        let inset = InstantStyle.viewportInset
+        return EdgeInsets(
+            top: max(inset, safeArea.top - viewport.minY),
+            leading: max(inset, safeArea.leading - viewport.minX),
+            bottom: max(inset, safeArea.bottom - (screen.height - viewport.maxY)),
+            trailing: max(inset, safeArea.trailing - (screen.width - viewport.maxX))
+        )
+    }
+}
+
+/// The way into settings, and the one piece of chrome that belongs to neither
+/// page: it is drawn above the pager so that swiping between the camera and the
+/// inbox leaves it exactly where it was.
+struct AccountButton: View {
+    @Environment(AppEnvironment.self) private var environment
+    @State private var showsSettings = false
+
+    /// `CircleIconButton`'s diameter, so the avatar sits on the same line as the
+    /// flash and flip buttons opposite it.
+    static let size: CGFloat = 44
+
+    var body: some View {
+        Button { showsSettings = true } label: {
+            // The signed-in account, not a placeholder: their picture if they
+            // have one, their initials if not.
+            AvatarView(
+                name: environment.account?.name ?? "",
+                themeKey: environment.account?.themeKey ?? ThemePalette.defaultKey,
+                url: environment.account?.profilePictureUrl,
+                size: Self.size
+            )
+        }
+        .buttonStyle(.plain)
+        // Named for the camera from when it lived there, and left alone: it is
+        // the same button, reachable from one more place.
+        .accessibilityIdentifier("camera.profile")
+        .sheet(isPresented: $showsSettings) { SettingsScreen() }
+    }
+}
+
 struct CircleIconButton: View {
     let systemName: String
     var diameter: CGFloat = 44

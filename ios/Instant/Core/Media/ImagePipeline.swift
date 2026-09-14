@@ -66,6 +66,47 @@ public enum ImagePipeline {
         }
     }
 
+    /// Instant's frame: 16:9, whichever way up the photo is.
+    ///
+    /// The capture session already delivers this shape, so for a photo taken in
+    /// the app the crop below is a no-op. A picture chosen from the library is
+    /// whatever shape the library had, and it has to end up matching the
+    /// viewport the sender framed it in — otherwise the compose screen shows a
+    /// different picture from the one the camera promised.
+    public static let frameAspectRatio: CGFloat = 16.0 / 9.0
+
+    /// The largest centred 16:9 rectangle that fits, in the image's own
+    /// orientation: a portrait photo stays portrait (9:16), a landscape one
+    /// stays landscape.
+    public static func croppedToFrame(_ image: UIImage) -> UIImage {
+        let upright = normalizingOrientation(image)
+        guard let source = upright.cgImage else { return upright }
+        let width = CGFloat(source.width)
+        let height = CGFloat(source.height)
+        guard width > 0, height > 0 else { return upright }
+
+        // width/height of the target, in this photo's orientation.
+        let ratio = height > width ? 1 / frameAspectRatio : frameAspectRatio
+        var cropWidth = width
+        var cropHeight = width / ratio
+        if cropHeight > height {
+            cropHeight = height
+            cropWidth = height * ratio
+        }
+
+        let rect = CGRect(
+            x: ((width - cropWidth) / 2).rounded(),
+            y: ((height - cropHeight) / 2).rounded(),
+            width: cropWidth.rounded(),
+            height: cropHeight.rounded()
+        )
+        // Already the right shape — cropping would only cost a copy, and the
+        // rounding above could shave a pixel off for nothing.
+        guard rect.width < width - 1 || rect.height < height - 1 else { return upright }
+        guard let cropped = source.cropping(to: rect) else { return upright }
+        return UIImage(cgImage: cropped, scale: 1, orientation: .up)
+    }
+
     static func resized(_ image: UIImage, to size: CGSize) -> UIImage {
         let format = UIGraphicsImageRendererFormat.preferred()
         format.scale = 1

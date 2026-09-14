@@ -328,6 +328,42 @@ struct CameraObservabilityTests {
         #expect(model.isPreviewReady, "a flip is a transition, not a restart")
     }
 
+    /// What the preview layer shows between the two cameras belongs to
+    /// neither: the old camera's last frame, redrawn with the new camera's
+    /// mirroring, and then the new camera's first frames arriving dark. The
+    /// view holds the last good frame for as long as this is true.
+    @Test("A flip is announced before it happens, and is over when it ends")
+    func switchingPublishes() async {
+        let camera = StubCameraController(
+            frame: UIGraphicsImageRenderer(size: CGSize(width: 10, height: 10)).image { _ in }
+        )
+        let model = CameraModel(camera: camera)
+        await model.start()
+        #expect(model.isSwitching == false)
+
+        let probe = ObservationProbe()
+        withObservationTracking { _ = model.isSwitching } onChange: { probe.markFired() }
+
+        let midFlip = ObservationProbe()
+        camera.duringFlip = { if model.isSwitching { midFlip.markFired() } }
+        await model.flip()
+
+        #expect(probe.fired)
+        #expect(midFlip.fired, "the freeze has to be up before the session swaps")
+        #expect(model.isSwitching == false, "and down again once it is over")
+        #expect(model.position == .back)
+    }
+
+    /// The flip button's icon is the same whichever camera is live, so the
+    /// state has to be announced rather than drawn.
+    @Test("Says which camera is live")
+    func namesThePosition() async {
+        let model = model()
+        #expect(model.positionLabel == "Front")
+        await model.flip()
+        #expect(model.positionLabel == "Back")
+    }
+
     @Test("Starts in step with the device")
     func startsSynced() {
         let model = model()
@@ -569,6 +605,116 @@ struct ComposeModelTests {
         await model.send(to: 9)
 
         #expect(model.sendState == .sent(delivered: false))
+    }
+
+    /// Picking a look has to change the picture the compose screen is drawing,
+    /// or the strip is a control over nothing.
+    @Test("Choosing a filter republishes the preview")
+    func filterPublishesPreview() {
+        let model = ComposeModel(image: photo(), instantAPI: FakeInstantAPI(), senderUserId: 1)
+        #expect(model.filter == .none)
+        let original = model.preview
+
+        let probe = ObservationProbe()
+        withObservationTracking { _ = model.preview } onChange: { probe.markFired() }
+
+        model.select(.mono)
+
+        #expect(probe.fired)
+        #expect(model.filter == .mono)
+        #expect(model.preview !== original)
+        #expect(model.preview.size == original.size, "a look is not a crop")
+    }
+
+    /// Every render starts from the unfiltered photo. Filtering the preview
+    /// in place would stack mono on top of warm on top of fade as the user
+    /// browsed the strip.
+    @Test("Switching between filters does not compound them")
+    func filtersDoNotStack() {
+        let model = ComposeModel(image: photo(), instantAPI: FakeInstantAPI(), senderUserId: 1)
+        model.select(.noir)
+        model.select(.warm)
+        let viaNoir = model.preview
+
+        let direct = ComposeModel(image: photo(), instantAPI: FakeInstantAPI(), senderUserId: 1)
+        direct.select(.warm)
+
+        #expect(viaNoir.size == direct.preview.size)
+        #expect(Self.meanRed(viaNoir) == Self.meanRed(direct.preview))
+    }
+
+    @Test("There is a thumbnail for every look, and it is not the whole photo")
+    func thumbnailsCoverEveryFilter() {
+        let model = ComposeModel(
+            image: photo(width: 1600, height: 900),
+            instantAPI: FakeInstantAPI(),
+            senderUserId: 1
+        )
+        model.prepareThumbnails()
+
+        #expect(model.filterThumbnails.map(\.filter) == PhotoFilter.allCases)
+        for thumbnail in model.filterThumbnails {
+            #expect(max(thumbnail.image.size.width, thumbnail.image.size.height)
+                <= ComposeModel.thumbnailLongEdge)
+        }
+        #expect(model.image.size.width == 1600, "the original is kept for the send")
+    }
+
+    /// The time between the shutter going down and the photo appearing is the
+    /// time the shutter holds black, so opening this screen has to cost
+    /// nothing: no renders, no downscales, not even a copy.
+    @Test("Opening compose does no image work")
+    func openingIsFree() {
+        let original = photo(width: 1600, height: 900)
+        let model = ComposeModel(image: original, instantAPI: FakeInstantAPI(), senderUserId: 1)
+
+        #expect(model.preview === original, "the photo is shown as it arrived")
+        #expect(model.filterThumbnails.isEmpty, "the strip is built when it is opened")
+        #expect(model.filter == .none)
+    }
+
+    /// The strip is built once, however many times it is opened.
+    @Test("Preparing the strip twice builds it once")
+    func thumbnailsAreBuiltOnce() {
+        let model = ComposeModel(image: photo(), instantAPI: FakeInstantAPI(), senderUserId: 1)
+        model.prepareThumbnails()
+        let first = model.filterThumbnails.map(\.image)
+        model.prepareThumbnails()
+        #expect(zip(first, model.filterThumbnails.map(\.image)).allSatisfy { $0 === $1 })
+    }
+
+    /// Choosing a look is what pulls the display-sized copy into being, and it
+    /// has to be the size that copy is — not the size of the photo.
+    @Test("A chosen look is rendered at display size")
+    func choosingRendersAtDisplaySize() {
+        let model = ComposeModel(
+            image: photo(width: 3200, height: 1800),
+            instantAPI: FakeInstantAPI(),
+            senderUserId: 1
+        )
+        model.select(.warm)
+        #expect(max(model.preview.size.width, model.preview.size.height)
+            <= ComposeModel.previewLongEdge)
+        #expect(model.image.size.width == 3200, "the original is kept for the send")
+    }
+
+    /// Mean red over the image, as a cheap fingerprint of a filter having been
+    /// applied exactly once.
+    private static func meanRed(_ image: UIImage) -> Int {
+        let cg = image.cgImage!
+        var pixels = [UInt8](repeating: 0, count: cg.width * cg.height * 4)
+        let context = CGContext(
+            data: &pixels,
+            width: cg.width,
+            height: cg.height,
+            bitsPerComponent: 8,
+            bytesPerRow: cg.width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+        context.draw(cg, in: CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
+        let total = stride(from: 0, to: pixels.count, by: 4).reduce(0) { $0 + Int(pixels[$1]) }
+        return total / (cg.width * cg.height)
     }
 
     @Test("Captions are capped and durations cycle")

@@ -1,8 +1,9 @@
 #if canImport(UIKit)
 import SwiftUI
 
-/// The edit surface: the photo fills the screen, tools sit in a right-hand rail,
-/// and "Send To" is bottom-right — the Snapchat arrangement.
+/// The edit surface: the photo sits in the same rounded 16:9 viewport the camera
+/// framed it in, tools sit in a right-hand rail, and "Send To" is bottom-right —
+/// the Snapchat arrangement.
 struct ComposeScreen: View {
     @Environment(AppEnvironment.self) private var environment
     let image: UIImage
@@ -11,21 +12,30 @@ struct ComposeScreen: View {
     @State private var model: ComposeModel?
     @State private var isEditingCaption = false
     @State private var showsRecipients = false
+    @State private var showsFilters = false
     @FocusState private var captionFocused: Bool
 
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            InstantStyle.background.ignoresSafeArea()
 
             if let model {
+                // The same rounded 16:9 rectangle the camera framed the shot
+                // in, in the same place on screen: reviewing a photo in a
+                // different window from the one it was taken through is how the
+                // sender ends up surprised by what they sent.
                 GeometryReader { proxy in
-                    let frame = Self.fittedRect(image: image, in: proxy.size)
+                    let frame = Self.fittedRect(image: model.preview, in: proxy.size)
 
                     ZStack(alignment: .topLeading) {
-                        Image(uiImage: image)
+                        // The filtered copy, not the original: a look chosen
+                        // against a picture that is not the one being sent is
+                        // not a choice at all.
+                        Image(uiImage: model.preview)
                             .resizable()
                             .scaledToFit()
                             .frame(width: proxy.size.width, height: proxy.size.height)
+                            .accessibilityIdentifier("compose.preview")
 
                         if !model.caption.isEmpty {
                             captionOverlay(model, in: frame)
@@ -33,21 +43,33 @@ struct ComposeScreen: View {
                     }
                     .frame(width: proxy.size.width, height: proxy.size.height)
                 }
+                .aspectRatio(InstantStyle.viewportAspectRatio, contentMode: .fit)
+                .clipShape(InstantStyle.viewportShape)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .ignoresSafeArea()
 
-                VStack {
-                    HStack {
-                        CircleIconButton(systemName: "xmark") { onDiscard() }
-                            .accessibilityIdentifier("compose.discard")
+                ViewportOverlay {
+                    VStack {
+                        // Top-aligned, so the cross sits on the viewport's top
+                        // line with the first tool opposite it — the line the
+                        // camera's own controls are on, which is what makes the
+                        // two screens read as one surface.
+                        HStack(alignment: .top) {
+                            CircleIconButton(systemName: "xmark") { onDiscard() }
+                                .accessibilityIdentifier("compose.discard")
+                            Spacer()
+                            toolRail(model)
+                        }
                         Spacer()
-                        toolRail(model)
+                        if showsFilters {
+                            filterStrip(model)
+                                .padding(.bottom, 14)
+                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
+                        bottomBar(model)
                     }
-                    Spacer()
-                    bottomBar(model)
+                    .animation(.easeOut(duration: 0.2), value: showsFilters)
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 8)
-                .padding(.bottom, 28)
 
                 if isEditingCaption {
                     captionEditor(model)
@@ -81,6 +103,16 @@ struct ComposeScreen: View {
             }
             .accessibilityIdentifier("compose.caption")
 
+            CircleIconButton(systemName: "camera.filters", isOn: showsFilters) {
+                // The renders happen here, on the tap that asks for them,
+                // rather than on every capture.
+                if !showsFilters { model.prepareThumbnails() }
+                showsFilters.toggle()
+            }
+            .accessibilityIdentifier("compose.filters")
+            .accessibilityLabel("Filters")
+            .accessibilityValue(model.filter.name)
+
             Button {
                 model.cycleDuration()
             } label: {
@@ -94,6 +126,59 @@ struct ComposeScreen: View {
             .accessibilityIdentifier("compose.duration")
             .accessibilityValue(model.duration.rawValue)
         }
+    }
+
+    /// The looks, as thumbnails of this photo rather than swatches — the only
+    /// way to pick one without applying it first. Horizontal, under the photo
+    /// and over the bottom bar, so the picture stays the biggest thing on
+    /// screen while it is being chosen.
+    private func filterStrip(_ model: ComposeModel) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                ForEach(model.filterThumbnails) { thumbnail in
+                    Button {
+                        model.select(thumbnail.filter)
+                    } label: {
+                        filterSwatch(thumbnail, isSelected: model.filter == thumbnail.filter)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("compose.filter.\(thumbnail.filter.rawValue)")
+                    .accessibilityLabel(thumbnail.filter.name)
+                    .accessibilityAddTraits(
+                        model.filter == thumbnail.filter ? [.isSelected] : []
+                    )
+                }
+            }
+            .padding(.horizontal, 2)
+            .padding(.vertical, 4)
+        }
+        .frame(height: 96)
+        .accessibilityIdentifier("compose.filterStrip")
+    }
+
+    private func filterSwatch(
+        _ thumbnail: ComposeModel.FilterThumbnail,
+        isSelected: Bool
+    ) -> some View {
+        VStack(spacing: 5) {
+            Image(uiImage: thumbnail.image)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 58, height: 58)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(
+                            isSelected ? Color.white : Color.white.opacity(0.25),
+                            lineWidth: isSelected ? 2.5 : 1
+                        )
+                )
+            Text(thumbnail.filter.name)
+                .font(.system(size: 11, weight: isSelected ? .bold : .medium))
+                .foregroundStyle(isSelected ? .white : Color(white: 0.72))
+        }
+        // The strip sits over the photo, which can be any colour.
+        .shadow(color: .black.opacity(0.5), radius: 4, y: 1)
     }
 
     private func bottomBar(_ model: ComposeModel) -> some View {

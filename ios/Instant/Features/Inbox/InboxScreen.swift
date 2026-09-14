@@ -17,18 +17,20 @@ struct InboxScreen: View {
         ZStack {
             InstantStyle.background.ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                header
+            GeometryReader { proxy in
+                VStack(spacing: 0) {
+                    header.padding(.top, headerTopPadding(proxy))
 
-                if store.conversations.isEmpty {
-                    empty
-                } else {
-                    List(store.conversations) { conversation in
-                        conversationRow(conversation)
+                    if store.conversations.isEmpty {
+                        empty
+                    } else {
+                        List(store.conversations) { conversation in
+                            conversationRow(conversation)
+                        }
+                        .listStyle(.plain)
+                        .scrollContentBackground(.hidden)
+                        .refreshable { await store.refreshAll() }
                     }
-                    .listStyle(.plain)
-                    .scrollContentBackground(.hidden)
-                    .refreshable { await store.refreshAll() }
                 }
             }
         }
@@ -59,6 +61,9 @@ struct InboxScreen: View {
         .onAppear { openPendingIfPossible() }
     }
 
+    /// The account button is pinned above the pager, so this row starts to the
+    /// right of where it lands and sits on the same line as it. Anything else
+    /// reads as two headers stacked on top of each other.
     private var header: some View {
         HStack {
             Text("Instant")
@@ -72,15 +77,29 @@ struct InboxScreen: View {
                 Image(systemName: "camera.fill")
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(.white)
-                    .frame(width: 42, height: 42)
+                    .frame(width: AccountButton.size, height: AccountButton.size)
                     .background(Circle().fill(InstantStyle.surfaceRaised))
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("inbox.camera")
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 60)
+        .frame(height: AccountButton.size)
+        .padding(.leading, InstantStyle.viewportInset + AccountButton.size + 12)
+        .padding(.trailing, InstantStyle.viewportInset)
         .padding(.bottom, 12)
+    }
+
+    /// Drops the header onto the viewport's top line — where the pinned account
+    /// button is — measured from inside the safe area, which is where this
+    /// screen's content lives.
+    private func headerTopPadding(_ proxy: GeometryProxy) -> CGFloat {
+        let safeArea = proxy.safeAreaInsets
+        let screen = CGSize(
+            width: proxy.size.width + safeArea.leading + safeArea.trailing,
+            height: proxy.size.height + safeArea.top + safeArea.bottom
+        )
+        let line = InstantStyle.viewportRect(in: screen).minY + InstantStyle.viewportInset
+        return max(0, line - safeArea.top)
     }
 
     /// Only shown when live delivery is actually broken.

@@ -58,12 +58,35 @@ struct MainPager: View {
 
     var body: some View {
         @Bindable var environment = environment
-        TabView(selection: $environment.showsInbox) {
-            InboxScreen().tag(true)
-            CameraScreen().tag(false)
+        ZStack {
+            TabView(selection: $environment.showsInbox) {
+                InboxScreen().tag(true)
+                CameraScreen().tag(false)
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .ignoresSafeArea()
+
+            // Above the pager rather than on a page: the way into settings
+            // should not slide off with whichever page happens to be under it,
+            // and the inbox is exactly where somebody is most likely to want it.
+            //
+            // Not while a photo is being composed, though. Being above the
+            // pager puts it above that screen too, in the corner the cross that
+            // discards the capture already occupies.
+            if !environment.isComposing {
+                ViewportOverlay {
+                    VStack(spacing: 0) {
+                        HStack(spacing: 0) {
+                            AccountButton()
+                            Spacer(minLength: 0)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                }
+                .transition(.opacity)
+            }
         }
-        .tabViewStyle(.page(indexDisplayMode: .never))
-        .ignoresSafeArea()
+        .animation(.easeOut(duration: 0.2), value: environment.isComposing)
         .background(InstantStyle.background)
     }
 }

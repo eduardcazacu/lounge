@@ -42,6 +42,14 @@ public final class AppEnvironment {
     public var pendingInstantId: String?
     public var showsInbox = false
 
+    /// True while a capture is being composed.
+    ///
+    /// The account button is drawn above the pager so that it survives the
+    /// swipe, which also puts it above the compose screen — on top of the cross
+    /// that discards the photo, in the same corner. Composing is the one time
+    /// it has to get out of the way.
+    public var isComposing = false
+
     /// Who the next photo is already going to, set by tapping someone in the
     /// inbox. The camera draws it, so an aim is never a surprise waiting on the
     /// send button — and it outlives a discarded capture, because it came from

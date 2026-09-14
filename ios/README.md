@@ -46,6 +46,54 @@ back cameras have different limits. The gesture only exists when there is a real
 capture session, so it is covered by unit tests against the camera protocol
 rather than by a UI test: the Simulator has no camera to pinch.
 
+A flip holds the last frame. Swapping the session's input leaves the outgoing
+camera's frame in the preview layer, where the new connection redraws it with
+the new camera's mirroring — the picture you were just looking at, flipped —
+and the frames that follow arrive dark while auto-exposure ramps. So the view
+snapshots itself for the length of the swap and cross-fades back once the new
+camera has settled, and the controller does not report the flip finished until
+then.
+
+## Filters
+
+`PhotoFilter` is seven looks — original, vivid, warm, cool, fade, mono, noir —
+each a fixed Core Image chain. They are chosen on the compose screen, after the
+shot, and that is a property of the preview rather than a preference:
+`AVCaptureVideoPreviewLayer` draws buffers the capture system hands it directly,
+with nowhere to hang a `CIFilter`, so a filtered viewfinder means replacing the
+preview with a video-data-output and a Metal path. Nothing in the chains
+measures the photo, so the thumbnail in the strip and the frame that goes on the
+wire are one transform at two resolutions.
+
+The look is baked into the pixels before the caption and before the seal, for
+the same reason the caption is: the server holds nothing but ciphertext, so
+there is no later moment at which one could be applied, and no filter name rides
+along on the wire.
+
+The strip previews at display size — a library photo can be 4000px on its long
+edge, and re-filtering that on every tap is a hitch per tap for pixels no screen
+shows. The full-resolution render happens once, on send. None of that work
+happens up front: see the shutter, below.
+
+Double-tapping the frame flips the camera, and the flash and flip buttons run
+down the right-hand side in the same rail the compose screen puts its tools in —
+the two screens are one surface with different tools on it. The gesture is on
+the frame rather than on the preview, so it still answers on a device with no
+camera attached.
+
+Taking a photo covers the frame in black, from the press until the photo is on
+screen. Not a blink: a blink ends on a timer, and whatever is left between the
+end of it and the picture appearing is the live camera still moving under a
+frame that was captured a moment ago — which reads as the shutter having missed.
+The cover is drawn above both screens so that it outlasts the handover from one
+to the other, and the compose screen appearing is what lifts it.
+
+That window is visible in full, so nothing is allowed to sit in it.
+`ComposeModel.init` does no image work at all — it shows the photo exactly as it
+arrived. The display-sized copy is built on the first tap that needs one, and
+the strip's seven renders happen when the strip is first opened rather than on
+every capture.
+
 ## Where the inbox comes from
 
 `GET /api/v1/instant/conversations` is the spine: everyone you have talked to,

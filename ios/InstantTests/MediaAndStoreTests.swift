@@ -5,6 +5,130 @@ import UserNotifications
 import UIKit
 @testable import Instant
 
+@Suite("Photo filters")
+struct PhotoFilterTests {
+    /// A mid-grey field: every channel equal, so any shift a filter makes shows
+    /// up as a difference between them rather than having to be separated from
+    /// the picture's own colour.
+    private func grey(_ side: Int = 32) -> UIImage {
+        let size = CGSize(width: side, height: side)
+        let format = UIGraphicsImageRendererFormat.preferred()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: size, format: format).image { context in
+            UIColor(red: 0.5, green: 0.5, blue: 0.5, alpha: 1).setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+        }
+    }
+
+    /// A colourful one, for the filters that only move saturation around.
+    private func colourful(_ side: Int = 32) -> UIImage {
+        let size = CGSize(width: side, height: side)
+        let format = UIGraphicsImageRendererFormat.preferred()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: size, format: format).image { context in
+            let cg = context.cgContext
+            let gradient = CGGradient(
+                colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                colors: [UIColor.systemPink.cgColor, UIColor.systemTeal.cgColor] as CFArray,
+                locations: [0, 1]
+            )!
+            cg.drawLinearGradient(
+                gradient,
+                start: .zero,
+                end: CGPoint(x: size.width, y: size.height),
+                options: []
+            )
+        }
+    }
+
+    /// Mean red, green and blue over the whole image, 0...255.
+    private func channels(_ image: UIImage) -> (red: Double, green: Double, blue: Double) {
+        let cg = image.cgImage!
+        let width = cg.width
+        let height = cg.height
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let context = CGContext(
+            data: &pixels,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+        context.draw(cg, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+        var totals = (red: 0.0, green: 0.0, blue: 0.0)
+        for pixel in stride(from: 0, to: pixels.count, by: 4) {
+            totals.red += Double(pixels[pixel])
+            totals.green += Double(pixels[pixel + 1])
+            totals.blue += Double(pixels[pixel + 2])
+        }
+        let count = Double(width * height)
+        return (totals.red / count, totals.green / count, totals.blue / count)
+    }
+
+    @Test("The original is left alone, pixel for pixel")
+    func noneIsIdentity() {
+        let source = colourful()
+        let before = channels(source)
+        let after = channels(PhotoFilter.none.apply(to: source))
+        #expect(abs(before.red - after.red) < 0.5)
+        #expect(abs(before.green - after.green) < 0.5)
+        #expect(abs(before.blue - after.blue) < 0.5)
+    }
+
+    /// The whole point of picking the look before the send: what the strip
+    /// shows has to be what goes on the wire, at a different size.
+    @Test("Every look keeps the photo's shape")
+    func preservesDimensions() {
+        let source = colourful(48)
+        for filter in PhotoFilter.allCases {
+            #expect(filter.apply(to: source).size == source.size, "\(filter.name) resized the photo")
+        }
+    }
+
+    @Test("Warm leans red, cool leans blue")
+    func temperatureGoesTheRightWay() {
+        let neutral = channels(grey())
+        #expect(abs(neutral.red - neutral.blue) < 1, "the fixture has to start neutral")
+
+        let warm = channels(PhotoFilter.warm.apply(to: grey()))
+        #expect(warm.red > neutral.red)
+        #expect(warm.blue < neutral.blue)
+
+        let cool = channels(PhotoFilter.cool.apply(to: grey()))
+        #expect(cool.blue > neutral.blue)
+        #expect(cool.red < neutral.red)
+    }
+
+    @Test("Mono and noir come out grey")
+    func monochromeHasNoColour() {
+        for filter in [PhotoFilter.mono, .noir] {
+            let result = channels(filter.apply(to: colourful()))
+            #expect(abs(result.red - result.green) < 2, "\(filter.name) kept some colour")
+            #expect(abs(result.green - result.blue) < 2, "\(filter.name) kept some colour")
+        }
+    }
+
+    /// Fade is a tone curve, not a tint: it lifts the blacks, so a mid-grey
+    /// gets brighter without any channel pulling away from the others.
+    @Test("Fade lifts without tinting")
+    func fadeLiftsBlacks() {
+        let neutral = channels(grey())
+        let faded = channels(PhotoFilter.fade.apply(to: grey()))
+        #expect(faded.red > neutral.red)
+        #expect(abs(faded.red - faded.blue) < 2)
+    }
+
+    @Test("Every look is offered, and named")
+    func allCasesAreNamed() {
+        #expect(PhotoFilter.allCases.first == PhotoFilter.none, "the original comes first")
+        #expect(Set(PhotoFilter.allCases.map(\.name)).count == PhotoFilter.allCases.count)
+        #expect(PhotoFilter.allCases.allSatisfy { !$0.name.isEmpty })
+    }
+}
+
 @MainActor
 @Suite("Image pipeline")
 struct ImagePipelineTests {
@@ -113,6 +237,47 @@ struct ImagePipelineTests {
                 "\(width)x\(height) became \(decoded.size)"
             )
         }
+    }
+
+    /// The camera viewport is 16:9 and so is the capture, so the crop is a
+    /// no-op for a photo taken in the app. A library pick is whatever shape the
+    /// library had, and it has to end up in the same frame — otherwise compose
+    /// shows a picture the viewport never promised.
+    @Test("Crops to 16:9 in the photo's own orientation")
+    func cropsToTheFrame() throws {
+        let cases: [(CGSize, CGSize)] = [
+            (CGSize(width: 1200, height: 1600), CGSize(width: 900, height: 1600)),
+            (CGSize(width: 1600, height: 1200), CGSize(width: 1600, height: 900)),
+            (CGSize(width: 1000, height: 1000), CGSize(width: 1000, height: 563)),
+            // Wider than 16:9 already, so the long edge is what gives.
+            (CGSize(width: 2000, height: 500), CGSize(width: 889, height: 500)),
+        ]
+        for (source, expected) in cases {
+            let cropped = ImagePipeline.croppedToFrame(
+                image(Int(source.width), Int(source.height))
+            )
+            #expect(cropped.size == expected, "\(source) became \(cropped.size)")
+        }
+    }
+
+    @Test("Leaves a frame that is already 16:9 alone")
+    func leavesTheFrameAlone() throws {
+        let portrait = image(1080, 1920)
+        #expect(ImagePipeline.croppedToFrame(portrait).size == CGSize(width: 1080, height: 1920))
+        let landscape = image(1920, 1080)
+        #expect(ImagePipeline.croppedToFrame(landscape).size == CGSize(width: 1920, height: 1080))
+    }
+
+    /// A photo out of the camera carries its rotation in EXIF rather than in
+    /// pixels. Cropping before that is baked in takes the crop off the wrong
+    /// axis, which is a portrait selfie arriving letterboxed.
+    @Test("Crops against the upright photo, not the sensor's")
+    func cropsAfterOrientation() throws {
+        let sideways = UIImage(
+            cgImage: try #require(image(1600, 1200).cgImage), scale: 1, orientation: .right
+        )
+        #expect(sideways.size == CGSize(width: 1200, height: 1600), "it reads as portrait")
+        #expect(ImagePipeline.croppedToFrame(sideways).size == CGSize(width: 900, height: 1600))
     }
 
     @Test("Fits inside the bounding box without upscaling")

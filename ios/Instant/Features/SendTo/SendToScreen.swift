@@ -49,26 +49,17 @@ struct SendToScreen: View {
                     }
                 }
             }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if let recipients {
+                    sendBar(recipients)
+                }
+            }
             .navigationTitle("Send To")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(InstantStyle.background, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }.tint(.white)
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button {
-                        Task { await send() }
-                    } label: {
-                        if model.isSending {
-                            ProgressView().tint(.white)
-                        } else {
-                            Text("Send").fontWeight(.bold)
-                        }
-                    }
-                    .tint(.white)
-                    .disabled(recipients?.selectedId == nil || model.isSending)
-                    .accessibilityIdentifier("sendTo.send")
                 }
             }
         }
@@ -94,6 +85,55 @@ struct SendToScreen: View {
             await recipients?.load()
             await refreshed
             recipients?.reorder(using: environment.store.history)
+        }
+    }
+
+    /// Sending sits at the bottom rather than in the far top corner.
+    ///
+    /// It is the one thing this screen is for, the list above it can be long
+    /// enough to scroll, and the reach to a top-right toolbar button is the
+    /// wrong end of the phone from the thumb that just picked somebody. It is
+    /// also the same white capsule the compose screen sends with, so the two
+    /// ways out of a photo look like one action.
+    private func sendBar(_ recipients: SendToModel) -> some View {
+        let selected = recipients.candidates.first { $0.id == recipients.selectedId }
+        let isReady = selected != nil && !model.isSending
+
+        return Button {
+            Task { await send() }
+        } label: {
+            HStack(spacing: 8) {
+                // Named once somebody is picked, so the button confirms the
+                // choice rather than restating the question.
+                Text(selected.map { "Send to \($0.user.displayName)" } ?? "Send")
+                    .font(.system(size: 16, weight: .bold))
+                if model.isSending {
+                    ProgressView().tint(.black)
+                } else {
+                    Image(systemName: "paperplane.fill")
+                }
+            }
+            .foregroundStyle(.black)
+            .frame(maxWidth: .infinity)
+            .frame(height: 52)
+            .background(Capsule().fill(Color.white))
+            // `.plain` buttons do not dim themselves when disabled, and a
+            // full-width white capsule that looks live but is not is worse
+            // here than anywhere.
+            .opacity(isReady ? 1 : 0.4)
+        }
+        .buttonStyle(.plain)
+        .disabled(!isReady)
+        .accessibilityIdentifier("sendTo.send")
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .background(InstantStyle.background)
+        .overlay(alignment: .top) {
+            // The list scrolls under this; without a line the last row looks
+            // like it was cut off rather than covered.
+            Rectangle()
+                .fill(InstantStyle.surfaceRaised)
+                .frame(height: 1)
         }
     }
 

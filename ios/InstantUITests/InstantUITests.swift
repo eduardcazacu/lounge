@@ -424,11 +424,86 @@ final class InstantUITests: XCTestCase {
         XCTAssertFalse(profile.label.contains("Me"), "the placeholder is gone")
     }
 
+    /// The account button is drawn above the pager rather than on a page, so the
+    /// swipe to the inbox has to leave it exactly where it was — and leave it
+    /// working there. Anchoring it to either page is what makes it slide away.
+    func testTheAccountButtonStaysPutAcrossTheSwipe() {
+        let app = launch(signedIn: true)
+        let profile = app.buttons["camera.profile"]
+        XCTAssertTrue(profile.waitForExistence(timeout: 30))
+        let onTheCamera = profile.frame
+
+        app.buttons["camera.inbox"].tap()
+        XCTAssertTrue(app.buttons["inbox.camera"].waitForExistence(timeout: 30))
+        XCTAssertEqual(profile.frame, onTheCamera, "it moved with the page")
+
+        // And it is the way into settings from here too, not just a picture.
+        profile.tap()
+        XCTAssertTrue(app.staticTexts["settings.name"].waitForExistence(timeout: 30))
+    }
+
+    /// The account button is drawn above the pager, which puts it above the
+    /// compose screen too — in the same corner as the cross that discards the
+    /// capture, covering it. It has to step aside while there is a photo to
+    /// decide about.
+    func testTheAccountButtonGetsOutOfTheWayWhileComposing() {
+        let app = launch(signedIn: true)
+        let profile = app.buttons["camera.profile"]
+        XCTAssertTrue(profile.waitForExistence(timeout: 30))
+
+        app.buttons["camera.shutter"].tap()
+        let discard = app.buttons["compose.discard"]
+        XCTAssertTrue(discard.waitForExistence(timeout: 30))
+        XCTAssertFalse(profile.exists, "it is sitting on the discard button")
+
+        // And it comes back with the camera.
+        discard.tap()
+        XCTAssertTrue(app.buttons["camera.shutter"].waitForExistence(timeout: 30))
+        XCTAssertTrue(profile.waitForExistence(timeout: 30))
+    }
+
     func testCameraShowsNoStreakCounter() {
         let app = launch(signedIn: true)
         XCTAssertTrue(app.buttons["camera.shutter"].waitForExistence(timeout: 30))
         // The stub has a 9-day streak; it belongs on the conversation row, not here.
         XCTAssertFalse(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "🔥")).element.exists)
+    }
+
+    /// The tools for the frame run down the right-hand side, the way the
+    /// compose screen's do — the two screens are the same surface.
+    func testCameraToolsStackVertically() {
+        let app = launch(signedIn: true)
+
+        let flash = app.buttons["camera.flash"]
+        let flip = app.buttons["camera.flip"]
+        XCTAssertTrue(flash.waitForExistence(timeout: 30))
+        XCTAssertTrue(flip.waitForExistence(timeout: 30))
+
+        XCTAssertGreaterThanOrEqual(flip.frame.minY, flash.frame.maxY - 1, "flip sits under flash")
+        XCTAssertEqual(flip.frame.midX, flash.frame.midX, accuracy: 1, "on one line down the side")
+    }
+
+    /// The gesture every camera app has, and the one that does not cost a reach
+    /// into the corner.
+    func testDoubleTappingTheFrameFlipsTheCamera() {
+        let app = launch(signedIn: true)
+
+        let flip = app.buttons["camera.flip"]
+        XCTAssertTrue(flip.waitForExistence(timeout: 30))
+        XCTAssertEqual(flip.value as? String, "Front")
+
+        // The middle of the screen is inside the frame and clear of every
+        // control on it.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).doubleTap()
+
+        // Polled rather than waited on with a predicate expectation: the flip
+        // is a real session reconfiguration behind the stub, so the value
+        // changes a beat after the tap.
+        let deadline = Date().addingTimeInterval(15)
+        while flip.value as? String != "Back", Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.2)
+        }
+        XCTAssertEqual(flip.value as? String, "Back")
     }
 
     // MARK: - Capture and send
@@ -470,6 +545,41 @@ final class InstantUITests: XCTestCase {
         app.buttons["sendTo.send"].tap()
 
         // Back to the camera once it is away.
+        XCTAssertTrue(shutter.waitForExistence(timeout: 30))
+    }
+
+    /// The look is chosen against the photo, so the strip has to be reachable
+    /// from the compose screen and survive being folded away again.
+    func testPickingAFilterSticksAndSends() {
+        let app = launch(signedIn: true)
+
+        let shutter = app.buttons["camera.shutter"]
+        XCTAssertTrue(shutter.waitForExistence(timeout: 30))
+        shutter.tap()
+
+        XCTAssertTrue(app.buttons["compose.sendTo"].waitForExistence(timeout: 30))
+
+        let filters = app.buttons["compose.filters"]
+        XCTAssertTrue(filters.waitForExistence(timeout: 15))
+        XCTAssertEqual(filters.value as? String, "Original")
+        filters.tap()
+
+        let mono = app.buttons["compose.filter.mono"]
+        XCTAssertTrue(mono.waitForExistence(timeout: 15))
+        mono.tap()
+        XCTAssertEqual(filters.value as? String, "Mono")
+
+        // Folding the strip away is not un-choosing it.
+        filters.tap()
+        XCTAssertTrue(mono.waitForNonExistence(timeout: 15))
+        XCTAssertEqual(filters.value as? String, "Mono")
+
+        app.buttons["compose.sendTo"].tap()
+        let recipient = app.buttons["sendTo.row.Ana"]
+        XCTAssertTrue(recipient.waitForExistence(timeout: 30))
+        recipient.tap()
+        app.buttons["sendTo.send"].tap()
+
         XCTAssertTrue(shutter.waitForExistence(timeout: 30))
     }
 

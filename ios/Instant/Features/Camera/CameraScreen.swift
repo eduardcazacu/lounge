@@ -3,15 +3,21 @@ import AVFoundation
 import PhotosUI
 import SwiftUI
 
-/// The home screen. Full-bleed preview, profile top-left, flip and flash
-/// top-right, shutter at the bottom — Snapchat's arrangement, because it puts
-/// the one action that matters under the thumb and everything else out of the way.
+/// The home screen. A rounded 16:9 viewport on black with the controls inside
+/// it: flip and flash top-right, shutter at the bottom, and the account button
+/// facing them from the opposite corner, drawn by `MainPager` — Snapchat's
+/// arrangement, because it puts the one action that matters under the thumb and
+/// everything else out of the way.
 struct CameraScreen: View {
     @Environment(AppEnvironment.self) private var environment
     @Environment(\.scenePhase) private var scenePhase
     @State private var model: CameraModel?
-    @State private var showsSettings = false
     @State private var libraryItem: PhotosPickerItem?
+    /// Drives the shutter. Lives in the view rather than the model because it
+    /// is a statement about the press, not about the capture: it goes up on the
+    /// tap, which is the moment the photo is of, and comes down when there is a
+    /// photo to look at.
+    @State private var shutterOpacity: Double = 0
 
     var body: some View {
         ZStack {
@@ -21,10 +27,23 @@ struct CameraScreen: View {
                 if let captured = model.captured, model.stage == .composing {
                     ComposeScreen(image: captured) { model.discard() }
                         .transition(.opacity)
+                        // The pinned account button is drawn over this screen,
+                        // and lands on the discard cross. It steps aside for as
+                        // long as there is a photo to decide about.
+                        .onAppear {
+                            environment.isComposing = true
+                            revealCapture()
+                        }
+                        .onDisappear { environment.isComposing = false }
                 } else {
                     live(model)
                 }
             }
+
+            // Above both screens, because it has to outlast the handover from
+            // one to the other: anything visible in between is the live camera
+            // still moving under a photo that has already been taken.
+            shutterCover
         }
         .task {
             if model == nil { model = CameraModel(camera: environment.makeCamera()) }
@@ -38,13 +57,15 @@ struct CameraScreen: View {
             switch phase {
             case .background:
                 model?.stop()
+                // A capture interrupted by the app leaving cannot be allowed to
+                // leave the frame black on the way back.
+                shutterOpacity = 0
             case .active:
                 Task { await model?.start() }
             default:
                 break
             }
         }
-        .sheet(isPresented: $showsSettings) { SettingsScreen() }
         .onChange(of: libraryItem) { _, item in
             guard let item else { return }
             Task {
@@ -60,49 +81,74 @@ struct CameraScreen: View {
     @ViewBuilder
     private func live(_ model: CameraModel) -> some View {
         ZStack {
+            viewport(model)
+
+            ViewportOverlay {
+                VStack {
+                    toolRail(model)
+                    if let recipient = environment.aimedAt {
+                        aimChip(recipient)
+                            .padding(.top, 12)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+                    Spacer()
+                    if model.isZooming, model.canZoom {
+                        zoomIndicator(model)
+                            .padding(.bottom, 18)
+                            .transition(.opacity)
+                    }
+                    bottomBar(model)
+                }
+                .animation(.easeOut(duration: 0.15), value: model.isZooming)
+                .animation(.easeOut(duration: 0.2), value: environment.aimedAt)
+            }
+        }
+    }
+
+    /// The framing rectangle, and the whole point of it is that it is the same
+    /// 16:9 the capture delivers. It used to run edge to edge while the photo
+    /// underneath was 3:4, so the review screen showed a picture nobody had
+    /// framed. Sizing it by the shape of the photo costs a black band at each
+    /// end on a tall phone, which is where the chrome now sits anyway.
+    private func viewport(_ model: CameraModel) -> some View {
+        ZStack {
             // The placeholder sits underneath for the whole of startup, so the
             // preview fades in over something rather than over black.
             cameraPlaceholder(model)
 
             if let session = model.camera.session {
-                CameraPreview(session: session, mirrored: model.position == .front)
-                    .ignoresSafeArea()
-                    .opacity(model.isPreviewReady ? 1 : 0)
-                    .animation(.easeOut(duration: 0.28), value: model.isPreviewReady)
-                    // Pinch anywhere on the frame. Zoom is a property of the
-                    // capture device, so the photo comes out magnified too.
-                    .gesture(
-                        MagnifyGesture(minimumScaleDelta: 0)
-                            .onChanged { value in
-                                if !model.isZooming { model.beginZoom() }
-                                model.updateZoom(magnification: value.magnification)
-                            }
-                            .onEnded { _ in model.endZoom() }
-                    )
-                    .accessibilityIdentifier("camera.preview")
+                CameraPreview(
+                    session: session,
+                    mirrored: model.position == .front,
+                    isSwitching: model.isSwitching
+                )
+                .opacity(model.isPreviewReady ? 1 : 0)
+                .animation(.easeOut(duration: 0.28), value: model.isPreviewReady)
+                // Pinch anywhere on the frame. Zoom is a property of the
+                // capture device, so the photo comes out magnified too.
+                .gesture(
+                    MagnifyGesture(minimumScaleDelta: 0)
+                        .onChanged { value in
+                            if !model.isZooming { model.beginZoom() }
+                            model.updateZoom(magnification: value.magnification)
+                        }
+                        .onEnded { _ in model.endZoom() }
+                )
+                .accessibilityIdentifier("camera.preview")
             }
-
-            VStack {
-                topBar(model)
-                if let recipient = environment.aimedAt {
-                    aimChip(recipient)
-                        .padding(.top, 12)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
-                Spacer()
-                if model.isZooming, model.canZoom {
-                    zoomIndicator(model)
-                        .padding(.bottom, 18)
-                        .transition(.opacity)
-                }
-                bottomBar(model)
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 8)
-            .padding(.bottom, 28)
-            .animation(.easeOut(duration: 0.15), value: model.isZooming)
-            .animation(.easeOut(duration: 0.2), value: environment.aimedAt)
         }
+        .aspectRatio(InstantStyle.viewportAspectRatio, contentMode: .fit)
+        .clipShape(InstantStyle.viewportShape)
+        // Double-tap anywhere on the frame to turn the camera round — the
+        // gesture every camera app has, and the one that does not cost a reach
+        // to the far corner. On the frame rather than on the preview so it
+        // still answers on a device with no camera attached, and a count of two
+        // so it cannot be triggered by the single taps the frame ignores.
+        .onTapGesture(count: 2) {
+            Task { await model.flip() }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .ignoresSafeArea()
     }
 
     /// Who the shot is already for, shown while framing rather than only on the
@@ -158,7 +204,6 @@ struct CameraScreen: View {
             startPoint: .top,
             endPoint: .bottom
         )
-        .ignoresSafeArea()
         .overlay {
             if model.needsLibraryFallback {
                 VStack(spacing: 10) {
@@ -175,24 +220,15 @@ struct CameraScreen: View {
         }
     }
 
-    private func topBar(_ model: CameraModel) -> some View {
+    /// A right-hand rail, the same one the compose screen has: the tools for the
+    /// frame run down the side, and the account button `MainPager` draws sits
+    /// opposite the top of it. The two screens are the same surface with
+    /// different tools on it, so the tools belong in the same place.
+    private func toolRail(_ model: CameraModel) -> some View {
         HStack {
-            Button { showsSettings = true } label: {
-                // The signed-in account, not a placeholder: their picture if
-                // they have one, their initials if not.
-                AvatarView(
-                    name: environment.account?.name ?? "",
-                    themeKey: environment.account?.themeKey ?? ThemePalette.defaultKey,
-                    url: environment.account?.profilePictureUrl,
-                    size: 40
-                )
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("camera.profile")
-
             Spacer()
 
-            HStack(spacing: 12) {
+            VStack(spacing: 12) {
                 CircleIconButton(
                     systemName: model.isFlashOn ? "bolt.fill" : "bolt.slash.fill",
                     isOn: model.isFlashOn
@@ -205,6 +241,8 @@ struct CameraScreen: View {
                     Task { await model.flip() }
                 }
                 .accessibilityIdentifier("camera.flip")
+                .accessibilityLabel("Flip camera")
+                .accessibilityValue(model.positionLabel)
             }
         }
     }
@@ -223,7 +261,7 @@ struct CameraScreen: View {
                 .accessibilityIdentifier("camera.shutter")
             } else {
                 Button {
-                    Task { await model.shoot() }
+                    Task { await capture(model) }
                 } label: {
                     ShutterButton(enabled: !model.isCapturing)
                 }
@@ -238,6 +276,40 @@ struct CameraScreen: View {
             // the person it belongs to, on the conversation row.
             Color.clear.frame(width: 48, height: 48)
         }
+    }
+
+    /// Black over the frame, from the press until there is a photo to look at.
+    ///
+    /// It is not a blink. A blink ends on a timer, and whatever is left between
+    /// the end of it and the photo appearing is the live camera still moving
+    /// under a frame that was captured a moment ago — which reads as the
+    /// shutter having missed. This stays up for exactly that window instead, so
+    /// the last thing the viewfinder does is stop.
+    private var shutterCover: some View {
+        Color.black
+            .aspectRatio(InstantStyle.viewportAspectRatio, contentMode: .fit)
+            .clipShape(InstantStyle.viewportShape)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .ignoresSafeArea()
+            .opacity(shutterOpacity)
+            .allowsHitTesting(false)
+    }
+
+    /// Covers the frame, takes the photo, and — if the capture failed — gives
+    /// the frame back. The successful path is uncovered by the compose screen
+    /// appearing, which is the moment the photo is actually on screen.
+    private func capture(_ model: CameraModel) async {
+        // Fast enough to read as a cut rather than a fade; not instant, which
+        // on a bright frame reads as a dropped frame.
+        withAnimation(.easeOut(duration: 0.04)) { shutterOpacity = 1 }
+        await model.shoot()
+        if model.stage != .composing {
+            revealCapture()
+        }
+    }
+
+    private func revealCapture() {
+        withAnimation(.easeIn(duration: 0.12)) { shutterOpacity = 0 }
     }
 
     private var inboxPill: some View {
@@ -291,10 +363,60 @@ struct ShutterButton: View {
 struct CameraPreview: UIViewRepresentable {
     let session: AVCaptureSession
     let mirrored: Bool
+    /// True while the session is swapping cameras, which is the window the
+    /// preview layer has nothing honest to show.
+    let isSwitching: Bool
 
     final class PreviewView: UIView {
         override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
         var previewLayer: AVCaptureVideoPreviewLayer { layer as! AVCaptureVideoPreviewLayer }
+
+        /// The outgoing camera's last frame, held over the live layer for the
+        /// length of a flip.
+        private var held: UIView?
+
+        /// Freezes what is on screen right now.
+        ///
+        /// `snapshotView` rather than rendering the layer: `render(in:)` draws
+        /// nothing at all for a video layer, and a snapshot view is a reference
+        /// to content the compositor already has rather than a full-frame
+        /// redraw on the main thread. `afterScreenUpdates: false` because the
+        /// frame wanted here is the one already on screen — the next update is
+        /// the one being hidden.
+        func hold() {
+            guard held == nil, bounds.width > 0, bounds.height > 0 else { return }
+            let cover = UIView(frame: bounds)
+            cover.isUserInteractionEnabled = false
+            // Behind the snapshot rather than instead of it: a snapshot taken
+            // before the view has ever been drawn comes back empty, and this
+            // still covers the swap.
+            cover.backgroundColor = .black
+            if let snapshot = snapshotView(afterScreenUpdates: false) {
+                snapshot.frame = cover.bounds
+                snapshot.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+                cover.addSubview(snapshot)
+            }
+            addSubview(cover)
+            held = cover
+        }
+
+        /// Cross-fades back to the live camera. Short, because by the time this
+        /// is called the new camera is already exposed and steady — the fade is
+        /// only there to keep the cut from registering as one.
+        func release() {
+            guard let cover = held else { return }
+            held = nil
+            UIView.animate(withDuration: 0.2, delay: 0, options: .beginFromCurrentState) {
+                cover.alpha = 0
+            } completion: { _ in
+                cover.removeFromSuperview()
+            }
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            held?.frame = bounds
+        }
     }
 
     func makeUIView(context: Context) -> PreviewView {
@@ -305,11 +427,19 @@ struct CameraPreview: UIViewRepresentable {
     }
 
     func updateUIView(_ view: PreviewView, context: Context) {
+        // Before the mirroring below: once that changes, the stale frame in the
+        // layer is already being drawn the wrong way round.
+        if isSwitching {
+            view.hold()
+        }
         view.previewLayer.session = session
         // Selfies read as mirrored on screen, the way a mirror does; the capture
         // path un-mirrors to match.
         view.previewLayer.connection?.automaticallyAdjustsVideoMirroring = false
         view.previewLayer.connection?.isVideoMirrored = mirrored
+        if !isSwitching {
+            view.release()
+        }
     }
 }
 #endif

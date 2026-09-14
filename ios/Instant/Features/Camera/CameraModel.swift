@@ -33,6 +33,14 @@ public final class CameraModel {
     /// True while a pinch is in flight, so the indicator can show and then go.
     public private(set) var isZooming = false
 
+    /// True from the tap on the flip button until the other camera is actually
+    /// producing frames worth showing. The view holds the last frame of the old
+    /// camera for the length of it, because what the preview layer shows in
+    /// between belongs to neither camera: the outgoing one's last frame,
+    /// redrawn mirrored the wrong way, and then the incoming one's first few
+    /// frames arriving dark.
+    public private(set) var isSwitching = false
+
     /// Where the zoom was when the current pinch began. A pinch reports
     /// magnification relative to its own start, so without this every gesture
     /// would snap back to 1x before growing.
@@ -71,8 +79,20 @@ public final class CameraModel {
     }
 
     public func flip() async {
+        guard !isSwitching else { return }
+        isSwitching = true
+        // Set before the await, so the freeze is on screen before the session
+        // swaps under it.
         await camera.flip()
+        isSwitching = false
         syncFromCamera()
+    }
+
+    /// Which camera is live, in words. The flip button carries it as its
+    /// accessibility value — the icon is the same either way round, so without
+    /// this the control announces itself identically in both states.
+    public var positionLabel: String {
+        position == .front ? "Front" : "Back"
     }
 
     // MARK: - Zoom
@@ -118,9 +138,12 @@ public final class CameraModel {
         }
     }
 
-    /// Shared by the shutter and the library picker so both land in one place.
+    /// Shared by the shutter and the library picker so both land in one place —
+    /// including the 16:9 crop, so what compose shows and what goes on the wire
+    /// is the shape the viewport framed, whichever of the two the photo came
+    /// from.
     public func adopt(_ image: UIImage) {
-        captured = ImagePipeline.normalizingOrientation(image)
+        captured = ImagePipeline.croppedToFrame(image)
         stage = .composing
     }
 
