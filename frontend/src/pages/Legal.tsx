@@ -156,7 +156,7 @@ export const Terms = () => (
       </p>
       <Bullets
         items={[
-          "is sexually explicit, or sexualises anyone under 18 in any way;",
+          "sexualises anyone under 18 in any way;",
           "harasses, threatens, bullies, stalks or intimidates anyone;",
           "promotes violence, self-harm, terrorism or hatred against people based on who they are;",
           "shares someone else's private information or intimate images without their consent;",

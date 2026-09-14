@@ -13,7 +13,6 @@ struct TermsScreen: View {
     @State private var errorMessage: String?
 
     private let rules: [(symbol: String, text: String)] = [
-        ("hand.raised.fill", "No nudity, sexual content, or anything that sexualises minors."),
         ("exclamationmark.bubble.fill", "No harassment, bullying, threats or hate."),
         ("eye.slash.fill", "Don't share anyone's private information or photos without their consent."),
         ("xmark.shield.fill", "No spam, scams, or anything illegal."),
