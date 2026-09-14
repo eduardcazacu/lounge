@@ -47,7 +47,12 @@ struct ViewerScreen: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
-                        .background(Capsule().fill(Color.black.opacity(0.4)))
+                        // A photo is letterboxed, so this usually straddles its
+                        // top edge. A translucent black vanished on the black
+                        // half and left a dark sliver on the photo; a material
+                        // reads as one capsule over both.
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .environment(\.colorScheme, .dark)
 
                     Spacer()
 

@@ -146,6 +146,9 @@ struct SettingsScreen: View {
                     set: { enabled in Task { await model.setNotifications(enabled) } }
                 )
             )
+            // Its own tint, not the form's white: an "on" switch fills its
+            // track with the tint, and a white track swallows the white knob.
+            .tint(.green)
             .accessibilityIdentifier("settings.notifications")
         } footer: {
             Text("A notification tells you an instant arrived and who sent it. It never carries the photo — the server can't read it either.")
