@@ -448,9 +448,11 @@
 				CODE_SIGN_ENTITLEMENTS = Instant/Resources/Instant.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 844S7255R5;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Instant-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = Instant;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Instant needs the camera to take the photos you send.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Instant needs your photo library so you can send a picture you already have.";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -664,9 +666,11 @@
 				CODE_SIGN_ENTITLEMENTS = Instant/Resources/Instant.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 844S7255R5;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Instant-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = Instant;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Instant needs the camera to take the photos you send.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Instant needs your photo library so you can send a picture you already have.";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

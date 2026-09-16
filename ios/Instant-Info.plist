@@ -2,9 +2,6 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- The scheme the widget's tap URL uses. Everything else in this file is
-	     still generated from INFOPLIST_KEY_* build settings; CFBundleURLTypes
-	     is an array of dictionaries and has no build-setting form. -->
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -18,12 +15,5 @@
 			</array>
 		</dict>
 	</array>
-	<!-- Export compliance, answered once here instead of on every upload.
-	     Every cryptographic operation goes through Apple's operating system:
-	     CryptoKit and the Secure Enclave for Instant's end-to-end encryption,
-	     and URLSession for TLS. Encryption limited to what the OS provides is
-	     exempt. See ios/APP_STORE.md before changing this. -->
-	<key>ITSAppUsesNonExemptEncryption</key>
-	<false/>
 </dict>
 </plist>
