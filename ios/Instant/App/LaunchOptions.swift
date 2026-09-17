@@ -37,6 +37,40 @@ public enum LaunchOptions {
         ProcessInfo.processInfo.arguments.contains(termsPendingFlag)
     }
 
+    /// Upload behaviour for the outbox tests: slow enough to see the spinner,
+    /// never finishing so the app can be killed mid-send, or failing once.
+    public static let slowSendFlag = "-instantUITestSlowSend"
+    public static let stallSendFlag = "-instantUITestStallSend"
+    public static let failFirstSendFlag = "-instantUITestFailFirstSend"
+    /// Keeps what the previous launch left in the outbox. Every other stubbed
+    /// launch starts with it empty, so one test's unsent photo is never sent by
+    /// the next.
+    public static let keepOutboxFlag = "-instantUITestKeepOutbox"
+
+    /// Seconds the upload takes. `-instantUITestSendDelay 10` sets it through
+    /// the arguments domain; the slow-send flag alone means three.
+    static var sendDelay: Double? {
+        let configured = UserDefaults.standard.double(forKey: "instantUITestSendDelay")
+        if configured > 0 { return configured }
+        return ProcessInfo.processInfo.arguments.contains(slowSendFlag) ? 3 : nil
+    }
+    static var stallsSend: Bool { ProcessInfo.processInfo.arguments.contains(stallSendFlag) }
+    static var failsFirstSend: Bool { ProcessInfo.processInfo.arguments.contains(failFirstSendFlag) }
+
+    /// On disk even under the stubs, because surviving a relaunch is the
+    /// behaviour under test — but in a directory of its own.
+    @MainActor
+    static func stubOutboxStore() -> PendingSendStoring {
+        let directory = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("outbox-uitest", isDirectory: true)
+        let store = PendingSendStore(directory: directory)
+        if !ProcessInfo.processInfo.arguments.contains(keepOutboxFlag) {
+            store.clear()
+        }
+        return store
+    }
+
     public static var startsSignedIn: Bool {
         ProcessInfo.processInfo.arguments.contains(signedInFlag)
     }
@@ -78,6 +112,7 @@ public enum LaunchOptions {
             moderationAPI: ModerationAPI(client: client),
             identities: identities,
             store: store,
+            pendingSends: stubOutboxStore(),
             makeCamera: { StubCameraController(frame: StubBackend.cameraFrame()) }
         )
     }

@@ -97,21 +97,17 @@ struct SendToScreen: View {
     /// ways out of a photo look like one action.
     private func sendBar(_ recipients: SendToModel) -> some View {
         let selected = recipients.candidates.first { $0.id == recipients.selectedId }
-        let isReady = selected != nil && !model.isSending
+        let isReady = selected != nil
 
         return Button {
-            Task { await send() }
+            send()
         } label: {
             HStack(spacing: 8) {
                 // Named once somebody is picked, so the button confirms the
                 // choice rather than restating the question.
                 Text(selected.map { "Send to \($0.user.displayName)" } ?? "Send")
                     .font(.system(size: 16, weight: .bold))
-                if model.isSending {
-                    ProgressView().tint(.black)
-                } else {
-                    Image(systemName: "paperplane.fill")
-                }
+                Image(systemName: "paperplane.fill")
             }
             .foregroundStyle(.black)
             .frame(maxWidth: .infinity)
@@ -200,27 +196,18 @@ struct SendToScreen: View {
         .accessibilityIdentifier("sendTo.row.\(candidate.user.displayName)")
     }
 
-    private func send() async {
-        guard let recipients, let recipientId = recipients.selectedId else { return }
+    /// Picking somebody here supersedes whatever the camera was aimed at; the
+    /// send spends the aim either way.
+    private func send() {
+        guard let recipients,
+              let recipient = recipients.candidates
+                .first(where: { $0.id == recipients.selectedId })
+                .map({ InstantRecipient(userId: $0.id, name: $0.user.displayName) })
+        else { return }
 
-        // Picking somebody here supersedes whatever the camera was aimed at, so
-        // the send button and the camera's chip cannot end up naming two
-        // different people if this send fails and the photo is kept.
-        if recipientId != model.recipient?.userId {
-            environment.clearAim()
-            model.recipient = recipients.candidates
-                .first { $0.id == recipientId }
-                .map { InstantRecipient(userId: $0.id, name: $0.user.displayName) }
-        }
-
-        await model.send(to: recipientId)
-        if case .sent = model.sendState {
-            environment.clearAim()
-            environment.store.noteSent(toUserId: recipientId)
-            await environment.store.refreshHistory()
-            dismiss()
-            onSent()
-        }
+        environment.send(model.draft, to: recipient)
+        dismiss()
+        onSent()
     }
 }
 #endif

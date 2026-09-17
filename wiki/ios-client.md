@@ -30,8 +30,9 @@ Points at `https://api.lounge.eduardcazacu.com` by default; switch
   compositor, the filters, the sensitivity check.
 - **`Core/Camera`** — capture behind a protocol, so the Simulator's
   photo-library fallback and the UI tests' fixed frame are the same seam.
-- **`Core/Store`** — `InstantStore` (the live inbox), the inbox cache, the
-  Keychain, the session, peer fingerprints, the widget snapshot.
+- **`Core/Store`** — `InstantStore` (the live inbox), the inbox cache,
+  `Outbox` (sends in flight), the Keychain, the session, peer fingerprints, the
+  widget snapshot.
 - **`Features/`** — one folder per screen, each an `@Observable` model plus a
   view.
 
@@ -99,9 +100,47 @@ rides along on the wire.
 
 The strip previews at display size — a library photo can be 4000px on its long
 edge, and re-filtering that on every tap is a hitch per tap for pixels no screen
-shows. The full-resolution render happens once, on send. Nothing in the chains
+shows. The full-resolution render happens once, in the outbox, after the
+compose screen has closed. Nothing in the chains
 measures the photo, so the thumbnail in the strip and the frame that goes on the
 wire are one transform at two resolutions.
+
+## Sending
+
+Tapping Send closes the compose screen at once. `ComposeModel.draft` hands the
+original photo and every choice made about it to `Outbox`
+(`ios/Instant/Core/Store/Outbox.swift`). The outbox then looks up the
+recipient's devices, applies the filter and caption, encodes and seals off the
+main actor, and uploads. That used to hold the compose screen for seconds.
+
+`SendStatusPill` sits above the pager, over the camera's bottom bar. It shows a
+spinner while a send is going and "Sent to …" for two seconds after it goes. A
+failure stays until it is retried or dismissed. A retry seals again while the
+photo is still in memory, because the recipient's device list may be what
+changed. The send spends the aim at once, but recency and streaks
+(`noteSent`) move only once the server has accepted it. A send that failed must
+not answer a streak.
+
+**Surviving a force quit.** The sealed send is written to Application Support
+(`PendingSendStore`) before the upload starts, and deleted once the server
+accepts it. The next launch restores it before the first frame and sends it
+once signed in. Only the sealed form is ever written, never the photo, so a
+send killed before sealing finishes is lost. That window is the WebP encode:
+the key lookup runs alongside it, and the seal itself takes a millisecond or
+two. The pill's accessibility value turns from `preparing` to `saved` when the
+window closes, which is what the relaunch UI test waits on.
+
+**Debug builds are slow to send.** libwebp comes in as a Swift package, and a
+Debug build compiles its C at `-O0`. Encoding a 1080×1920 frame takes 3–8 s
+there and about 0.2 s at `-Os`, which is what Release uses (measured on the
+Simulator). A project-level `GCC_OPTIMIZATION_LEVEL` does not reach package
+targets. A slow send seen from Xcode says nothing about the shipped app.
+
+A force quit runs no code, so the "wasn't sent" notification is scheduled on the
+way out instead: `Outbox.didEnterBackground` asks for background time and
+schedules a local notification 30 seconds out, and it is withdrawn if the send
+finishes. A send that fails in the background leaves it to fire. Tapping it
+opens the app where it normally opens, not the inbox (`OutboxReminder`).
 
 ## Where the inbox comes from
 

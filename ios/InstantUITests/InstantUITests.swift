@@ -12,11 +12,16 @@ final class InstantUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-    private func launch(signedIn: Bool, termsPending: Bool = false) -> XCUIApplication {
+    private func launch(
+        signedIn: Bool,
+        termsPending: Bool = false,
+        arguments: [String] = []
+    ) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-instantUITestStubs"]
         if signedIn { app.launchArguments.append("-instantUITestSignedIn") }
         if termsPending { app.launchArguments.append("-instantUITestTermsPending") }
+        app.launchArguments += arguments
         app.launch()
         return app
     }
@@ -288,6 +293,9 @@ final class InstantUITests: XCTestCase {
         olderContact.tap()
         app.buttons["sendTo.send"].tap()
 
+        // Recency moves once the server has the send, which the pill confirms.
+        XCTAssertTrue(app.staticTexts["sendStatus.sent"].waitForExistence(timeout: 30))
+
         // Take another photo and look again. The stub's conversations endpoint
         // knows nothing about the send, so the new order can only have come from
         // the client recording it.
@@ -333,6 +341,7 @@ final class InstantUITests: XCTestCase {
         send.tap()
 
         XCTAssertTrue(shutter.waitForExistence(timeout: 30))
+        XCTAssertTrue(app.staticTexts["sendStatus.sent"].waitForExistence(timeout: 30))
         app.buttons["camera.inbox"].tap()
 
         XCTAssertTrue(row.waitForExistence(timeout: 30))
@@ -344,6 +353,85 @@ final class InstantUITests: XCTestCase {
         // The streak itself is still running, and still about to lapse — what
         // changed is whose move it is.
         XCTAssertTrue(row.label.contains("12"), "the streak count stays: \(row.label)")
+    }
+
+    // MARK: - Sending in the background
+
+    /// Aims the camera at Bo, takes a photo and sends it — the shortest way to a
+    /// send, shared by the outbox tests.
+    private func sendAPhotoToBo(_ app: XCUIApplication) {
+        let shutter = app.buttons["camera.shutter"]
+        XCTAssertTrue(shutter.waitForExistence(timeout: 30))
+        app.buttons["camera.inbox"].tap()
+        let row = app.buttons["inbox.conversation.Bo"]
+        XCTAssertTrue(row.waitForExistence(timeout: 30))
+        row.tap()
+        XCTAssertTrue(shutter.waitForExistence(timeout: 30))
+        shutter.tap()
+        let send = app.buttons["compose.sendTo"]
+        XCTAssertTrue(send.waitForExistence(timeout: 30))
+        send.tap()
+    }
+
+    /// The upload takes three seconds here, and the camera is back long before
+    /// it finishes: the send carries on under a small spinner, then says so.
+    func testSendingReturnsToTheCameraAtOnceAndConfirms() {
+        let app = launch(signedIn: true, arguments: ["-instantUITestSlowSend"])
+        sendAPhotoToBo(app)
+
+        let sending = app.staticTexts["sendStatus.sending"]
+        XCTAssertTrue(sending.waitForExistence(timeout: 5))
+        XCTAssertEqual(sending.label, "Sending to Bo…")
+        XCTAssertTrue(app.buttons["camera.shutter"].isHittable, "the camera is usable while it sends")
+
+        let sent = app.staticTexts["sendStatus.sent"]
+        XCTAssertTrue(sent.waitForExistence(timeout: 30))
+        XCTAssertEqual(sent.label, "Sent to Bo")
+        XCTAssertTrue(sent.waitForNonExistence(timeout: 15), "the confirmation goes by itself")
+    }
+
+    /// A failure is the one state that stays, and it keeps the photo so trying
+    /// again is a tap.
+    func testAFailedSendSaysSoAndCanBeRetried() {
+        let app = launch(signedIn: true, arguments: ["-instantUITestFailFirstSend"])
+        sendAPhotoToBo(app)
+
+        let failed = app.staticTexts["sendStatus.failed"]
+        XCTAssertTrue(failed.waitForExistence(timeout: 30))
+        XCTAssertEqual(failed.label, "Couldn't send to Bo")
+        XCTAssertTrue(app.staticTexts["The server is busy. Try again."].exists)
+
+        app.buttons["sendStatus.retry"].tap()
+
+        XCTAssertTrue(app.staticTexts["sendStatus.sent"].waitForExistence(timeout: 30))
+        XCTAssertFalse(failed.exists)
+    }
+
+    /// Killed mid-upload, the sealed photo is still on disk, and the next launch
+    /// sends it without being asked.
+    func testAnInstantCutOffByAForceQuitIsSentOnTheNextLaunch() {
+        let app = launch(signedIn: true, arguments: ["-instantUITestStallSend"])
+        sendAPhotoToBo(app)
+        let sending = app.staticTexts["sendStatus.sending"]
+        XCTAssertTrue(sending.waitForExistence(timeout: 5))
+        // The upload never answers. Killed only once the sealed copy is on disk:
+        // before that, a force quit loses the send by design.
+        let saved = expectation(for: NSPredicate(format: "value == 'saved'"), evaluatedWith: sending)
+        wait(for: [saved], timeout: 30)
+        app.terminate()
+
+        // Slow on the way back up, so the resumed send is still going by the
+        // time the app has settled enough to be looked at.
+        let relaunched = launch(
+            signedIn: true,
+            arguments: ["-instantUITestKeepOutbox", "-instantUITestSendDelay", "10"]
+        )
+        let resumed = relaunched.staticTexts["sendStatus.sending"]
+        XCTAssertTrue(resumed.waitForExistence(timeout: 10), "picked up without being asked")
+        XCTAssertEqual(resumed.label, "Sending to Bo…")
+        let sent = relaunched.staticTexts["sendStatus.sent"]
+        XCTAssertTrue(sent.waitForExistence(timeout: 30))
+        XCTAssertEqual(sent.label, "Sent to Bo")
     }
 
     /// Dropping the aim is one tap, and what is left is the ordinary camera.

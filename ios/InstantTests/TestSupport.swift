@@ -234,6 +234,10 @@ final class FakeInstantAPI: InstantAPIProtocol, @unchecked Sendable {
         var viewedIds: [String] = []
         var undecryptableIds: [String] = []
         var sentPayloads: [(Data, Int, InstantDurationMode, [InstantCrypto.SealedEnvelope])] = []
+        /// The two fields `sentPayloads` leaves out, which opening one needs.
+        var sentHeaders: [(mediaIv: String, ephemeralPubKey: String)] = []
+        /// Awaited before `send` answers, so a test can hold an upload open.
+        var sendGate: (@Sendable () async -> Void)?
         var sendDelivered = true
         var sendError: Error?
         var inboxError: Error?
@@ -254,6 +258,8 @@ final class FakeInstantAPI: InstantAPIProtocol, @unchecked Sendable {
     var viewedIds: [String] { storage.withLock { $0.viewedIds } }
     var undecryptableIds: [String] { storage.withLock { $0.undecryptableIds } }
     var sentPayloads: [(Data, Int, InstantDurationMode, [InstantCrypto.SealedEnvelope])] { storage.withLock { $0.sentPayloads } }
+    var sentHeaders: [(mediaIv: String, ephemeralPubKey: String)] { storage.withLock { $0.sentHeaders } }
+    var sendGate: (@Sendable () async -> Void)? { get { storage.withLock { $0.sendGate } } set { storage.withLock { $0.sendGate = newValue } } }
     var sendDelivered: Bool { get { storage.withLock { $0.sendDelivered } } set { storage.withLock { $0.sendDelivered = newValue } } }
     var sendError: Error? { get { storage.withLock { $0.sendError } } set { storage.withLock { $0.sendError = newValue } } }
     var inboxError: Error? { get { storage.withLock { $0.inboxError } } set { storage.withLock { $0.inboxError = newValue } } }
@@ -308,9 +314,11 @@ final class FakeInstantAPI: InstantAPIProtocol, @unchecked Sendable {
         ephemeralPubKey: String,
         envelopes: [InstantCrypto.SealedEnvelope]
     ) async throws -> Bool {
-        try storage.withLock { state in
+        if let gate = sendGate { await gate() }
+        return try storage.withLock { state in
             if let sendError = state.sendError { throw sendError }
             state.sentPayloads.append((ciphertext, recipientId, durationMode, envelopes))
+            state.sentHeaders.append((mediaIv, ephemeralPubKey))
             return state.sendDelivered
         }
     }

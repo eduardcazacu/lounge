@@ -142,7 +142,11 @@ extension PushRegistrar: @preconcurrency UNUserNotificationCenterDelegate {
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
-        onOpenInstant(Self.instantId(from: response.notification.request.content.userInfo))
+        let userInfo = response.notification.request.content.userInfo
+        // The unsent-instant reminder is about the camera's outbox, not about
+        // anything waiting, so it opens the app where it normally opens.
+        guard !OutboxReminder.isReminder(userInfo) else { return }
+        onOpenInstant(Self.instantId(from: userInfo))
     }
 
     public func userNotificationCenter(

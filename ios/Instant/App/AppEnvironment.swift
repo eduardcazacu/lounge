@@ -36,6 +36,8 @@ public final class AppEnvironment {
     public let instantAPI: InstantAPIProtocol
     public let moderationAPI: ModerationAPIProtocol
     public let store: InstantStore
+    /// Sends that have left the compose screen and not yet finished.
+    public let outbox: Outbox
     public let identities: DeviceIdentityProviding
     public let makeCamera: @MainActor () -> CameraControlling
 
@@ -89,6 +91,15 @@ public final class AppEnvironment {
         aimedAt = nil
     }
 
+    /// Hands a photo to the outbox and spends the aim. The compose screen
+    /// closes straight after; recency moves once the server has accepted it,
+    /// because a send that fails must not answer a streak.
+    public func send(_ draft: InstantDraft, to recipient: InstantRecipient) {
+        guard let userId = session.currentUserId else { return }
+        outbox.send(draft, to: recipient, from: userId)
+        clearAim()
+    }
+
     public func openInbox(instantId: String? = nil) {
         // Assigning the same id twice would not fire the observation the inbox
         // watches, and a second push for an instant already pending is not a
@@ -127,6 +138,8 @@ public final class AppEnvironment {
         moderationAPI: ModerationAPIProtocol,
         identities: DeviceIdentityProviding,
         store: InstantStore,
+        pendingSends: PendingSendStoring = InMemoryPendingSendStore(),
+        outboxSystem: OutboxSystem = RecordingOutboxSystem(),
         makeCamera: @escaping @MainActor () -> CameraControlling
     ) {
         self.config = config
@@ -137,10 +150,19 @@ public final class AppEnvironment {
         self.identities = identities
         self.store = store
         self.makeCamera = makeCamera
+        outbox = Outbox(
+            api: instantAPI,
+            store: pendingSends,
+            system: outboxSystem
+        ) { [weak store] recipientId in
+            store?.noteSent(toUserId: recipientId)
+            await store?.refreshHistory()
+        }
         // Before the first frame, so a cold start — most often a tapped
         // notification or widget, landing on the inbox — never draws it empty.
         if let userId = session.currentUserId {
             store.restore(userId: userId)
+            outbox.restore(userId: userId)
         }
     }
 
@@ -165,6 +187,8 @@ public final class AppEnvironment {
             moderationAPI: ModerationAPI(client: client),
             identities: identities,
             store: store,
+            pendingSends: PendingSendStore(),
+            outboxSystem: SystemOutboxSystem(),
             makeCamera: { CameraController() }
         )
     }
@@ -176,6 +200,8 @@ public final class AppEnvironment {
     public func signOut() async {
         await userAPI.signOut()
         store.reset()
+        // Nothing sealed on this account's behalf goes out after it has left.
+        outbox.reset()
         session.signOut()
         account = nil
         aimedAt = nil
@@ -201,6 +227,7 @@ public final class AppEnvironment {
     public func handleSignIn(token: String) async {
         session.setToken(token)
         guard let userId = session.currentUserId else { return }
+        outbox.restore(userId: userId)
         await store.start(userId: userId)
         await loadAccount()
     }

@@ -27,6 +27,10 @@ struct RootView: View {
             guard let userId = environment.session.currentUserId else { return }
             // Side by side: neither needs the other, and the account is what
             // draws the avatar and decides the terms gate.
+            // Anything a force quit left sealed goes now: the session is as
+            // ready as it is going to be, and the refresh coordinator covers
+            // a token that has aged out.
+            environment.outbox.resume()
             async let started: Void = environment.store.start(userId: userId)
             async let account: Void = environment.loadAccount()
             _ = await (started, account)
@@ -44,10 +48,19 @@ struct RootView: View {
         // `openInbox`.
         .onOpenURL { environment.handle($0) }
         .onChange(of: scenePhase) { _, phase in
-            // Coming back from the background is exactly when a queued instant
-            // is most likely waiting, and when the socket most likely died.
-            guard phase == .active, environment.session.isSignedIn else { return }
-            Task { await environment.store.refreshAll() }
+            switch phase {
+            case .background:
+                environment.outbox.didEnterBackground()
+            case .active:
+                environment.outbox.didBecomeActive()
+                // Coming back from the background is exactly when a queued
+                // instant is most likely waiting, and when the socket most
+                // likely died.
+                guard environment.session.isSignedIn else { return }
+                Task { await environment.store.refreshAll() }
+            default:
+                break
+            }
         }
     }
 
@@ -91,6 +104,12 @@ struct MainPager: View {
                             Spacer(minLength: 0)
                         }
                         Spacer(minLength: 0)
+                        // Above the pager for the same reason: a send started
+                        // from the camera is still worth hearing about after a
+                        // swipe to the inbox. It sits over the camera's bottom
+                        // bar, clear of the shutter.
+                        SendStatusPill()
+                            .padding(.bottom, SendStatusPill.bottomClearance)
                     }
                 }
                 .transition(.opacity)

@@ -81,7 +81,31 @@ final class StubAPIClient: APIClientProtocol, @unchecked Sendable {
     var sentInstants: [Data] { state.withLock { $0.sentInstants } }
 
     func data(for request: APIRequest) async throws -> Data {
-        try state.withLock { try respond(to: request, state: &$0) }
+        if request.method == "POST", request.path == "api/v1/instant" {
+            try await sendBehaviour()
+        }
+        return try state.withLock { try respond(to: request, state: &$0) }
+    }
+
+    private let sendAttempts = OSAllocatedUnfairLock(initialState: 0)
+
+    /// How the upload misbehaves, per launch argument, so the outbox's progress,
+    /// failure and force-quit paths can each be seen.
+    private func sendBehaviour() async throws {
+        let attempt = sendAttempts.withLock { count in
+            count += 1
+            return count
+        }
+        if LaunchOptions.stallsSend {
+            // Never answers; the test kills the app mid-upload.
+            try await Task.sleep(for: .seconds(3600))
+        }
+        if let delay = LaunchOptions.sendDelay {
+            try await Task.sleep(for: .seconds(delay))
+        }
+        if LaunchOptions.failsFirstSend, attempt == 1 {
+            throw APIError(status: 503, message: "The server is busy. Try again.")
+        }
     }
 
     private func respond(to request: APIRequest, state: inout State) throws -> Data {

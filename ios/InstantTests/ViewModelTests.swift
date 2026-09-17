@@ -583,126 +583,11 @@ struct ComposeModelTests {
         }
     }
 
-    @Test("Seals to every one of the recipient's devices")
-    func sealsForAllDevices() async {
-        let api = FakeInstantAPI()
-        let identities = (0..<3).map { _ in
-            DeviceIdentity(
-                deviceId: UUID().uuidString.lowercased(),
-                backing: .software(P256.KeyAgreement.PrivateKey())
-            )
-        }
-        api.keysByUser[9] = identities.enumerated().map { index, identity in
-            InstantDeviceKeyDTO(
-                id: index + 1, deviceId: identity.deviceId,
-                publicKey: identity.publicKeyBase64, createdAt: nil
-            )
-        }
-
-        let model = ComposeModel(image: photo(), instantAPI: api, senderUserId: 4)
-        model.setCaption("hello")
-        await model.send(to: 9)
-
-        #expect(model.sendState == .sent(delivered: true))
-        let sent = try! #require(api.sentPayloads.first)
-        #expect(sent.1 == 9)
-        #expect(sent.3.count == 3)
-        #expect(Set(sent.3.map(\.deviceKeyId)) == [1, 2, 3])
-
-        // Each device can actually open it — the point of the whole exercise.
-        for (index, identity) in identities.enumerated() {
-            let opened = try? InstantCrypto.open(
-                ciphertext: sent.0,
-                instant: InstantCrypto.OpenableInstant(
-                    mediaIv: "", ephemeralPubKey: "", senderId: 4,
-                    envelopeWrappedKey: sent.3[index].wrappedKey,
-                    envelopeWrapIv: sent.3[index].wrapIv
-                ),
-                device: identity
-            )
-            // mediaIv/ephemeralPubKey are not carried through FakeInstantAPI, so
-            // this only asserts the call shape; the crypto suite covers the rest.
-            #expect(opened == nil || opened != nil)
-        }
-    }
-
-    /// The inbox-to-camera path: the recipient was chosen before the photo
-    /// existed, so sending takes one tap and never opens the picker.
-    @Test("Sends to the person the camera was aimed at")
-    func sendsToTheAimedRecipient() async throws {
-        let api = FakeInstantAPI()
-        let identity = DeviceIdentity(
-            deviceId: UUID().uuidString.lowercased(),
-            backing: .software(P256.KeyAgreement.PrivateKey())
-        )
-        api.keysByUser[9] = [InstantDeviceKeyDTO(
-            id: 1, deviceId: identity.deviceId, publicKey: identity.publicKeyBase64, createdAt: nil
-        )]
-
-        let model = ComposeModel(
-            image: photo(), instantAPI: api, senderUserId: 4,
-            recipient: InstantRecipient(userId: 9, name: "Ana")
-        )
-        let recipient = try #require(model.recipient)
-        await model.send(to: recipient.userId)
-
-        #expect(model.sendState == .sent(delivered: true))
-        #expect(api.sentPayloads.first?.1 == 9)
-    }
-
-    @Test("Refuses to send to someone who hasn't enrolled")
-    func refusesUnenrolledRecipient() async {
-        let api = FakeInstantAPI()
-        api.keysByUser[9] = []
-
-        let model = ComposeModel(image: photo(), instantAPI: api, senderUserId: 4)
-        await model.send(to: 9)
-
-        #expect(model.sendState == .failed("They haven't set up Instant yet."))
-        #expect(api.sentPayloads.isEmpty)
-    }
-
-    @Test("Surfaces the server's message on failure")
-    func surfacesServerError() async {
-        let api = FakeInstantAPI()
-        let identity = DeviceIdentity(
-            deviceId: UUID().uuidString.lowercased(),
-            backing: .software(P256.KeyAgreement.PrivateKey())
-        )
-        api.keysByUser[9] = [InstantDeviceKeyDTO(
-            id: 1, deviceId: identity.deviceId, publicKey: identity.publicKeyBase64, createdAt: nil
-        )]
-        api.sendError = APIError(status: 400, message: "Send an instant to someone else.")
-
-        let model = ComposeModel(image: photo(), instantAPI: api, senderUserId: 4)
-        await model.send(to: 9)
-
-        #expect(model.sendState == .failed("Send an instant to someone else."))
-    }
-
-    @Test("A failed delivery still counts as sent — it was queued")
-    func queuedSendIsStillSent() async {
-        let api = FakeInstantAPI()
-        let identity = DeviceIdentity(
-            deviceId: UUID().uuidString.lowercased(),
-            backing: .software(P256.KeyAgreement.PrivateKey())
-        )
-        api.keysByUser[9] = [InstantDeviceKeyDTO(
-            id: 1, deviceId: identity.deviceId, publicKey: identity.publicKeyBase64, createdAt: nil
-        )]
-        api.sendDelivered = false
-
-        let model = ComposeModel(image: photo(), instantAPI: api, senderUserId: 4)
-        await model.send(to: 9)
-
-        #expect(model.sendState == .sent(delivered: false))
-    }
-
     /// Picking a look has to change the picture the compose screen is drawing,
     /// or the strip is a control over nothing.
     @Test("Choosing a filter republishes the preview")
     func filterPublishesPreview() {
-        let model = ComposeModel(image: photo(), instantAPI: FakeInstantAPI(), senderUserId: 1)
+        let model = ComposeModel(image: photo())
         #expect(model.filter == .none)
         let original = model.preview
 
@@ -722,12 +607,12 @@ struct ComposeModelTests {
     /// browsed the strip.
     @Test("Switching between filters does not compound them")
     func filtersDoNotStack() {
-        let model = ComposeModel(image: photo(), instantAPI: FakeInstantAPI(), senderUserId: 1)
+        let model = ComposeModel(image: photo())
         model.select(.noir)
         model.select(.warm)
         let viaNoir = model.preview
 
-        let direct = ComposeModel(image: photo(), instantAPI: FakeInstantAPI(), senderUserId: 1)
+        let direct = ComposeModel(image: photo())
         direct.select(.warm)
 
         #expect(viaNoir.size == direct.preview.size)
@@ -737,9 +622,7 @@ struct ComposeModelTests {
     @Test("There is a thumbnail for every look, and it is not the whole photo")
     func thumbnailsCoverEveryFilter() {
         let model = ComposeModel(
-            image: photo(width: 1600, height: 900),
-            instantAPI: FakeInstantAPI(),
-            senderUserId: 1
+            image: photo(width: 1600, height: 900)
         )
         model.prepareThumbnails()
 
@@ -757,7 +640,7 @@ struct ComposeModelTests {
     @Test("Opening compose does no image work")
     func openingIsFree() {
         let original = photo(width: 1600, height: 900)
-        let model = ComposeModel(image: original, instantAPI: FakeInstantAPI(), senderUserId: 1)
+        let model = ComposeModel(image: original)
 
         #expect(model.preview === original, "the photo is shown as it arrived")
         #expect(model.filterThumbnails.isEmpty, "the strip is built when it is opened")
@@ -767,7 +650,7 @@ struct ComposeModelTests {
     /// The strip is built once, however many times it is opened.
     @Test("Preparing the strip twice builds it once")
     func thumbnailsAreBuiltOnce() {
-        let model = ComposeModel(image: photo(), instantAPI: FakeInstantAPI(), senderUserId: 1)
+        let model = ComposeModel(image: photo())
         model.prepareThumbnails()
         let first = model.filterThumbnails.map(\.image)
         model.prepareThumbnails()
@@ -779,9 +662,7 @@ struct ComposeModelTests {
     @Test("A chosen look is rendered at display size")
     func choosingRendersAtDisplaySize() {
         let model = ComposeModel(
-            image: photo(width: 3200, height: 1800),
-            instantAPI: FakeInstantAPI(),
-            senderUserId: 1
+            image: photo(width: 3200, height: 1800)
         )
         model.select(.warm)
         #expect(max(model.preview.size.width, model.preview.size.height)
@@ -810,7 +691,7 @@ struct ComposeModelTests {
 
     @Test("Captions are capped and durations cycle")
     func capsCaptionAndCyclesDuration() {
-        let model = ComposeModel(image: photo(), instantAPI: FakeInstantAPI(), senderUserId: 1)
+        let model = ComposeModel(image: photo())
         model.setCaption(String(repeating: "x", count: 300))
         #expect(model.caption.count == OverlayCompositor.maxCaptionLength)
 

@@ -141,6 +141,17 @@ cached instant missing from the first drain is removed from both
 (`InstantStore.dropUnconfirmed`). The inbox is paged, so a missing instant may
 only be on a later page. If it stays in the seen-set, it never comes back.
 
+**A force quit runs no code.** Swiping the app away in the switcher kills a
+suspended process: `applicationWillTerminate` is not called, and neither is
+anything else. Anything the app wants to say about an unfinished send has to be
+scheduled before it is suspended. That is why the unsent-instant reminder is
+scheduled on entering the background, and withdrawn if the send finishes.
+
+**A send can go twice.** The sealed copy is deleted when the server's answer
+arrives. If the app dies after the server stored the instant but before that
+answer, the next launch sends the same ciphertext again. The server has no
+idempotency key, so the recipient gets it twice.
+
 **A widget reload can be ignored.** `WidgetCenter.reloadTimelines` comes out of a
 daily budget of roughly 40 to 70, and scheduled refreshes (`.after`, `.atEnd`)
 count against it. Once it is spent, the reload the Notification Service

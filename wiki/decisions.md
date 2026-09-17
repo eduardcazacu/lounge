@@ -393,3 +393,30 @@ viewer already handles an instant that is gone.
 
 **Would reopen if** the inbox ever carried something the device could not
 already see, such as decrypted content or a preview.
+
+---
+
+## Sends happen in the background, and only the sealed form is kept
+
+**Chosen** the compose screen closes on the tap, and `Outbox` does the key
+lookup, rendering, sealing and upload afterwards. A send is written to disk
+once it is sealed, and survives a force quit until the server accepts it.
+
+**Rejected** keeping the compose screen up until the upload finishes, which
+took seconds. Also rejected: writing the rendered photo to disk so that even the
+sealing window survives a kill, because the app never keeps a photo and a
+sealed one opens only on the recipient's devices. A background `URLSession`
+upload was rejected too. It would need its own path around `APIClient`'s
+token refresh, and background time covers the ordinary case of switching
+apps.
+
+**Cost paid** a send killed before it is sealed is lost without a trace. That
+is the length of the WebP encode: about 0.2 s in a Release build, several
+seconds in a Debug one. A send killed between the server storing it
+and the app hearing so goes twice (see [gotchas.md](gotchas.md)). A sealed send
+restored after the recipient's devices changed can be rejected, and only a
+retry with the photo still in memory can seal it again.
+
+**Would reopen if** a lost or doubled send turns up in practice. The fix for
+doubling is a client-generated id that the server deduplicates on, which is a
+change to `createInstantInput` and so to `DTOs.swift`.

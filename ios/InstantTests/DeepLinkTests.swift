@@ -124,12 +124,7 @@ struct CameraAimTests {
         let environment = makeTestEnvironment()
         environment.aim(at: ana)
 
-        let model = ComposeModel(
-            image: UIImage(),
-            instantAPI: environment.instantAPI,
-            senderUserId: 1,
-            recipient: environment.aimedAt
-        )
+        let model = ComposeModel(image: UIImage(), recipient: environment.aimedAt)
 
         #expect(model.recipient == ana)
     }

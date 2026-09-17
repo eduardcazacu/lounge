@@ -6,17 +6,9 @@ import UIKit
 @MainActor
 @Observable
 public final class ComposeModel {
-    public enum SendState: Equatable {
-        case idle
-        case sending
-        case sent(delivered: Bool)
-        case failed(String)
-    }
-
     public var caption = ""
     public var placement = OverlayCompositor.Placement.default
     public var duration: InstantDurationMode = .fiveSeconds
-    public private(set) var sendState: SendState = .idle
 
     /// The chosen look, applied to the photo on the way out.
     public private(set) var filter: PhotoFilter = .none
@@ -56,22 +48,13 @@ public final class ComposeModel {
     /// from, so switching looks never compounds one on top of another. Built on
     /// first use rather than up front, for the same reason `preview` is not.
     private var previewBase: UIImage?
-    private let instantAPI: InstantAPIProtocol
-    private let senderUserId: Int
 
     /// Big enough for the viewport on the densest phone screen, and no bigger.
     static let previewLongEdge: CGFloat = 1440
     static let thumbnailLongEdge: CGFloat = 180
 
-    public init(
-        image: UIImage,
-        instantAPI: InstantAPIProtocol,
-        senderUserId: Int,
-        recipient: InstantRecipient? = nil
-    ) {
+    public init(image: UIImage, recipient: InstantRecipient? = nil) {
         self.image = image
-        self.instantAPI = instantAPI
-        self.senderUserId = senderUserId
         self.recipient = recipient
         // Deliberately the photo itself, and no work at all: this initialiser
         // runs between the shutter and the picture appearing.
@@ -128,8 +111,6 @@ public final class ComposeModel {
         )
     }
 
-    public var isSending: Bool { sendState == .sending }
-
     public func setCaption(_ text: String) {
         caption = String(text.prefix(OverlayCompositor.maxCaptionLength))
     }
@@ -138,57 +119,17 @@ public final class ComposeModel {
         duration = duration.next
     }
 
-    /// Filters, composites, compresses, encrypts and uploads.
-    ///
-    /// The look goes on before the caption, so the caption plate keeps its own
-    /// contrast instead of being tinted along with the photo — and both are
-    /// burned into the pixels here rather than sent as fields. The server only
-    /// ever holds ciphertext, so it could not read the caption, or apply the
-    /// filter, even if the design wanted it to.
-    public func send(to recipientId: Int) async {
-        guard sendState != .sending else { return }
-        sendState = .sending
-
-        do {
-            let devices = try await instantAPI.keys(forUserId: recipientId).theirs
-            guard !devices.isEmpty else {
-                sendState = .failed("They haven't set up Instant yet.")
-                return
-            }
-
-            let flattened = OverlayCompositor.composite(
-                image: filter.apply(to: image),
-                caption: caption,
-                placement: placement
-            )
-            let encoded = try ImagePipeline.encode(flattened)
-            let sealed = try InstantCrypto.seal(
-                media: encoded,
-                senderUserId: senderUserId,
-                devices: devices.map {
-                    InstantCrypto.RecipientDeviceKey(
-                        id: $0.id, deviceId: $0.deviceId, publicKey: $0.publicKey
-                    )
-                }
-            )
-
-            let delivered = try await instantAPI.send(
-                ciphertext: sealed.ciphertext,
-                recipientId: recipientId,
-                durationMode: duration,
-                mediaType: "image/webp",
-                mediaIv: sealed.mediaIv,
-                ephemeralPubKey: sealed.ephemeralPubKey,
-                envelopes: sealed.envelopes
-            )
-            sendState = .sent(delivered: delivered)
-        } catch let error as APIError {
-            sendState = .failed(error.message)
-        } catch InstantCrypto.CryptoError.noRecipientDevices {
-            sendState = .failed("They haven't set up Instant yet.")
-        } catch {
-            sendState = .failed("That instant could not be sent.")
-        }
+    /// What `Outbox` sends: the original photo and every choice made about it,
+    /// none of them applied yet. The full-resolution render happens there, off
+    /// the main actor, after this screen has already closed.
+    public var draft: InstantDraft {
+        InstantDraft(
+            image: image,
+            filter: filter,
+            caption: caption,
+            placement: placement,
+            duration: duration
+        )
     }
 }
 #endif
