@@ -146,3 +146,11 @@ why the widget's view and timeline live in `ios/Shared/` rather than in
 **UI-test fixtures need relative timestamps.** A fixed future date in
 `StubBackend` inverted the recency ordering and the failure looked like a
 sorting bug.
+
+**An `-only-testing` filter that matches nothing passes.** A misspelt suite name
+runs zero tests and still prints `** TEST SUCCEEDED **`. The tests are Swift
+Testing, so the XCTest `Executed 0 tests` summary appears on every run, whether
+the filter matched or not. The real signal is Swift Testing's
+`✔ Test run with N tests` line: if it is missing, nothing ran. The identifier is
+the `@Suite` struct's name — `InstantTests/DeepLinkTests` — not the display
+string passed to `@Suite`.

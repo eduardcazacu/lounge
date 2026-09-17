@@ -36,9 +36,23 @@ takes when camera permission is refused.
 ## Tests
 
 ```bash
+# Day to day: only the suites you touched, optimized, with no ten-minute
+# diagnostics wait after a failure
+xcodebuild test -project ios/Instant.xcodeproj -scheme Instant \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  -only-testing:InstantTests/DeepLinkTests \
+  SWIFT_OPTIMIZATION_LEVEL=-O SWIFT_COMPILATION_MODE=wholemodule ENABLE_TESTABILITY=YES \
+  -collect-test-diagnostics never -parallel-testing-enabled NO \
+  -test-timeouts-enabled YES -default-test-execution-time-allowance 30 \
+  -maximum-test-execution-time-allowance 60
+
+# Full suite: changes that cross areas, and before merging to main
 xcodebuild test -project ios/Instant.xcodeproj -scheme Instant \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -enableCodeCoverage YES
 ```
+
+Why the two modes exist, and how to tell whether a filter matched anything:
+[ios-client.md](../wiki/ios-client.md).
 
 `InstantTests` covers everything that is not a view; `InstantUITests` drives the
 screens against a stubbed backend and a fixed camera frame.

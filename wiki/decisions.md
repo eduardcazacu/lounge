@@ -306,3 +306,29 @@ compatibility mode.
 
 **Because** both need an email verification link and then admin approval, so an
 in-app form could only ever end on a waiting screen.
+
+---
+
+## iOS tests run filtered and optimized by default
+
+**Chosen** an everyday `xcodebuild test` that runs only the suites covering the
+change (`-only-testing`), compiles with `-O`, skips failure diagnostics
+(`-collect-test-diagnostics never`) and has per-test time limits. The command is
+in [ios-client.md](ios-client.md).
+
+**Rejected** running the full suite with default settings on every change.
+
+**Because** on the Simulator the default run is slow, and a failing one is
+much slower: by default xcodebuild spends about ten minutes collecting crash logs
+and diagnostics before it reports the failure, which the `✘` lines already
+explain. `ENABLE_TESTABILITY=YES` goes with `-O` so `@testable import` still
+builds.
+
+**Cost paid** an optimized build can hide a bug that only shows up in an
+unoptimized Debug build, and a filter can skip the suite that would have caught
+a regression somewhere else. The full suite, with default settings and
+coverage, still runs when a change crosses areas and before merging to
+`main`.
+
+**Would reopen if** a failure turns up that only a Debug build reproduces, or
+if the full suite becomes fast enough that filtering saves nothing.

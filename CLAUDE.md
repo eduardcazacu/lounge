@@ -40,10 +40,22 @@ cd frontend && npm run dev     # :5173, expects the API on :8787
 npm run build                  # tsc -b && vite build
 npm run lint
 
-# iOS
+# iOS: only the suites you touched, optimized, no failure-diagnostics wait
 xcodebuild test -project ios/Instant.xcodeproj -scheme Instant \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  -only-testing:InstantTests/<SuiteStruct> \
+  SWIFT_OPTIMIZATION_LEVEL=-O SWIFT_COMPILATION_MODE=wholemodule ENABLE_TESTABILITY=YES \
+  -collect-test-diagnostics never -parallel-testing-enabled NO \
+  -test-timeouts-enabled YES -default-test-execution-time-allowance 30 \
+  -maximum-test-execution-time-allowance 60
 ```
+
+**iOS tests: run the filtered command above, not the full suite.** Without
+these flags, a failing Simulator run spends about ten minutes collecting
+diagnostics. Run the full suite (`wiki/ios-client.md`) only when a change
+crosses areas, or before merging to `main`. Check the
+`✔ Test run with N tests` line: a filter that matches nothing still says
+`TEST SUCCEEDED`.
 
 **Crypto interop — the check that matters most.** Run all three after touching
 either side of the Instant crypto; it takes about a second and it is the only
