@@ -480,7 +480,8 @@ struct InstantStoreTests {
     private func makeStore(
         api: FakeInstantAPI,
         socket: InboxSocketProtocol = StubSocket(),
-        widgets: WidgetSnapshotPublishing = RecordingWidgetPublisher()
+        widgets: WidgetSnapshotPublishing = RecordingWidgetPublisher(),
+        cache: InboxCaching = InMemoryInboxCache()
     ) -> InstantStore {
         InstantStore(
             api: api,
@@ -489,8 +490,171 @@ struct InstantStoreTests {
                 secureEnclaveAvailable: { false }
             ),
             widgets: widgets,
+            cache: cache,
             makeSocket: { _ in socket }
         )
+    }
+
+    // MARK: Cache
+
+    private static let cacheNow = Date(timeIntervalSince1970: 1_767_225_600) // 2026-01-01T00:00:00Z
+
+    /// A tapped notification lands on the inbox, and on a cold start that used
+    /// to be "No conversations yet" for as long as three round trips took.
+    @Test("A cold start draws the cached inbox before anything is fetched")
+    func restoresFromCache() {
+        let cache = InMemoryInboxCache(InboxCacheContents(
+            userId: 1,
+            instants: [.fixture(id: "waiting", expiresAt: "2026-01-02T00:00:00.000Z")],
+            history: [.fixture(userId: 2)]
+        ))
+        let store = makeStore(api: FakeInstantAPI(), cache: cache)
+        #expect(!store.hasLoaded)
+
+        store.restore(userId: 1, now: Self.cacheNow)
+
+        #expect(store.hasLoaded)
+        #expect(store.instants.map(\.id) == ["waiting"])
+        #expect(store.conversations.first?.hasPending == true)
+    }
+
+    @Test("An instant that expired while the app was closed is not restored")
+    func restoreSkipsExpired() {
+        let cache = InMemoryInboxCache(InboxCacheContents(
+            userId: 1,
+            instants: [
+                .fixture(id: "gone", expiresAt: "2025-12-31T23:59:59.000Z"),
+                .fixture(id: "live", expiresAt: "2026-01-01T00:00:01.000Z"),
+            ],
+            history: []
+        ))
+        let store = makeStore(api: FakeInstantAPI(), cache: cache)
+        store.restore(userId: 1, now: Self.cacheNow)
+        #expect(store.instants.map(\.id) == ["live"])
+    }
+
+    @Test("Another account's cached inbox is never shown")
+    func restoreChecksAccount() {
+        let cache = InMemoryInboxCache(InboxCacheContents(
+            userId: 7, instants: [.fixture(id: "theirs")], history: [.fixture(userId: 2)]
+        ))
+        let store = makeStore(api: FakeInstantAPI(), cache: cache)
+        store.restore(userId: 1, now: Self.cacheNow)
+        #expect(store.instants.isEmpty)
+        #expect(store.history.isEmpty)
+        #expect(!store.hasLoaded)
+    }
+
+    /// Opened on another device, or swept, while this one was closed.
+    @Test("The first drain drops cached instants the server no longer has")
+    func drainReplacesCache() async {
+        let cache = InMemoryInboxCache(InboxCacheContents(
+            userId: 1,
+            instants: [.fixture(id: "stale"), .fixture(id: "kept")],
+            history: []
+        ))
+        let api = FakeInstantAPI()
+        api.inboxPages = [[.fixture(id: "kept"), .fixture(id: "new")], [.fixture(id: "stale")]]
+        let store = makeStore(api: api, cache: cache)
+        store.restore(userId: 1, now: Self.cacheNow)
+
+        await store.refreshInbox(deviceId: "d")
+        #expect(store.instants.map(\.id) == ["kept", "new"])
+        #expect(cache.contents?.instants.map(\.id) == ["kept", "new"], "the cache follows")
+
+        // The inbox is paged, so a dropped id is allowed back when it turns up.
+        await store.refreshInbox(deviceId: "d")
+        #expect(store.instants.map(\.id).contains("stale"))
+    }
+
+    @Test("A drain that fails leaves the cached inbox alone")
+    func failedDrainKeepsCache() async {
+        let cache = InMemoryInboxCache(InboxCacheContents(
+            userId: 1, instants: [.fixture(id: "cached")], history: []
+        ))
+        let api = FakeInstantAPI()
+        api.inboxError = URLError(.notConnectedToInternet)
+        let store = makeStore(api: api, cache: cache)
+        store.restore(userId: 1, now: Self.cacheNow)
+
+        await store.refreshInbox(deviceId: "d")
+        #expect(store.instants.map(\.id) == ["cached"])
+    }
+
+    @Test("Changes are written to the cache, and signing out clears it")
+    func writesAndClearsCache() async {
+        let cache = InMemoryInboxCache()
+        let api = FakeInstantAPI()
+        api.conversationsResult = [.fixture(userId: 2)]
+        let store = makeStore(api: api, cache: cache)
+        await store.start(userId: 1)
+
+        store.merge([.fixture(id: "a"), .fixture(id: "b")])
+        store.dismiss("a")
+        await store.refreshHistory()
+        #expect(cache.contents?.userId == 1)
+        #expect(cache.contents?.instants.map(\.id) == ["b"], "a viewed instant must not come back on relaunch")
+        #expect(cache.contents?.history.map(\.userId) == [2])
+
+        store.reset()
+        #expect(cache.contents == nil)
+        #expect(!store.hasLoaded)
+    }
+
+    /// Previously the inbox waited for registration, a socket ticket and the
+    /// connect before it was fetched at all.
+    @Test("With a cached inbox, start fetches without waiting for the socket")
+    func startFetchesImmediately() async {
+        let api = FakeInstantAPI()
+        api.inboxPages = [[.fixture(id: "waiting")]]
+        api.conversationsResult = [.fixture(userId: 2)]
+        let cache = InMemoryInboxCache(InboxCacheContents(userId: 1, instants: [], history: []))
+        let store = makeStore(api: api, cache: cache)  // StubSocket never asks for a drain
+        store.restore(userId: 1)
+
+        await store.start(userId: 1)
+        for _ in 0..<100 where store.instants.isEmpty { await Task.yield() }
+
+        #expect(store.instants.map(\.id) == ["waiting"])
+    }
+
+    /// Nothing is sealed to a device that has never registered, so fetching
+    /// early would draw rows that claim something is waiting and cannot open it.
+    @Test("A first launch waits for the socket's drain")
+    func firstLaunchWaitsForDrain() async {
+        let api = FakeInstantAPI()
+        api.conversationsResult = [.fixture(userId: 2, unopenedCount: 1)]
+        let store = makeStore(api: api)
+
+        await store.start(userId: 1)
+        for _ in 0..<100 { await Task.yield() }
+
+        #expect(api.inboxCallCount == 0)
+        #expect(api.conversationsCallCount == 0)
+        #expect(!store.hasLoaded)
+    }
+
+    /// The startup fetch runs on its own, so it can outlive the account it was
+    /// started for.
+    @Test("A fetch that finishes after switching accounts is thrown away")
+    func ignoresFetchForPreviousAccount() async {
+        let api = FakeInstantAPI()
+        let store = makeStore(api: api)
+        await store.start(userId: 1)
+
+        let (released, release) = AsyncStream<Void>.makeStream()
+        api.conversationsResult = [.fixture(userId: 99, name: "Account one's friend")]
+        api.conversationsGate = { for await _ in released { break } }
+        let stale = Task { await store.refreshHistory() }
+        for _ in 0..<20 { await Task.yield() }
+
+        api.conversationsGate = nil
+        api.conversationsResult = []
+        await store.start(userId: 2)
+        release.yield()
+        await stale.value
+
+        #expect(store.history.isEmpty)
     }
 
     @Test("Enrolls this device on start")

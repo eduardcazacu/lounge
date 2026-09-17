@@ -25,7 +25,7 @@ struct InboxScreen: View {
                     header.padding(.top, headerTopPadding(proxy))
 
                     if store.conversations.isEmpty {
-                        empty
+                        if store.hasLoaded { empty } else { loading }
                     } else {
                         List(store.conversations) { conversation in
                             conversationRow(conversation)
@@ -286,6 +286,19 @@ struct InboxScreen: View {
                 .font(.system(size: 13))
                 .foregroundStyle(InstantStyle.unread)
         }
+    }
+
+    /// Only on a first launch, or after signing in: every later cold start
+    /// draws the cached inbox instead.
+    private var loading: some View {
+        VStack {
+            Spacer()
+            ProgressView()
+                .tint(InstantStyle.secondaryText)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityIdentifier("inbox.loading")
     }
 
     private var empty: some View {

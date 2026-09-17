@@ -210,8 +210,9 @@ public struct InstantConversationSummary: Codable, Equatable, Sendable, Identifi
 
 struct ConversationsResponse: Codable { let conversations: [InstantConversationSummary] }
 
-/// The wire's timestamp spelling, for the one case where the client writes one
-/// instead of reading it: a send it has just made.
+/// The wire's timestamp spelling, for the cases where the client writes one
+/// instead of reading it: a send it has just made, and "now" to compare an
+/// expiry against.
 ///
 /// Matches the server's `Date.toISOString()` — milliseconds and a `Z` — because
 /// these are compared as plain strings. The same instant spelled differently

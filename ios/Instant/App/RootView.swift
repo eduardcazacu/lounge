@@ -25,8 +25,11 @@ struct RootView: View {
             // notification permission on the sign-in screen spends the one
             // prompt iOS gives you before the person has any reason to say yes.
             guard let userId = environment.session.currentUserId else { return }
-            await environment.store.start(userId: userId)
-            await environment.loadAccount()
+            // Side by side: neither needs the other, and the account is what
+            // draws the avatar and decides the terms gate.
+            async let started: Void = environment.store.start(userId: userId)
+            async let account: Void = environment.loadAccount()
+            _ = await (started, account)
             await registerForPush()
         }
         .onChange(of: environment.store.sessionExpired) { _, expired in

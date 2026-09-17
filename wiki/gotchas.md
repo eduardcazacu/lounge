@@ -135,6 +135,12 @@ silently, and the app comes up on the camera.
 **A notification's instant is usually not in the inbox yet** on a cold start, so
 the id stays pending until it lands rather than being dropped on the first miss.
 
+**Dropping a cached instant must also drop it from the seen-set.** The seen-set
+exists so a drain cannot bring back an instant that was already dealt with. A
+cached instant missing from the first drain is removed from both
+(`InstantStore.dropUnconfirmed`). The inbox is paged, so a missing instant may
+only be on a later page. If it stays in the seen-set, it never comes back.
+
 **A widget reload can be ignored.** `WidgetCenter.reloadTimelines` comes out of a
 daily budget of roughly 40 to 70, and scheduled refreshes (`.after`, `.atEnd`)
 count against it. Once it is spent, the reload the Notification Service

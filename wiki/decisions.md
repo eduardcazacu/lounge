@@ -367,3 +367,29 @@ chat pushes go to the browser regardless, because the app has no blog or chat.
 
 **Would reopen if** the web client stopped being a harness, or the app
 reported its notification permission to the server.
+
+---
+
+## The iOS inbox is cached on disk
+
+**Chosen** `InboxCache` writes the waiting instants and the conversation
+history to Application Support on every change, and a cold start draws them
+before anything is fetched.
+
+**Rejected** starting empty and waiting for the network, which put "No
+conversations yet" under every notification tapped from a cold start. Also
+rejected: caching the history but not the instants. That shows the rows but
+not what is waiting in them, and what is waiting is what the tap was for.
+
+**Because** the cache holds nothing new. The envelopes are sealed to this
+device's Secure Enclave key, the photos are never on disk, and names and
+pictures are already in the widget snapshot. It is written with
+`completeFileProtectionUntilFirstUserAuthentication`, cleared on sign-out, and
+ignored if it belongs to a different account.
+
+**Cost paid** for about one round trip, the inbox can show an instant that was
+opened on another device, which answers 410 if tapped in that window. The
+viewer already handles an instant that is gone.
+
+**Would reopen if** the inbox ever carried something the device could not
+already see, such as decrypted content or a preview.

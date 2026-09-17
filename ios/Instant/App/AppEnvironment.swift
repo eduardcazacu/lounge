@@ -137,6 +137,11 @@ public final class AppEnvironment {
         self.identities = identities
         self.store = store
         self.makeCamera = makeCamera
+        // Before the first frame, so a cold start — most often a tapped
+        // notification or widget, landing on the inbox — never draws it empty.
+        if let userId = session.currentUserId {
+            store.restore(userId: userId)
+        }
     }
 
     public static func live(config: AppConfig = .production) -> AppEnvironment {
@@ -149,6 +154,7 @@ public final class AppEnvironment {
         let store = InstantStore(
             api: instantAPI,
             identities: identities,
+            cache: InboxCache(),
             makeSocket: { api in InboxSocket(api: api, config: config) }
         )
         return AppEnvironment(

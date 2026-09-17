@@ -225,6 +225,9 @@ final class FakeInstantAPI: InstantAPIProtocol, @unchecked Sendable {
         var streaksResult: [InstantStreakSummary] = []
         var conversationsResult: [InstantConversationSummary] = []
         var conversationsCallCount = 0
+        /// Awaited before `conversations()` answers, so a test can hold a fetch
+        /// open while something else happens.
+        var conversationsGate: (@Sendable () async -> Void)?
         var ticket = "ticket"
         var mediaResult: Result<Data, Error> = .success(Data())
         var mediaFetchCount = 0
@@ -258,6 +261,7 @@ final class FakeInstantAPI: InstantAPIProtocol, @unchecked Sendable {
     var streaksCallCount: Int { storage.withLock { $0.streaksCallCount } }
     var conversationsResult: [InstantConversationSummary] { get { storage.withLock { $0.conversationsResult } } set { storage.withLock { $0.conversationsResult = newValue } } }
     var conversationsCallCount: Int { storage.withLock { $0.conversationsCallCount } }
+    var conversationsGate: (@Sendable () async -> Void)? { get { storage.withLock { $0.conversationsGate } } set { storage.withLock { $0.conversationsGate = newValue } } }
 
     func registerDevice(deviceId: String, publicKey: String) async throws -> InstantDeviceKeyDTO {
         storage.withLock { $0.registeredDevices.append((deviceId, publicKey)) }
@@ -288,7 +292,8 @@ final class FakeInstantAPI: InstantAPIProtocol, @unchecked Sendable {
     }
 
     func conversations() async throws -> [InstantConversationSummary] {
-        storage.withLock { state in
+        if let gate = conversationsGate { await gate() }
+        return storage.withLock { state in
             state.conversationsCallCount += 1
             return state.conversationsResult
         }
@@ -504,13 +509,14 @@ extension InstantDelivery {
         senderId: Int = 2,
         durationMode: InstantDurationMode = .fiveSeconds,
         createdAt: String = "2026-01-01T00:00:00.000Z",
+        expiresAt: String = "2026-01-02T00:00:00.000Z",
         envelope: InstantKeyEnvelope? = InstantKeyEnvelope(wrappedKey: "AQ", wrapIv: "Ag")
     ) -> InstantDelivery {
         InstantDelivery(
             id: id, senderId: senderId, senderName: "Ana", senderThemeKey: "rose",
             senderProfilePictureUrl: nil, mediaType: "image/webp", mediaIv: "Aw",
             ephemeralPubKey: "BA", byteSize: 10, durationMode: durationMode,
-            createdAt: createdAt, expiresAt: "2026-01-02T00:00:00.000Z", envelope: envelope
+            createdAt: createdAt, expiresAt: expiresAt, envelope: envelope
         )
     }
 }

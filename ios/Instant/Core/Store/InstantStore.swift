@@ -54,9 +54,21 @@ public final class InstantStore {
     /// list rather than a nudge.
     public private(set) var replyHints: Set<Int> = []
 
+    /// False until there is something real to draw — a cached inbox or a first
+    /// answer from the server — so the inbox can say it is loading rather than
+    /// claim there are no conversations.
+    public private(set) var hasLoaded = false
+
+    /// Instants restored from the cache that the server has not yet confirmed
+    /// are still waiting. The first drain drops whichever it does not return:
+    /// they were opened on another device, expired, or swept while the app was
+    /// closed, and the seen-set would otherwise keep them forever.
+    private var unconfirmedIds: Set<String> = []
+
     private let api: InstantAPIProtocol
     private let identities: DeviceIdentityProviding
     private let widgets: WidgetSnapshotPublishing
+    private let cache: InboxCaching
     private let makeSocket: @MainActor (InstantAPIProtocol) -> InboxSocketProtocol
     private var socket: InboxSocketProtocol?
     private var pump: Task<Void, Never>?
@@ -66,12 +78,38 @@ public final class InstantStore {
         api: InstantAPIProtocol,
         identities: DeviceIdentityProviding,
         widgets: WidgetSnapshotPublishing = WidgetSnapshotPublisher(),
+        // In memory unless told otherwise, so a test never reads a previous
+        // run's inbox off the disk. `AppEnvironment.live` passes the real one.
+        cache: InboxCaching = InMemoryInboxCache(),
         makeSocket: @escaping @MainActor (InstantAPIProtocol) -> InboxSocketProtocol
     ) {
         self.api = api
         self.identities = identities
         self.widgets = widgets
+        self.cache = cache
         self.makeSocket = makeSocket
+    }
+
+    // MARK: - Cache
+
+    /// Draws the inbox as it was last seen, before anything has been fetched.
+    ///
+    /// Called before the first frame. Anything already expired is left out; the
+    /// rest is shown as-is until the first drain confirms or drops it.
+    public func restore(userId: Int, now: Date = Date()) {
+        guard self.userId == nil || self.userId == userId,
+              instants.isEmpty, serverHistory.isEmpty,
+              let cached = cache.load(), cached.userId == userId
+        else { return }
+
+        let cutoff = WireTimestamp.string(from: now)
+        let live = cached.instants.filter { $0.expiresAt > cutoff }
+        self.userId = userId
+        instants = live
+        seenIds = Set(live.map(\.id))
+        unconfirmedIds = seenIds
+        serverHistory = cached.history
+        hasLoaded = true
     }
 
     // MARK: - Widget
@@ -103,11 +141,14 @@ public final class InstantStore {
         return InstantWidgetSnapshot(contacts: contacts, updatedAt: now)
     }
 
-    /// Republishes the widget. Cheap when nothing changed: the publisher skips a
-    /// snapshot the widget is already showing.
-    func refreshWidget() {
+    /// Republishes the widget and rewrites the cache. Cheap for the widget when
+    /// nothing it shows changed: the publisher skips a snapshot it already has.
+    func inboxDidChange() {
         let snapshot = makeWidgetSnapshot()
         Task { [widgets] in await widgets.publish(snapshot) }
+        if let userId {
+            cache.save(InboxCacheContents(userId: userId, instants: instants, history: serverHistory))
+        }
     }
 
     public var unreadCount: Int { instants.count }
@@ -229,6 +270,18 @@ public final class InstantStore {
         }
         device = identity
 
+        // Fetched alongside registering rather than after it and the socket
+        // connect, which is three round trips on a cold start — but only when
+        // the inbox was restored from the cache, which proves this device was
+        // registered on an earlier launch. A device registering for the first
+        // time has nothing sealed to it yet: the history would draw rows
+        // saying something is waiting while the inbox had nothing to open, and
+        // a tap on such a row opens the camera instead. It waits for the
+        // socket's drain, which follows registration.
+        if hasLoaded {
+            Task { await refreshAll() }
+        }
+
         do {
             _ = try await api.registerDevice(
                 deviceId: identity.deviceId,
@@ -271,9 +324,12 @@ public final class InstantStore {
         // Signing out must not leave a stranger's name on the home screen.
         Task { [widgets] in await widgets.clear() }
         seenIds = []
+        unconfirmedIds = []
         replyHints = []
         device = nil
         userId = nil
+        hasLoaded = false
+        cache.clear()
         enrollmentError = nil
         sessionExpired = false
     }
@@ -314,17 +370,35 @@ public final class InstantStore {
         guard !fresh.isEmpty else { return }
         for instant in fresh { seenIds.insert(instant.id) }
         instants = (instants + fresh).sorted { $0.createdAt < $1.createdAt }
-        refreshWidget()
+        inboxDidChange()
     }
 
     public func refreshInbox(deviceId: String) async {
+        // A fetch started for one account can finish after switching to
+        // another; its answer belongs to nobody who is still here.
+        let owner = userId
         do {
-            merge(try await api.inbox(deviceId: deviceId))
+            let fresh = try await api.inbox(deviceId: deviceId)
+            guard userId == owner else { return }
+            dropUnconfirmed(keeping: Set(fresh.map(\.id)))
+            merge(fresh)
         } catch let error as APIError where error.isAuthFailure {
             sessionExpired = true
         } catch {
             // Transient. The socket will drain again on its next attempt.
         }
+    }
+
+    private func dropUnconfirmed(keeping freshIds: Set<String>) {
+        guard !unconfirmedIds.isEmpty else { return }
+        let stale = unconfirmedIds.subtracting(freshIds)
+        unconfirmedIds = []
+        guard !stale.isEmpty else { return }
+        instants.removeAll { stale.contains($0.id) }
+        // Out of the seen-set too. The inbox is paged, so an instant missing
+        // from this page may still be waiting, and it has to be allowed back.
+        seenIds.subtract(stale)
+        inboxDidChange()
     }
 
     /// Seam for tests and for anything that already holds fresh history.
@@ -333,12 +407,19 @@ public final class InstantStore {
     }
 
     public func refreshHistory() async {
+        let owner = userId
         do {
-            serverHistory = try await api.conversations()
-            refreshWidget()
+            let fresh = try await api.conversations()
+            guard userId == owner else { return }
+            serverHistory = fresh
+            inboxDidChange()
         } catch let error as APIError where error.isAuthFailure {
             sessionExpired = true
         } catch {}
+        guard userId == owner else { return }
+        // Loaded even on a failure: offline with nothing cached, a spinner that
+        // never ends says less than an empty inbox with a pull to refresh.
+        hasLoaded = true
     }
 
     public func refreshAll() async {
@@ -364,7 +445,7 @@ public final class InstantStore {
                     : entry
             }
         }
-        refreshWidget()
+        inboxDidChange()
     }
 
     /// Records that something from this person has actually been seen, which is
@@ -383,7 +464,7 @@ public final class InstantStore {
     public func noteSent(toUserId userId: Int, at now: Date = Date()) {
         sendsByUser[userId] = WireTimestamp.string(from: now)
         replyHints.remove(userId)
-        refreshWidget()
+        inboxDidChange()
     }
 
     /// Drops everything this device holds about someone who has just been
@@ -394,7 +475,7 @@ public final class InstantStore {
         serverHistory.removeAll { $0.userId == userId }
         sendsByUser[userId] = nil
         replyHints.remove(userId)
-        refreshWidget()
+        inboxDidChange()
     }
 
     public func clearSessionExpired() {

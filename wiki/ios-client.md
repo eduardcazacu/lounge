@@ -30,8 +30,8 @@ Points at `https://api.lounge.eduardcazacu.com` by default; switch
   compositor, the filters, the sensitivity check.
 - **`Core/Camera`** — capture behind a protocol, so the Simulator's
   photo-library fallback and the UI tests' fixed frame are the same seam.
-- **`Core/Store`** — `InstantStore` (the live inbox), the Keychain, the session,
-  peer fingerprints, the widget snapshot.
+- **`Core/Store`** — `InstantStore` (the live inbox), the inbox cache, the
+  Keychain, the session, peer fingerprints, the widget snapshot.
 - **`Features/`** — one folder per screen, each an `@Observable` model plus a
   view.
 
@@ -114,6 +114,20 @@ What is openable is still decided **locally**. The server's `unopenedCount`
 counts every device the recipient owns, including instants this one holds no
 envelope for, so the local inbox list is what decides whether a row can be
 tapped.
+
+**A cold start draws the inbox from disk.** `InboxCache`
+(`ios/Instant/Core/Store/InboxCache.swift`) holds the last-seen instants and
+history, and `AppEnvironment` restores it before the first frame, so a tapped
+notification or widget never lands on "No conversations yet". Anything already
+expired is left out. When the cache was restored, `InstantStore.start` then
+fetches the inbox and history while the device registers, rather than after
+registration, a socket ticket and the connect. A launch with no cache waits for
+the socket's drain instead. Nothing is sealed to a device until it has
+registered, so an early fetch would draw a row saying something is waiting
+with nothing to open, and tapping that row opens the camera. The first successful drain drops cached instants the server
+no longer returns. Only a launch with nothing cached shows a spinner, and it
+stops after the first history fetch, even a failed one. The cache is cleared on
+sign-out, and a fetch that finishes after an account switch is discarded.
 
 Rows order by what is time-sensitive: anything waiting, then a streak waiting on
 a send from *you*, then simply whoever you interacted with most recently.
@@ -228,8 +242,12 @@ where to start.
   launching finishes, once — set it any later and the tap is dropped silently,
   and the app comes up on the camera.
 - A notification names its instant, and that instant is usually not in the inbox
-  yet when the tap arrives on a cold start, so the id stays **pending** until it
-  lands rather than being dropped on the first miss.
+  yet when the tap arrives on a cold start: the cache predates it. So the id
+  stays **pending** until the startup fetch brings it in, rather than being
+  dropped on the first miss.
+- Nothing about the photo itself can be fetched ahead of the tap. Reading
+  destroys it (`GET /:id/media`), so the viewer's download is the one wait
+  that cannot be moved earlier.
 
 ## Networking
 
