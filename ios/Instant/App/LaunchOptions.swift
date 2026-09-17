@@ -71,6 +71,21 @@ public enum LaunchOptions {
         return store
     }
 
+    /// Shows the update notes. Every other stubbed launch has already seen
+    /// them, so a sheet never lands on top of a test that is not about it.
+    public static let whatsNewFlag = "-instantUITestWhatsNew"
+
+    @MainActor
+    static func stubWhatsNew() -> WhatsNewTracker {
+        let defaults = UserDefaults(suiteName: "instant-uitest-whatsnew")!
+        defaults.removePersistentDomain(forName: "instant-uitest-whatsnew")
+        let tracker = WhatsNewTracker(defaults: defaults)
+        if !ProcessInfo.processInfo.arguments.contains(whatsNewFlag) {
+            tracker.markSeen()
+        }
+        return tracker
+    }
+
     public static var startsSignedIn: Bool {
         ProcessInfo.processInfo.arguments.contains(signedInFlag)
     }
@@ -113,6 +128,7 @@ public enum LaunchOptions {
             identities: identities,
             store: store,
             pendingSends: stubOutboxStore(),
+            whatsNew: stubWhatsNew(),
             makeCamera: { StubCameraController(frame: StubBackend.cameraFrame()) }
         )
     }

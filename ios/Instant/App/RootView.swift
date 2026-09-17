@@ -117,6 +117,16 @@ struct MainPager: View {
         }
         .animation(.easeOut(duration: 0.2), value: environment.isComposing)
         .background(InstantStyle.background)
+        .sheet(isPresented: $environment.showsWhatsNew) {
+            WhatsNewScreen(notes: environment.whatsNew.notes)
+        }
+        .task {
+            // A beat after the first frame, not on it: a notification tapped
+            // from a cold start is not always delivered before the pager
+            // appears, and the notes must not cover the photo it opens.
+            try? await Task.sleep(for: .milliseconds(600))
+            environment.presentWhatsNewIfDue()
+        }
     }
 }
 #endif

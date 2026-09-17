@@ -466,7 +466,8 @@ func makeTestEnvironment(
     userAPI: FakeUserAPI = FakeUserAPI(),
     instantAPI: FakeInstantAPI = FakeInstantAPI(),
     moderationAPI: FakeModerationAPI = FakeModerationAPI(),
-    session: SessionStore = SessionStore(keychain: InMemoryKeychain())
+    session: SessionStore = SessionStore(keychain: InMemoryKeychain()),
+    whatsNew: WhatsNewTracker = WhatsNewTracker(defaults: UserDefaults(suiteName: UUID().uuidString)!)
 ) -> AppEnvironment {
     let identities = DeviceIdentityStore(
         keychain: InMemoryKeychain(),
@@ -482,6 +483,7 @@ func makeTestEnvironment(
         store: InstantStore(
             api: instantAPI, identities: identities, makeSocket: { _ in StubSocket() }
         ),
+        whatsNew: whatsNew,
         makeCamera: { StubCameraController(frame: UIImage()) }
     )
 }

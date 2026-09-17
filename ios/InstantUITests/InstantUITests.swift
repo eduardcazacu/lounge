@@ -59,6 +59,36 @@ final class InstantUITests: XCTestCase {
         wait(for: [gone], timeout: timeout)
     }
 
+    // MARK: - What's new
+
+    func testWhatsNewShowsAfterUpdateAndDismisses() {
+        let app = launch(signedIn: true, arguments: ["-instantUITestWhatsNew"])
+
+        XCTAssertTrue(app.staticTexts["whatsNew.title"].waitForExistence(timeout: 30))
+        app.buttons["whatsNew.continue"].tap()
+
+        waitForDisappearance(app.staticTexts["whatsNew.title"])
+        XCTAssertTrue(app.buttons["camera.shutter"].isHittable)
+    }
+
+    func testWhatsNewReopensFromSettings() {
+        let app = launch(signedIn: true)
+        XCTAssertTrue(app.buttons["camera.profile"].waitForExistence(timeout: 30))
+        app.buttons["camera.profile"].tap()
+        XCTAssertTrue(app.staticTexts["settings.name"].waitForExistence(timeout: 30))
+
+        let row = app.buttons["settings.whatsNew"]
+        XCTAssertTrue(scrollTo(row, in: app))
+        row.tap()
+        XCTAssertTrue(app.staticTexts["whatsNew.title"].waitForExistence(timeout: 10))
+
+        // Pushed rather than presented, so Continue goes back to Settings
+        // instead of closing it.
+        app.buttons["whatsNew.continue"].tap()
+        waitForDisappearance(app.staticTexts["whatsNew.title"])
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+    }
+
     // MARK: - Sign in
 
     func testSignInRejectsBadCredentialsThenSucceeds() {

@@ -21,6 +21,7 @@ struct SettingsScreen: View {
                         notificationsSection(model)
                         safetySection
                         deviceSection
+                        aboutSection
                         accountSection
                     }
                     .scrollContentBackground(.hidden)
@@ -209,6 +210,34 @@ struct SettingsScreen: View {
             Text("Instant's private key is made on this device and never leaves it. There is no recovery: reinstalling makes a new key, and anything already sent to the old one can't be opened.")
         }
         .listRowBackground(InstantStyle.surface)
+    }
+
+    /// The update notes are shown once and then gone, so this is the way back
+    /// to them.
+    private var aboutSection: some View {
+        Section("About") {
+            NavigationLink {
+                WhatsNewScreen(notes: environment.whatsNew.notes)
+                    .toolbarBackground(InstantStyle.background, for: .navigationBar)
+            } label: {
+                Label("What's new in \(environment.whatsNew.notes.version)", systemImage: "sparkles")
+            }
+            .accessibilityIdentifier("settings.whatsNew")
+
+            LabeledContent("Version") {
+                Text(Self.appVersion)
+                    .foregroundStyle(InstantStyle.secondaryText)
+            }
+        }
+        .foregroundStyle(InstantStyle.primaryText)
+        .listRowBackground(InstantStyle.surface)
+    }
+
+    private static var appVersion: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "—"
+        let build = info?["CFBundleVersion"] as? String ?? "—"
+        return "\(version) (\(build))"
     }
 
     private var accountSection: some View {

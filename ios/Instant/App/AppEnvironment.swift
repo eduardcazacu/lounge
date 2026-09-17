@@ -40,6 +40,7 @@ public final class AppEnvironment {
     public let outbox: Outbox
     public let identities: DeviceIdentityProviding
     public let makeCamera: @MainActor () -> CameraControlling
+    public let whatsNew: WhatsNewTracker
 
     /// Set when a push arrives naming an instant, so the UI can jump to it.
     public var pendingInstantId: String?
@@ -58,6 +59,19 @@ public final class AppEnvironment {
     /// send button — and it outlives a discarded capture, because it came from
     /// the inbox rather than from the photo.
     public private(set) var aimedAt: InstantRecipient?
+
+    /// The update notes, up over the pager.
+    public var showsWhatsNew = false
+
+    /// Called once the pager is on screen. A launch from a tapped notification
+    /// is skipped and the notes wait for the next launch: that person wants the
+    /// photo, and the inbox's viewer and a sheet cannot both be presented.
+    public func presentWhatsNewIfDue() {
+        guard session.isSignedIn, !needsTermsAcceptance,
+              pendingInstantId == nil, whatsNew.isDue else { return }
+        whatsNew.markSeen()
+        showsWhatsNew = true
+    }
 
     /// Where every way in from outside the app lands.
     ///
@@ -140,6 +154,7 @@ public final class AppEnvironment {
         store: InstantStore,
         pendingSends: PendingSendStoring = InMemoryPendingSendStore(),
         outboxSystem: OutboxSystem = RecordingOutboxSystem(),
+        whatsNew: WhatsNewTracker = WhatsNewTracker(),
         makeCamera: @escaping @MainActor () -> CameraControlling
     ) {
         self.config = config
@@ -150,6 +165,7 @@ public final class AppEnvironment {
         self.identities = identities
         self.store = store
         self.makeCamera = makeCamera
+        self.whatsNew = whatsNew
         outbox = Outbox(
             api: instantAPI,
             store: pendingSends,
@@ -225,6 +241,10 @@ public final class AppEnvironment {
     }
 
     public func handleSignIn(token: String) async {
+        // Before the token, whose user id is what starts the pager: someone
+        // signing in has just installed the app, or has been away from it, and
+        // there is nothing to tell them what changed from.
+        whatsNew.markSeen()
         session.setToken(token)
         guard let userId = session.currentUserId else { return }
         outbox.restore(userId: userId)

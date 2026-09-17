@@ -420,3 +420,24 @@ retry with the photo still in memory can seal it again.
 **Would reopen if** a lost or doubled send turns up in practice. The fix for
 doubling is a client-generated id that the server deduplicates on, which is a
 change to `createInstantInput` and so to `DTOs.swift`.
+
+---
+
+## Update notes go to people who were already signed in
+
+**Chosen** the "what's new" sheet appears when the notes' version differs from
+the one recorded in `UserDefaults` and the person was already signed in. A
+sign-in records the notes as seen.
+
+**Rejected** comparing against a recorded bundle version. 1.0 recorded nothing,
+so every 1.0 install would have looked like a fresh one and the first notes
+would have reached nobody. Also rejected: telling a fresh install apart by
+what is in the Keychain, because Keychain items outlive deleting the app.
+
+**Cost paid** someone who reinstalls and still has a session in the Keychain
+sees notes for a version they never used. Someone who was signed out when the
+update landed never sees them.
+
+**Would reopen if** the notes start saying something a person must read, such
+as a changed behaviour they would otherwise be surprised by. Then signing in
+should not count as reading them.

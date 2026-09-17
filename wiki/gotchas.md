@@ -189,3 +189,9 @@ the filter matched or not. The real signal is Swift Testing's
 `✔ Test run with N tests` line: if it is missing, nothing ran. The identifier is
 the `@Suite` struct's name — `InstantTests/DeepLinkTests` — not the display
 string passed to `@Suite`.
+
+**New update notes under the old version string never appear.** The seen-key
+is `WhatsNew.current.version`, not the text. Rewriting the notes without
+changing `version` shows them to nobody who saw the last ones.
+`WhatsNewTests` checks only that the notes do not name a version newer than
+the app.

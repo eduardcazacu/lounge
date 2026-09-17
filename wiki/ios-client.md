@@ -288,6 +288,24 @@ where to start.
   destroys it (`GET /:id/media`), so the viewer's download is the one wait
   that cannot be moved earlier.
 
+## Update notes
+
+`WhatsNewScreen` is a sheet over the pager, shown once per notes version. The
+notes and the key that records them are in
+`ios/Instant/Features/WhatsNew/WhatsNew.swift`. A release with something to
+say replaces `WhatsNew.current` and sets its `version` to the new
+`MARKETING_VERSION`. A release that leaves the notes alone shows nothing.
+
+Only someone who was **already signed in** when the update landed sees them:
+`handleSignIn` marks the notes seen, because someone who has just signed in has
+nothing to compare with. They are also held back for a launch from a tapped
+notification, where the inbox's viewer needs the screen, and behind the
+guidelines gate. Stubbed UI tests start with the notes seen unless launched with
+`-instantUITestWhatsNew`.
+
+Settings' About section opens the same screen again, pushed rather than
+presented, so its Continue button goes back to Settings.
+
 ## Networking
 
 `APIClient` mirrors the web's interceptors: cookie-enabled `URLSession` for the
@@ -310,7 +328,7 @@ Debug builds register as `apns-sandbox`, Release as `apns`.
 
 ## Tests
 
-Swift Testing, roughly 265 unit tests in `ios/InstantTests/` plus 33 UI tests in
+Swift Testing, roughly 265 unit tests in `ios/InstantTests/` plus 38 UI tests in
 `ios/InstantUITests/`.
 
 Day to day, run only the suites the change touches, as an optimized build that
