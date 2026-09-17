@@ -928,7 +928,36 @@ type GenericPushInput = {
   vapidConfig: VapidConfig;
   /** Optional: without it, APNs rows report themselves unconfigured. */
   apnsConfig?: ApnsConfig;
+  /**
+   * Web Push only for someone the iOS app could not reach. For notifications
+   * the app handles itself, where a browser banner as well is a duplicate.
+   */
+  appFirst?: boolean;
 };
+
+type RoutableSubscription = { id: number; userId: number; provider: string };
+
+/**
+ * The Web Push rows still worth sending once the APNs round has finished: those
+ * belonging to anyone Apple did not accept a notification for. "Accepted" is
+ * the only signal there is. A dead token fails and falls back to the browser;
+ * an app whose notifications are switched off in iOS Settings is accepted, and
+ * that person gets nothing — which is what switching them off asked for.
+ */
+export function webPushFallback<T extends RoutableSubscription>(
+  subscriptions: T[],
+  appResults: { subscriptionId: number | null; success: boolean }[]
+): T[] {
+  const userBySubscription = new Map(subscriptions.map((row) => [row.id, row.userId]));
+  const reached = new Set(
+    appResults.flatMap((result) =>
+      result.success && result.subscriptionId !== null
+        ? [userBySubscription.get(result.subscriptionId)]
+        : []
+    )
+  );
+  return subscriptions.filter((row) => !isApnsProvider(row.provider) && !reached.has(row.userId));
+}
 
 export async function sendPushToUsers(input: GenericPushInput): Promise<PushDeliveryResult[]> {
   if (input.userIds.length === 0) {
@@ -963,6 +992,7 @@ export async function sendPushToUsers(input: GenericPushInput): Promise<PushDeli
         pushSubscriptions: {
           select: {
             id: true,
+            userId: true,
             provider: true,
             endpoint: true,
             p256dh: true,
@@ -991,7 +1021,7 @@ export async function sendPushToUsers(input: GenericPushInput): Promise<PushDeli
       data: input.payload.data ?? {},
     });
 
-    const sendJobs = subscriptions.map((subscription) => {
+    const sendOne = (subscription: (typeof subscriptions)[number]) => {
       if (isApnsProvider(subscription.provider)) {
         if (!apns) {
           return Promise.resolve({
@@ -1086,10 +1116,23 @@ export async function sendPushToUsers(input: GenericPushInput): Promise<PushDeli
           errorMessage: getPushErrorMessage(error),
           success: false as const,
         }));
-    });
+    };
+    const sendAll = async (rows: typeof subscriptions) =>
+      flattenSettledDeliveryResults(await Promise.allSettled(rows.map(sendOne)));
 
-    const responses = await Promise.allSettled(sendJobs);
-    const deliveryResults = flattenSettledDeliveryResults(responses);
+    // With APNs unconfigured there is no app round to wait for, and holding
+    // back Web Push would silence everyone.
+    let deliveryResults: PushDeliveryResult[];
+    let attempted = subscriptions;
+    if (input.appFirst && apns) {
+      const appRows = subscriptions.filter((row) => isApnsProvider(row.provider));
+      const appResults = await sendAll(appRows);
+      const webRows = webPushFallback(subscriptions, appResults);
+      deliveryResults = [...appResults, ...(await sendAll(webRows))];
+      attempted = [...appRows, ...webRows];
+    } else {
+      deliveryResults = await sendAll(subscriptions);
+    }
     const failedResults = deliveryResults.filter((result) => !result.success);
 
     // Counts alone cannot explain a failure, and the providers fail for
@@ -1099,7 +1142,7 @@ export async function sendPushToUsers(input: GenericPushInput): Promise<PushDeli
       subscriptions.map((subscription) => [subscription.id, subscription.provider])
     );
     const attemptedByProvider: Record<string, number> = {};
-    for (const subscription of subscriptions) {
+    for (const subscription of attempted) {
       attemptedByProvider[subscription.provider] =
         (attemptedByProvider[subscription.provider] ?? 0) + 1;
     }
@@ -1107,6 +1150,7 @@ export async function sendPushToUsers(input: GenericPushInput): Promise<PushDeli
     console.log("[push] completed delivery", {
       topic: input.topic,
       attempted: deliveryResults.length,
+      skippedForApp: subscriptions.length - attempted.length,
       delivered: deliveryResults.length - failedResults.length,
       failed: failedResults.length,
       attemptedByProvider,

@@ -102,6 +102,12 @@ the auto-responder, and the connection dies quietly.
 **Drain the inbox before connecting, not after.** Anything that arrived while
 the socket was down is otherwise missed.
 
+**An open browser tab swallows the push.** The Worker pushes only when
+`deliver()` reached no socket (`backend/src/route/instant.ts`). While the web
+client is open anywhere, that tab receives the instant, so the phone gets no
+notification and its widget does not update until the app next opens. This is
+known and has been left as it is.
+
 ## The web client
 
 **React StrictMode double-invokes an impure state updater.** Dedup bookkeeping

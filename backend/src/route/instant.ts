@@ -586,6 +586,7 @@ instantRouter.post("/", async (c) => {
             },
           },
           topic: `instant-${created.id.slice(0, 8)}`,
+          appFirst: true,
           vapidConfig: { vapidPublicKey, vapidPrivateKey, vapidSubject },
           apnsConfig: { apnsKeyId, apnsTeamId, apnsPrivateKey, apnsBundleId },
         })

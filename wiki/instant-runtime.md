@@ -168,6 +168,16 @@ invisible to them. Instant's own notifications and the streak warnings go
 through the generic dispatcher and do reach iOS. Anyone adding a notification
 type should know which of those two they are writing.
 
+**Instant pushes are app-first.** Both callers pass `appFirst: true`, so
+`sendPushToUsers` sends to APNs rows first and to Web Push only for someone
+Apple did not accept a notification for (`webPushFallback` in
+`backend/src/push.ts`). Someone with the iOS app and a subscribed browser gets
+one banner, not two. A dead token fails and falls back to the browser. An app
+with notifications switched off in iOS Settings is still accepted by Apple, so
+that person gets neither. Blog, reply, mention and broadcast pushes go to the
+browser whether or not the app is installed, because the app does not handle
+them. The rule is checked by `backend/scripts/verify-push-routing.ts`.
+
 The Instant push carries the sender's id, name, theme and picture URL in `data`
 alongside `instantId`. That is for the iOS Notification Service Extension, which
 updates the home-screen widget on delivery and holds no token with which to call

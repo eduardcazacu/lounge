@@ -340,3 +340,30 @@ coverage, still runs when a change crosses areas and before merging to
 
 **Would reopen if** a failure turns up that only a Debug build reproduces, or
 if the full suite becomes fast enough that filtering saves nothing.
+
+---
+
+## Instant pushes go to the app, and to the browser only as a fallback
+
+**Chosen** `appFirst` in `sendPushToUsers`: APNs is sent first, and a person's
+Web Push subscriptions are used only if Apple accepted nothing for them.
+
+**Rejected** sending to every subscription, which gave someone with both the
+app and a subscribed browser two banners for one photo. Also rejected: a
+per-user "prefer the app" setting, and dropping Web Push for anyone with an APNs
+row without trying it. The setting would have been a choice nobody wants to
+make. Dropping without trying would have silenced everyone whose token had
+gone dead, since a dead token is only found out by sending to it.
+
+**Because** the native app is the real Instant client (see
+[product.md](product.md)), and Apple's answer is the only live signal of
+whether the app is still installed. Waiting for it costs one round trip,
+inside a background job.
+
+**Cost paid** Apple accepts a notification even when iOS will not show it, so
+someone who switched Instant's notifications off in iOS Settings gets no
+browser banner either. Only instant and streak pushes are app-first; blog and
+chat pushes go to the browser regardless, because the app has no blog or chat.
+
+**Would reopen if** the web client stopped being a harness, or the app
+reported its notification permission to the server.

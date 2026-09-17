@@ -112,6 +112,7 @@ export async function runInstantSweep(env: SweepEnv, now: Date = new Date()): Pr
           data: { openUrl: "/instant", streakCount: streak.count },
         },
         topic: `streak-${streak.id}`,
+        appFirst: true,
         vapidConfig: { vapidPublicKey, vapidPrivateKey, vapidSubject },
         apnsConfig: { apnsKeyId, apnsTeamId, apnsPrivateKey, apnsBundleId },
       });

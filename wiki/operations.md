@@ -69,6 +69,7 @@ Each proves one thing that is otherwise awkward or impossible to test.
 cd backend
 npx tsx scripts/verify-conversations.ts   # the conversations query, against an in-memory fake
 npx tsx scripts/verify-apns.ts            # ES256 signing and request shape, against a stubbed Apple
+npx tsx scripts/verify-push-routing.ts    # who still gets Web Push when the app was reached
 ```
 
 `verify-apns.ts` generates a throwaway P-256 key, checks the JWT against its own

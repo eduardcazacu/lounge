@@ -75,6 +75,7 @@ Verification scripts, each covering something awkward to test for real:
 ```bash
 npx tsx scripts/verify-conversations.ts   # the conversations query, in-memory fake
 npx tsx scripts/verify-apns.ts            # ES256 signing, stubbed Apple
+npx tsx scripts/verify-push-routing.ts    # app-first Instant pushes
 npx tsx scripts/check-apns-key.ts <p8> --key-id X --team-id Y --bundle Z
 ```
 
