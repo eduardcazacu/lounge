@@ -30,10 +30,7 @@ struct WaitingProvider: TimelineProvider {
     func getTimeline(in context: Context, completion: @escaping (Timeline<WaitingEntry>) -> Void) {
         let now = Date.now
         let entries = WidgetTimeline.entries(from: InstantWidgetStore.load(), now: now)
-        completion(Timeline(
-            entries: entries,
-            policy: .after(now.addingTimeInterval(WidgetTimeline.refreshWindow))
-        ))
+        let policy: TimelineReloadPolicy = WidgetTimeline.nextRefresh(after: entries).map { .after($0) } ?? .never
+        completion(Timeline(entries: entries, policy: policy))
     }
-
 }

@@ -25,6 +25,14 @@ public struct WidgetSnapshotPublisher: WidgetSnapshotPublishing {
     }
 
     public func publish(_ snapshot: InstantWidgetSnapshot) async {
+        // Every reload is charged to the widget's daily budget unless the app is
+        // in the foreground, and once that is spent WidgetKit drops the reload
+        // the Notification Service Extension asks for when an instant arrives.
+        // The store republishes on every history refresh, so most calls change
+        // nothing. The comparison is against the disk rather than against the
+        // last publish, because the extension writes there too.
+        guard !Self.isAlreadyShowing(snapshot, current: InstantWidgetStore.load()) else { return }
+
         var cached = snapshot
         var contacts: [InstantWidgetSnapshot.Contact] = []
         contacts.reserveCapacity(snapshot.contacts.count)
@@ -48,6 +56,23 @@ public struct WidgetSnapshotPublisher: WidgetSnapshotPublishing {
     public func clear() async {
         InstantWidgetStore.clear()
         reload()
+    }
+
+    /// Whether `current` already draws what `snapshot` would.
+    ///
+    /// `updatedAt` is ignored, and so is `avatarFile`, which only the publisher
+    /// fills in. A picture that failed to cache last time does not count as
+    /// showing, so the next publish tries it again.
+    static func isAlreadyShowing(
+        _ snapshot: InstantWidgetSnapshot,
+        current: InstantWidgetSnapshot
+    ) -> Bool {
+        guard snapshot.contacts.count == current.contacts.count else { return false }
+        return zip(snapshot.contacts, current.contacts).allSatisfy { new, old in
+            var new = new
+            new.avatarFile = old.avatarFile
+            return new == old && (old.profilePictureUrl == nil || old.avatarFile != nil)
+        }
     }
 
     private func cacheAvatar(for contact: InstantWidgetSnapshot.Contact) async -> String? {

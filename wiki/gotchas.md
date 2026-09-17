@@ -129,6 +129,18 @@ silently, and the app comes up on the camera.
 **A notification's instant is usually not in the inbox yet** on a cold start, so
 the id stays pending until it lands rather than being dropped on the first miss.
 
+**A widget reload can be ignored.** `WidgetCenter.reloadTimelines` comes out of a
+daily budget of roughly 40 to 70, and scheduled refreshes (`.after`, `.atEnd`)
+count against it. Once it is spent, the reload the Notification Service
+Extension asks for is dropped without an error: the snapshot on disk is new but
+the widget keeps showing the old one. It fixes itself the moment the app is
+opened, because reloads from the foreground app are free, so it looks as though
+tapping the widget is what updates it. Don't schedule refreshes that have no
+new data to read, and don't reload for a snapshot the widget already shows:
+`WidgetSnapshotPublisher.isAlreadyShowing` compares against the file on disk,
+which the extension also writes. To rule the budget out on a device, turn on Settings →
+Developer → WidgetKit Developer Mode, which lifts the limit.
+
 **Widgets render synchronously off local state.** An image loaded at draw time
 simply never appears, which is why the app caches profile pictures to the App
 Group rather than letting the widget fetch them.

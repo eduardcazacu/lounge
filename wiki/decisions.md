@@ -219,6 +219,14 @@ the extension.
 while the app is closed, which is why the push payload carries the sender's
 name and theme.
 
+It also means **the widget never refreshes on a schedule** unless it is cycling
+through several people: the snapshot changes only when something writes it,
+and every writer asks for a reload. `WidgetTimeline.nextRefresh` in
+`ios/Shared/WidgetTimeline.swift` returns `nil` for a timeline that does not
+cycle. A 15-minute refresh was rejected because it spent WidgetKit's daily
+reload budget re-reading an unchanged file, and a spent budget is what
+silenced the extension's reload when an instant arrived.
+
 ---
 
 ## iOS does not consume `common/`

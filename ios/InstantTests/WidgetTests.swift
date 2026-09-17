@@ -20,6 +20,13 @@ final class TemporaryContainer {
     }
 }
 
+final class ReloadCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+    var count: Int { lock.withLock { value } }
+    func increment() { lock.withLock { value += 1 } }
+}
+
 extension InstantWidgetSnapshot.Contact {
     static func fixture(
         userId: Int,
@@ -100,6 +107,44 @@ struct WidgetStoreTests {
         #expect(InstantWidgetStore.avatarURL(named: "2.img").map { FileManager.default.fileExists(atPath: $0.path) } == true)
     }
 
+    /// A reload spent on nothing is one the Notification Service Extension
+    /// cannot have when an instant arrives.
+    @Test("Publishing what the widget already shows does not reload it")
+    func skipsUnchangedSnapshot() async throws {
+        let container = TemporaryContainer()
+        defer { _ = container }
+        let reloads = ReloadCounter()
+        let publisher = WidgetSnapshotPublisher(reload: { reloads.increment() })
+        let contacts: [InstantWidgetSnapshot.Contact] = [.fixture(userId: 1), .fixture(userId: 2)]
+
+        await publisher.publish(InstantWidgetSnapshot(contacts: contacts, updatedAt: .distantPast))
+        await publisher.publish(InstantWidgetSnapshot(contacts: contacts, updatedAt: .now))
+        #expect(reloads.count == 1, "a newer timestamp alone is not a change")
+
+        await publisher.publish(InstantWidgetSnapshot(
+            contacts: [.fixture(userId: 1, unopenedCount: 2), .fixture(userId: 2)],
+            updatedAt: .now
+        ))
+        #expect(reloads.count == 2)
+        #expect(InstantWidgetStore.load().contacts.first?.unopenedCount == 2)
+    }
+
+    /// The extension writes the snapshot too, so the app must not reload for a
+    /// change the extension has already drawn.
+    @Test("An arrival the extension already wrote is not published again")
+    func skipsWhatTheExtensionWrote() async throws {
+        let container = TemporaryContainer()
+        defer { _ = container }
+        try InstantWidgetStore.save(InstantWidgetSnapshot.empty.addingArrival(
+            senderId: 3, name: "Ana", themeKey: "rose", profilePictureUrl: nil, now: .now
+        ))
+        let reloads = ReloadCounter()
+        let publisher = WidgetSnapshotPublisher(reload: { reloads.increment() })
+
+        await publisher.publish(InstantWidgetSnapshot(contacts: [.fixture(userId: 3)], updatedAt: .now))
+        #expect(reloads.count == 0)
+    }
+
     @Test("Clearing empties both the snapshot and the pictures")
     func clears() {
         let container = TemporaryContainer()
@@ -138,6 +183,45 @@ struct WidgetStoreTests {
 /// The Notification Service Extension's only job: keep the widget honest while
 /// the app is closed. It has no token and cannot call the API, so everything it
 /// knows comes from the push payload.
+@Suite("Skipping unchanged widget snapshots")
+struct WidgetUnchangedTests {
+    private func snapshot(_ contacts: [InstantWidgetSnapshot.Contact]) -> InstantWidgetSnapshot {
+        InstantWidgetSnapshot(contacts: contacts, updatedAt: .now)
+    }
+
+    @Test("A cached picture on disk still counts as showing")
+    func ignoresAvatarFile() {
+        let url = "https://example.com/a.png"
+        #expect(WidgetSnapshotPublisher.isAlreadyShowing(
+            snapshot([.fixture(userId: 1, profilePictureUrl: url)]),
+            current: snapshot([.fixture(userId: 1, profilePictureUrl: url, avatarFile: "1.img")])
+        ))
+    }
+
+    @Test("A picture that never cached is tried again")
+    func retriesMissingAvatar() {
+        let url = "https://example.com/a.png"
+        #expect(!WidgetSnapshotPublisher.isAlreadyShowing(
+            snapshot([.fixture(userId: 1, profilePictureUrl: url)]),
+            current: snapshot([.fixture(userId: 1, profilePictureUrl: url)])
+        ))
+    }
+
+    @Test("Order, membership and counts are all changes")
+    func detectsChanges() {
+        let current = snapshot([.fixture(userId: 1), .fixture(userId: 2)])
+        #expect(!WidgetSnapshotPublisher.isAlreadyShowing(
+            snapshot([.fixture(userId: 2), .fixture(userId: 1)]), current: current
+        ))
+        #expect(!WidgetSnapshotPublisher.isAlreadyShowing(
+            snapshot([.fixture(userId: 1)]), current: current
+        ))
+        #expect(!WidgetSnapshotPublisher.isAlreadyShowing(
+            snapshot([.fixture(userId: 1), .fixture(userId: 2, streakCount: 4)]), current: current
+        ))
+    }
+}
+
 @Suite("Push-driven widget updates")
 struct WidgetArrivalTests {
     private let now = Date(timeIntervalSince1970: 1_700_000_000)
@@ -313,7 +397,7 @@ struct WidgetTimelineTests {
             now: now
         )
 
-        #expect(entries.count == Int(WidgetTimeline.refreshWindow / WidgetTimeline.cycleInterval))
+        #expect(entries.count == Int(WidgetTimeline.cycleWindow / WidgetTimeline.cycleInterval))
         #expect(entries.prefix(4).map { $0.contact?.userId } == [2, 3, 4, 2], "wraps around")
         #expect(entries.prefix(4).map(\.position) == [0, 1, 2, 0])
 
@@ -340,6 +424,27 @@ struct WidgetTimelineTests {
         let entries = WidgetTimeline.entries(from: snapshot(many), now: now)
         #expect(entries.count >= many.count)
         #expect(Set(entries.compactMap { $0.contact?.userId }).count == 80)
+    }
+
+    /// Every scheduled refresh is charged to the same daily budget that the
+    /// Notification Service Extension's reload needs when an instant arrives.
+    @Test("A timeline that does not cycle never asks to be refreshed")
+    func staticTimelineNeverRefreshes() {
+        let idle = WidgetTimeline.entries(from: snapshot([]), now: now)
+        let single = WidgetTimeline.entries(from: snapshot([.fixture(userId: 2)]), now: now)
+        #expect(WidgetTimeline.nextRefresh(after: idle) == nil)
+        #expect(WidgetTimeline.nextRefresh(after: single) == nil)
+    }
+
+    @Test("A cycle asks to be refreshed when its last entry has had its turn")
+    func cycleRefreshesAtItsEnd() throws {
+        let entries = WidgetTimeline.entries(
+            from: snapshot([.fixture(userId: 2), .fixture(userId: 3)]),
+            now: now
+        )
+        let last = try #require(entries.last)
+        #expect(WidgetTimeline.nextRefresh(after: entries) == last.date.addingTimeInterval(WidgetTimeline.cycleInterval))
+        #expect(WidgetTimeline.nextRefresh(after: entries)! >= now.addingTimeInterval(WidgetTimeline.cycleWindow))
     }
 
     @Test("Carries the total so the widget can say how much is waiting")

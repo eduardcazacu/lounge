@@ -103,8 +103,8 @@ public final class InstantStore {
         return InstantWidgetSnapshot(contacts: contacts, updatedAt: now)
     }
 
-    /// Republishes the widget. Cheap when nothing changed, because the publisher
-    /// only rewrites what differs.
+    /// Republishes the widget. Cheap when nothing changed: the publisher skips a
+    /// snapshot the widget is already showing.
     func refreshWidget() {
         let snapshot = makeWidgetSnapshot()
         Task { [widgets] in await widgets.publish(snapshot) }

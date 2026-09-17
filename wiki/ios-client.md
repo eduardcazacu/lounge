@@ -170,7 +170,9 @@ since a row says one thing and "open this" beats "answer that".
 `InstantWidget` is a WidgetKit extension showing who has sent you an instant:
 the app mark when nothing is waiting, otherwise the sender's picture (or their
 initials on their own theme colour), their name, how many are waiting, and the
-streak if there is one. Several people cycle every 30 seconds.
+streak if there is one. Several people cycle every 30 seconds, as an hour of
+pre-built entries; only a cycling timeline asks WidgetKit to call back, because
+scheduled refreshes spend the budget that push-driven reloads need.
 
 **The app publishes; the widget only reads.** An extension can reach neither the
 access token nor the refresh cookie, and a token lives fifteen minutes — a
