@@ -7,7 +7,7 @@ posted something because a handful of people would enjoy it, not because a
 ranking system might.
 
 Instant is the second half of it: expiring, end-to-end encrypted photos sent to
-one person at a time, with a native iPhone app.
+people by name, with a native iPhone app.
 
 ## Who it is for
 
@@ -18,9 +18,10 @@ no invite tree, no referral. The member list fits on one screen and is meant to.
 
 That single fact decides a surprising amount of the architecture. A directory
 of every user can be fetched whole (`GET /api/v1/user/list`). The feed has no
-ranking, because there is nothing to rank away. The chat is one room. A photo is
-sent to one named person, chosen from a strip of faces, rather than to a
-selected audience.
+ranking, because there is nothing to rank away. The chat is one room. A photo
+goes to people ticked by name from that list — one, several, or everyone with
+Instant set up — never to a saved audience, and each of them gets an instant of
+their own.
 
 ## What is in it
 

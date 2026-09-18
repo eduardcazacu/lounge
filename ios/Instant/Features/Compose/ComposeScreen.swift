@@ -220,7 +220,7 @@ struct ComposeScreen: View {
     /// way: the photo goes to the outbox, the aim is spent, and the camera comes
     /// back at once. The outbox reports how it went.
     private func send(_ model: ComposeModel, to recipient: InstantRecipient) {
-        environment.send(model.draft, to: recipient)
+        environment.send(model.draft, to: [recipient])
         onDiscard()
     }
 

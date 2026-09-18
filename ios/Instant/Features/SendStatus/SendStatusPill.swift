@@ -45,7 +45,7 @@ struct SendStatusPill: View {
             capsule {
                 Image(systemName: "checkmark")
                     .font(.system(size: 12, weight: .bold))
-                Text("Sent to \(item.recipient.name)")
+                Text(sentText(item))
                     .accessibilityIdentifier("sendStatus.sent")
             }
 
@@ -93,6 +93,13 @@ struct SendStatusPill: View {
     private func sendingText(_ item: Outbox.Item) -> String {
         let count = outbox.inFlight.count
         return count > 1 ? "Sending \(count)…" : "Sending to \(item.recipient.name)…"
+    }
+
+    /// A photo sent to several people lands as several confirmations a moment
+    /// apart; naming only the last would read as though it went to one.
+    private func sentText(_ item: Outbox.Item) -> String {
+        let count = outbox.items.filter { $0.phase == .sent }.count
+        return count > 1 ? "Sent to \(count) people" : "Sent to \(item.recipient.name)"
     }
 
     private func capsule<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {

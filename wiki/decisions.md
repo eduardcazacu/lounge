@@ -441,3 +441,24 @@ update landed never sees them.
 **Would reopen if** the notes start saying something a person must read, such
 as a changed behaviour they would otherwise be surprised by. Then signing in
 should not count as reading them.
+
+---
+
+## A photo to several people is several instants
+
+**Chosen** the iOS client fans out: one `POST /api/v1/instant` per recipient,
+each sealed to that person's devices with its own ephemeral key. The photo is
+encoded once and shared across them (`Outbox.send`).
+
+**Rejected** one upload carrying envelopes for every recipient's devices. That
+changes `createInstantInput`, `DTOs.swift` and the row's single recipient, and
+it breaks read-once: `GET /:id/media` destroys the object for everyone, so the
+first person to open it would take it from the rest. Streaks and blocks would
+each need a per-recipient answer too.
+
+**Cost paid** the same bytes are uploaded, and written to the outbox on disk,
+once per person. At the size of the member list that is a few megabytes. The
+web client still sends to one person at a time; it is a harness.
+
+**Would reopen if** the Lounge grew enough that sending to everyone meant
+uploads the phone could not finish in its background time.

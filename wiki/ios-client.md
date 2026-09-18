@@ -113,8 +113,21 @@ original photo and every choice made about it to `Outbox`
 recipient's devices, applies the filter and caption, encodes and seals off the
 main actor, and uploads. That used to hold the compose screen for seconds.
 
+**Several recipients are several instants.** The picker ticks any number of
+people, and `Outbox.send` makes one item per person: the photo is rendered and
+encoded once for all of them, then each is sealed to that person's devices and
+uploaded on its own, so each fails, retries and is read once independently.
+The wire format stays single-recipient; see [decisions.md](decisions.md).
+
+**All** sends to everyone the picker found enrolled, and only after an alert
+that says how many people that is. It sits beside Send, and a photo meant for
+one person going to the whole Lounge is the one mis-tap here that cannot be
+undone. It stays disabled until every row's key check has come back, since
+before then "everyone" is not yet a known set of people.
+
 `SendStatusPill` sits above the pager, over the camera's bottom bar. It shows a
-spinner while a send is going and "Sent to …" for two seconds after it goes. A
+spinner while a send is going and "Sent to …" for two seconds after it goes,
+counting rather than naming when there are several. A
 failure stays until it is retried or dismissed. A retry seals again while the
 photo is still in memory, because the recipient's device list may be what
 changed. The send spends the aim at once, but recency and streaks
@@ -328,7 +341,7 @@ Debug builds register as `apns-sandbox`, Release as `apns`.
 
 ## Tests
 
-Swift Testing, roughly 265 unit tests in `ios/InstantTests/` plus 38 UI tests in
+Swift Testing, roughly 310 unit tests in `ios/InstantTests/` plus 40 UI tests in
 `ios/InstantUITests/`.
 
 Day to day, run only the suites the change touches, as an optimized build that

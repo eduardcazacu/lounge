@@ -749,6 +749,69 @@ final class InstantUITests: XCTestCase {
         XCTAssertLessThan(everyoneHeader.frame.minY, stranger.frame.minY)
     }
 
+    /// Several people can be ticked, and the button says who they are.
+    func testSeveralRecipientsCanBePickedAtOnce() {
+        let app = launch(signedIn: true, arguments: ["-instantUITestSlowSend"])
+        let shutter = app.buttons["camera.shutter"]
+        XCTAssertTrue(shutter.waitForExistence(timeout: 30))
+        shutter.tap()
+        XCTAssertTrue(app.buttons["compose.sendTo"].waitForExistence(timeout: 30))
+        app.buttons["compose.sendTo"].tap()
+
+        let ana = app.buttons["sendTo.row.Ana"]
+        let bo = app.buttons["sendTo.row.Bo"]
+        XCTAssertTrue(ana.waitForExistence(timeout: 30))
+        ana.tap()
+        bo.tap()
+        XCTAssertTrue(ana.isSelected)
+        XCTAssertTrue(bo.isSelected)
+
+        let send = app.buttons["sendTo.send"]
+        waitForLabel(send, "Send to Ana and Bo")
+        send.tap()
+
+        let sending = app.staticTexts["sendStatus.sending"]
+        XCTAssertTrue(sending.waitForExistence(timeout: 5))
+        XCTAssertEqual(sending.label, "Sending 2…")
+        XCTAssertTrue(app.staticTexts["sendStatus.sent"].waitForExistence(timeout: 30))
+    }
+
+    /// "All" sits next to Send, so it asks first. Cancelling leaves the picker
+    /// as it was; confirming sends to everyone the stub has enrolled — all four.
+    func testSendingToEveryoneAsksFirst() {
+        let app = launch(signedIn: true, arguments: ["-instantUITestSlowSend"])
+        let shutter = app.buttons["camera.shutter"]
+        XCTAssertTrue(shutter.waitForExistence(timeout: 30))
+        shutter.tap()
+        XCTAssertTrue(app.buttons["compose.sendTo"].waitForExistence(timeout: 30))
+        app.buttons["compose.sendTo"].tap()
+
+        let all = app.buttons["sendTo.all"]
+        XCTAssertTrue(all.waitForExistence(timeout: 30))
+        let enabled = expectation(for: NSPredicate(format: "isEnabled == true"), evaluatedWith: all)
+        wait(for: [enabled], timeout: 30)
+
+        all.tap()
+        let confirmation = app.alerts["Send to everyone?"]
+        XCTAssertTrue(confirmation.waitForExistence(timeout: 10))
+        XCTAssertTrue(
+            confirmation.staticTexts["This photo will go to all 4 people who have Instant set up."].exists
+        )
+        confirmation.buttons["Cancel"].tap()
+        XCTAssertTrue(confirmation.waitForNonExistence(timeout: 10))
+        XCTAssertTrue(all.exists, "a cancelled confirmation leaves the picker open")
+        XCTAssertFalse(app.staticTexts["sendStatus.sending"].exists, "and sends nothing")
+
+        all.tap()
+        XCTAssertTrue(confirmation.waitForExistence(timeout: 10))
+        confirmation.buttons["Send to All"].tap()
+
+        let sending = app.staticTexts["sendStatus.sending"]
+        XCTAssertTrue(sending.waitForExistence(timeout: 5))
+        XCTAssertEqual(sending.label, "Sending 4…")
+        XCTAssertTrue(shutter.waitForExistence(timeout: 30))
+    }
+
     func testDiscardingACaptureReturnsToTheCamera() {
         let app = launch(signedIn: true)
         let shutter = app.buttons["camera.shutter"]

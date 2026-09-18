@@ -22,6 +22,7 @@ func waitUntil(
 @Suite("Outbox", .serialized)
 struct OutboxTests {
     private let ana = InstantRecipient(userId: 9, name: "Ana")
+    private let bo = InstantRecipient(userId: 3, name: "Bo")
 
     private func draft(caption: String = "") -> InstantDraft {
         let image = UIGraphicsImageRenderer(size: CGSize(width: 200, height: 300)).image { context in
@@ -97,7 +98,7 @@ struct OutboxTests {
         enroll(devices, as: 9, in: api)
         let outbox = makeOutbox(api: api)
 
-        outbox.send(draft(caption: "hello"), to: ana, from: 4)
+        outbox.send(draft(caption: "hello"), to: [ana], from: 4)
         await waitUntil { outbox.items.first?.phase == .sent }
 
         let sent = try #require(api.sentPayloads.first)
@@ -120,6 +121,77 @@ struct OutboxTests {
         }
     }
 
+    /// Several recipients is several instants. Each is sealed to one person's
+    /// devices, so what one person can open, nobody else can — and each read
+    /// destroys only that person's copy.
+    @Test("A photo to several people is one instant each, openable only by its own recipient")
+    func sealsSeparatelyForEachRecipient() async throws {
+        let api = FakeInstantAPI()
+        let anaDevice = device()
+        let boDevice = device()
+        enroll([anaDevice], as: 9, in: api)
+        enroll([boDevice], as: 3, in: api)
+        let log = SentLog()
+        let outbox = makeOutbox(api: api, log: log)
+
+        outbox.send(draft(), to: [ana, bo], from: 4)
+        #expect(outbox.items.map(\.recipient) == [ana, bo])
+        await waitUntil { outbox.items.allSatisfy { $0.phase == .sent } }
+
+        #expect(Set(api.sentPayloads.map(\.1)) == [9, 3])
+        #expect(Set(log.recipients) == [9, 3], "recency and streaks move for each of them")
+        #expect(
+            Set(api.sentHeaders.map(\.ephemeralPubKey)).count == 2,
+            "a fresh ephemeral key, and so a fresh content key, per recipient"
+        )
+
+        func open(_ recipientId: Int, with identity: DeviceIdentity) throws -> Data {
+            let index = try #require(api.sentPayloads.firstIndex { $0.1 == recipientId })
+            let sent = api.sentPayloads[index]
+            let header = api.sentHeaders[index]
+            let envelope = try #require(sent.3.first)
+            return try InstantCrypto.open(
+                ciphertext: sent.0,
+                instant: InstantCrypto.OpenableInstant(
+                    mediaIv: header.mediaIv, ephemeralPubKey: header.ephemeralPubKey,
+                    senderId: 4,
+                    envelopeWrappedKey: envelope.wrappedKey,
+                    envelopeWrapIv: envelope.wrapIv
+                ),
+                device: identity
+            )
+        }
+        let toAna = try open(9, with: anaDevice)
+        let toBo = try open(3, with: boDevice)
+        #expect(toAna == toBo, "the same photo, encoded once")
+        #expect(throws: (any Error).self) { try open(9, with: boDevice) }
+    }
+
+    /// Each send stands alone, so one person who cannot be reached does not
+    /// hold back everybody else.
+    @Test("One recipient failing leaves the others sent")
+    func failsPerRecipient() async {
+        let api = FakeInstantAPI()
+        enroll([device()], as: 9, in: api)
+        api.keysByUser[3] = []
+        let log = SentLog()
+        let outbox = makeOutbox(api: api, log: log)
+
+        outbox.send(draft(), to: [ana, bo], from: 4)
+        await waitUntil { !outbox.items.contains { $0.phase == .sending } }
+
+        #expect(outbox.items.first { $0.recipient == ana }?.phase == .sent)
+        #expect(outbox.items.first { $0.recipient == bo }?.phase == .failed("They haven't set up Instant yet."))
+        #expect(log.recipients == [9])
+    }
+
+    @Test("Sending to nobody queues nothing")
+    func ignoresEmptyRecipients() {
+        let outbox = makeOutbox(api: FakeInstantAPI())
+        outbox.send(draft(), to: [], from: 4)
+        #expect(outbox.items.isEmpty)
+    }
+
     /// The whole point: the compose screen closes on the tap, so the send has
     /// to be visibly under way before any of the work is done.
     @Test("A send is in flight the moment it is handed over, then confirmed")
@@ -129,7 +201,7 @@ struct OutboxTests {
         let log = SentLog()
         let outbox = makeOutbox(api: api, log: log)
 
-        outbox.send(draft(), to: ana, from: 4)
+        outbox.send(draft(), to: [ana], from: 4)
         #expect(outbox.items.map(\.phase) == [.sending])
         #expect(outbox.headline?.recipient == ana)
 
@@ -144,7 +216,7 @@ struct OutboxTests {
         enroll([device()], as: 9, in: api)
         let outbox = makeOutbox(api: api, time: TimeSource(now: { Date() }, sleep: { _ in }))
 
-        outbox.send(draft(), to: ana, from: 4)
+        outbox.send(draft(), to: [ana], from: 4)
         await waitUntil { api.sentPayloads.count == 1 && outbox.items.isEmpty }
         #expect(outbox.items.isEmpty)
     }
@@ -157,7 +229,7 @@ struct OutboxTests {
         let log = SentLog()
         let outbox = makeOutbox(api: api, store: store, log: log)
 
-        outbox.send(draft(), to: ana, from: 4)
+        outbox.send(draft(), to: [ana], from: 4)
         await waitUntil { outbox.items.first?.phase != .sending }
 
         #expect(outbox.items.first?.phase == .failed("They haven't set up Instant yet."))
@@ -173,7 +245,7 @@ struct OutboxTests {
         api.sendError = APIError(status: 400, message: "Send an instant to someone else.")
         let outbox = makeOutbox(api: api)
 
-        outbox.send(draft(), to: ana, from: 4)
+        outbox.send(draft(), to: [ana], from: 4)
         await waitUntil { outbox.items.first?.phase != .sending }
 
         #expect(outbox.items.first?.phase == .failed("Send an instant to someone else."))
@@ -187,7 +259,7 @@ struct OutboxTests {
         enroll([device()], as: 9, in: api)
         api.sendError = APIError(status: 503, message: "Busy")
         let outbox = makeOutbox(api: api)
-        outbox.send(draft(), to: ana, from: 4)
+        outbox.send(draft(), to: [ana], from: 4)
         await waitUntil { outbox.items.first?.phase != .sending }
         let id = try #require(outbox.items.first?.id)
 
@@ -207,7 +279,7 @@ struct OutboxTests {
         api.sendError = APIError(status: 503, message: "Busy")
         let store = InMemoryPendingSendStore()
         let outbox = makeOutbox(api: api, store: store)
-        outbox.send(draft(), to: ana, from: 4)
+        outbox.send(draft(), to: [ana], from: 4)
         await waitUntil { outbox.items.first?.phase != .sending }
         #expect(store.stored.count == 1, "kept for the next launch until dismissed")
 
@@ -228,7 +300,7 @@ struct OutboxTests {
         let store = InMemoryPendingSendStore()
         let outbox = makeOutbox(api: api, store: store)
 
-        outbox.send(draft(), to: ana, from: 4)
+        outbox.send(draft(), to: [ana], from: 4)
         await waitUntil { store.stored.count == 1 }
         #expect(store.stored.first?.recipientId == 9)
         #expect(store.stored.first?.senderUserId == 4)
@@ -317,7 +389,7 @@ struct OutboxTests {
         api.sendGate = { for await _ in released { break } }
         let system = RecordingOutboxSystem()
         let outbox = makeOutbox(api: api, system: system)
-        outbox.send(draft(), to: ana, from: 4)
+        outbox.send(draft(), to: [ana], from: 4)
 
         outbox.didEnterBackground()
         #expect(system.backgroundTimeActive)
@@ -338,7 +410,7 @@ struct OutboxTests {
         api.sendGate = { for await _ in released { break } }
         let system = RecordingOutboxSystem()
         let outbox = makeOutbox(api: api, system: system)
-        outbox.send(draft(), to: ana, from: 4)
+        outbox.send(draft(), to: [ana], from: 4)
 
         outbox.didEnterBackground()
         release.yield()
@@ -379,7 +451,7 @@ struct OutboxTests {
         let environment = makeTestEnvironment(session: session)
         environment.aim(at: ana)
 
-        environment.send(draft(), to: ana)
+        environment.send(draft(), to: [ana])
 
         #expect(environment.aimedAt == nil)
         #expect(environment.outbox.items.map(\.recipient) == [ana])

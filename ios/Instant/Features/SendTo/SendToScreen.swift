@@ -8,6 +8,7 @@ struct SendToScreen: View {
     let onSent: () -> Void
 
     @State private var recipients: SendToModel?
+    @State private var confirmsEveryone = false
 
     var body: some View {
         NavigationStack {
@@ -73,9 +74,12 @@ struct SendToScreen: View {
                     currentUserId: environment.session.currentUserId
                 )
                 // Opened from an already-aimed capture: the picker is here to
-                // change the recipient, so it starts on the current one rather
-                // than making somebody re-pick the person they already chose.
-                picker.selectedId = model.recipient?.userId
+                // change or add to the recipients, so it starts on the current
+                // one rather than making somebody re-pick the person they
+                // already chose.
+                if let aimed = model.recipient?.userId {
+                    picker.selectedIds = [aimed]
+                }
                 recipients = picker
             }
             // The history may not have been fetched yet, and the picker is
@@ -96,17 +100,67 @@ struct SendToScreen: View {
     /// also the same white capsule the compose screen sends with, so the two
     /// ways out of a photo look like one action.
     private func sendBar(_ recipients: SendToModel) -> some View {
-        let selected = recipients.candidates.first { $0.id == recipients.selectedId }
-        let isReady = selected != nil
+        let isReady = !recipients.selected.isEmpty
+
+        return HStack(spacing: 10) {
+            everyoneButton(recipients)
+            sendButton(recipients, isReady: isReady)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .background(InstantStyle.background)
+        .overlay(alignment: .top) {
+            // The list scrolls under this; without a line the last row looks
+            // like it was cut off rather than covered.
+            Rectangle()
+                .fill(InstantStyle.surfaceRaised)
+                .frame(height: 1)
+        }
+        .alert("Send to everyone?", isPresented: $confirmsEveryone) {
+            Button("Send to All") { send(to: recipients.everyoneReachable) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(recipients.everyoneMessage)
+        }
+    }
+
+    /// Sends to everyone who has Instant, but only after asking. It sits a
+    /// thumb's width from Send, and a photo meant for one person going to the
+    /// whole Lounge is the one mistake here that cannot be taken back.
+    private func everyoneButton(_ recipients: SendToModel) -> some View {
+        let isReady = recipients.canSendToEveryone
 
         return Button {
-            send()
+            confirmsEveryone = true
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "person.3.fill")
+                Text("All")
+            }
+            .font(.system(size: 16, weight: .bold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 18)
+            .frame(height: 52)
+            .background(Capsule().strokeBorder(Color.white, lineWidth: 1.5))
+            .opacity(isReady ? 1 : 0.4)
+        }
+        .buttonStyle(.plain)
+        .disabled(!isReady)
+        .accessibilityIdentifier("sendTo.all")
+        .accessibilityLabel("Send to everyone")
+    }
+
+    private func sendButton(_ recipients: SendToModel, isReady: Bool) -> some View {
+        Button {
+            send(to: recipients.selected)
         } label: {
             HStack(spacing: 8) {
                 // Named once somebody is picked, so the button confirms the
                 // choice rather than restating the question.
-                Text(selected.map { "Send to \($0.user.displayName)" } ?? "Send")
+                Text(recipients.sendTitle)
                     .font(.system(size: 16, weight: .bold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
                 Image(systemName: "paperplane.fill")
             }
             .foregroundStyle(.black)
@@ -121,16 +175,6 @@ struct SendToScreen: View {
         .buttonStyle(.plain)
         .disabled(!isReady)
         .accessibilityIdentifier("sendTo.send")
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
-        .background(InstantStyle.background)
-        .overlay(alignment: .top) {
-            // The list scrolls under this; without a line the last row looks
-            // like it was cut off rather than covered.
-            Rectangle()
-                .fill(InstantStyle.surfaceRaised)
-                .frame(height: 1)
-        }
     }
 
     private func sectionHeader(_ title: String) -> some View {
@@ -144,9 +188,10 @@ struct SendToScreen: View {
     private func row(_ candidate: SendToModel.Candidate, in recipients: SendToModel) -> some View {
         let enrolled = candidate.isEnrolled
         let selectable = enrolled != false
+        let isSelected = recipients.selectedIds.contains(candidate.id)
 
         return Button {
-            recipients.selectedId = candidate.id
+            recipients.toggle(candidate.id)
         } label: {
             HStack(spacing: 12) {
                 AvatarView(
@@ -177,14 +222,8 @@ struct SendToScreen: View {
                     StreakBadge(streak: streak)
                 }
 
-                Image(
-                    systemName: recipients.selectedId == candidate.id
-                        ? "checkmark.circle.fill"
-                        : "circle"
-                )
-                .foregroundStyle(
-                    recipients.selectedId == candidate.id ? Color.white : InstantStyle.secondaryText
-                )
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isSelected ? Color.white : InstantStyle.secondaryText)
             }
             .contentShape(Rectangle())
             .opacity(selectable ? 1 : 0.4)
@@ -193,19 +232,17 @@ struct SendToScreen: View {
         .disabled(!selectable)
         .listRowBackground(InstantStyle.background)
         .listRowSeparatorTint(InstantStyle.surfaceRaised)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityIdentifier("sendTo.row.\(candidate.user.displayName)")
     }
 
-    /// Picking somebody here supersedes whatever the camera was aimed at; the
+    /// Whoever is picked here supersedes whatever the camera was aimed at; the
     /// send spends the aim either way.
-    private func send() {
-        guard let recipients,
-              let recipient = recipients.candidates
-                .first(where: { $0.id == recipients.selectedId })
-                .map({ InstantRecipient(userId: $0.id, name: $0.user.displayName) })
-        else { return }
+    private func send(to chosen: [SendToModel.Candidate]) {
+        let recipients = chosen.map { InstantRecipient(userId: $0.id, name: $0.user.displayName) }
+        guard !recipients.isEmpty else { return }
 
-        environment.send(model.draft, to: recipient)
+        environment.send(model.draft, to: recipients)
         dismiss()
         onSent()
     }

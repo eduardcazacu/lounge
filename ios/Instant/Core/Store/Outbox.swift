@@ -347,6 +347,8 @@ public final class Outbox {
     private let onSent: @MainActor (Int) async -> Void
 
     private var drafts: [UUID: InstantDraft] = [:]
+    /// The encoded photo, shared by every send made from the same draft.
+    private var renders: [UUID: Task<Data, Error>] = [:]
     private var sealed: [UUID: PendingSend] = [:]
     private var userId: Int?
     private var isInBackground = false
@@ -375,12 +377,25 @@ public final class Outbox {
 
     // MARK: Sending
 
-    public func send(_ draft: InstantDraft, to recipient: InstantRecipient, from senderUserId: Int) {
+    /// One instant per recipient, each sealed to that person's devices alone.
+    ///
+    /// The photo is rendered and encoded once for all of them: the pixels are
+    /// the same for everybody, and the encode is the slow part of a send. Only
+    /// the seal and the upload are per person, so each one fails, retries and
+    /// is read once on its own.
+    public func send(_ draft: InstantDraft, to recipients: [InstantRecipient], from senderUserId: Int) {
+        guard !recipients.isEmpty else { return }
         userId = senderUserId
-        let id = UUID()
-        drafts[id] = draft
-        items.append(Item(id: id, recipient: recipient, phase: .sending))
-        Task { await run(id) }
+        let render = Task.detached(priority: .userInitiated) {
+            try Self.render(draft)
+        }
+        for recipient in recipients {
+            let id = UUID()
+            drafts[id] = draft
+            renders[id] = render
+            items.append(Item(id: id, recipient: recipient, phase: .sending))
+            Task { await run(id) }
+        }
     }
 
     public func retry(_ id: UUID) {
@@ -400,6 +415,7 @@ public final class Outbox {
     private func forget(_ id: UUID) {
         items.removeAll { $0.id == id }
         drafts[id] = nil
+        renders[id] = nil
         sealed[id] = nil
         store.remove(id: id)
         settleBackground()
@@ -432,10 +448,11 @@ public final class Outbox {
     ///
     /// A retry of a send whose draft is still here seals it again rather than
     /// reusing the old ciphertext: the failure may have been the recipient's
-    /// device list changing, and a fresh lookup is the only fix for that. A send
+    /// device list changing, and a fresh lookup is the only fix for that. The
+    /// encoded photo is reused, since nothing about it can have changed. A send
     /// restored after a relaunch has no draft, only its sealed copy.
     private func prepared(_ id: UUID, recipient: InstantRecipient) async throws -> PendingSend {
-        guard let draft = drafts[id] else {
+        guard let draft = drafts[id], let render = renders[id] else {
             guard let pending = sealed[id] else { throw OutboxError.lost }
             return pending
         }
@@ -445,9 +462,7 @@ public final class Outbox {
         // sealed copy is on disk a force quit loses the send, so every
         // millisecond before that point counts twice.
         async let lookup = api.keys(forUserId: recipient.userId)
-        let encoded = try await Task.detached(priority: .userInitiated) {
-            try Self.render(draft)
-        }.value
+        let encoded = try await render.value
         let devices = try await lookup.theirs
         guard !devices.isEmpty else { throw InstantCrypto.CryptoError.noRecipientDevices }
         let sealedInstant = try InstantCrypto.seal(
@@ -498,6 +513,7 @@ public final class Outbox {
     private func succeeded(_ id: UUID, recipientId: Int) {
         store.remove(id: id)
         drafts[id] = nil
+        renders[id] = nil
         sealed[id] = nil
         if let index = items.firstIndex(where: { $0.id == id }) {
             items[index].phase = .sent
@@ -566,6 +582,7 @@ public final class Outbox {
     public func reset() {
         items = []
         drafts = [:]
+        renders = [:]
         sealed = [:]
         awaitingResume = []
         userId = nil

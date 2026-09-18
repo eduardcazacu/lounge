@@ -47,7 +47,10 @@ after, so nothing that arrived while the socket was down is missed.
 ## Sending
 
 `POST /api/v1/instant` is multipart: the ciphertext as `media` (3 MiB ceiling)
-plus a JSON `payload` validated by `createInstantInput` from `common/`.
+plus a JSON `payload` validated by `createInstantInput` from `common/`. It names
+exactly one recipient. A photo sent to several people is several of these
+requests, each sealed separately by the client; see
+[decisions.md](decisions.md).
 
 The checks, in order: recipient is in the same group, approved and verified;
 no block exists in either direction; and **every envelope targets a distinct

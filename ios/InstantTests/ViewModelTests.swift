@@ -852,6 +852,112 @@ struct SendToModelTests {
 }
 
 @MainActor
+@Suite("Picking several recipients")
+struct SendToSelectionTests {
+    private func model(
+        enrolled: Set<Int>,
+        users ids: [Int] = [2, 3, 4]
+    ) async -> SendToModel {
+        let names = [2: "Ana", 3: "Bo", 4: "Cass", 5: "Dee"]
+        let userAPI = FakeUserAPI()
+        userAPI.usersResult = ids.map {
+            UserSummary(id: $0, name: names[$0] ?? "User \($0)", themeKey: "ocean", profilePictureUrl: nil)
+        }
+        let instantAPI = FakeInstantAPI()
+        for id in ids where enrolled.contains(id) {
+            instantAPI.keysByUser[id] = [
+                InstantDeviceKeyDTO(id: id, deviceId: "d\(id)", publicKey: "p", createdAt: nil)
+            ]
+        }
+        let model = SendToModel(
+            userAPI: userAPI, instantAPI: instantAPI,
+            history: { [] }, currentUserId: 1
+        )
+        await model.load()
+        return model
+    }
+
+    @Test("Tapping ticks and unticks, and several can be ticked at once")
+    func togglesSeveral() async {
+        let model = await model(enrolled: [2, 3, 4])
+
+        model.toggle(2)
+        model.toggle(4)
+        #expect(model.selected.map(\.id) == [2, 4])
+
+        model.toggle(2)
+        #expect(model.selected.map(\.id) == [4])
+    }
+
+    @Test("The send button names one or two people and counts past that")
+    func titlesTheSend() async {
+        let model = await model(enrolled: [2, 3, 4])
+        #expect(model.sendTitle == "Send")
+
+        model.toggle(2)
+        #expect(model.sendTitle == "Send to Ana")
+
+        model.toggle(3)
+        #expect(model.sendTitle == "Send to Ana and Bo")
+
+        model.toggle(4)
+        #expect(model.sendTitle == "Send to 3 people")
+    }
+
+    @Test("Everyone means everyone with Instant set up")
+    func everyoneIsTheEnrolled() async {
+        let model = await model(enrolled: [2, 4])
+
+        #expect(model.everyoneReachable.map(\.id) == [2, 4])
+        #expect(model.canSendToEveryone)
+        #expect(model.everyoneMessage == "This photo will go to all 2 people who have Instant set up.")
+    }
+
+    @Test("The confirmation reads right for a single person")
+    func everyoneOfOne() async {
+        let model = await model(enrolled: [3])
+        #expect(model.everyoneMessage == "This photo will go to the one person who has Instant set up.")
+    }
+
+    /// Before enrollment has resolved, "everyone" is not yet a known set of
+    /// people, and the confirmation's count would be wrong.
+    @Test("All waits until every row has been checked")
+    func everyoneWaitsForEnrollment() {
+        let model = SendToModel(
+            userAPI: FakeUserAPI(), instantAPI: FakeInstantAPI(),
+            history: { [] }, currentUserId: 1
+        )
+        #expect(!model.canSendToEveryone, "nothing loaded")
+    }
+
+    @Test("Nobody enrolled means there is no everyone to send to")
+    func everyoneNeedsSomebody() async {
+        let model = await model(enrolled: [])
+        #expect(!model.canSendToEveryone)
+    }
+
+    /// An aim from the camera is ticked before anyone is checked. If it turns
+    /// out they have no device, the tick would sit on a disabled row that
+    /// cannot be unticked, and the send would fail.
+    @Test("A ticked person who turns out not to be enrolled is unticked")
+    func dropsUnenrolledSelection() async {
+        let userAPI = FakeUserAPI()
+        userAPI.usersResult = [
+            UserSummary(id: 2, name: "Ana", themeKey: "rose", profilePictureUrl: nil),
+        ]
+        let model = SendToModel(
+            userAPI: userAPI, instantAPI: FakeInstantAPI(),
+            history: { [] }, currentUserId: 1
+        )
+        model.selectedIds = [2]
+
+        await model.load()
+
+        #expect(model.selected.isEmpty)
+    }
+}
+
+@MainActor
 @Suite("Recipient ordering")
 struct RecipientOrderingTests {
     private func users(_ ids: [Int]) -> [UserSummary] {

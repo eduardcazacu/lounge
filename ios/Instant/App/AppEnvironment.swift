@@ -108,9 +108,9 @@ public final class AppEnvironment {
     /// Hands a photo to the outbox and spends the aim. The compose screen
     /// closes straight after; recency moves once the server has accepted it,
     /// because a send that fails must not answer a streak.
-    public func send(_ draft: InstantDraft, to recipient: InstantRecipient) {
+    public func send(_ draft: InstantDraft, to recipients: [InstantRecipient]) {
         guard let userId = session.currentUserId else { return }
-        outbox.send(draft, to: recipient, from: userId)
+        outbox.send(draft, to: recipients, from: userId)
         clearAim()
     }
 

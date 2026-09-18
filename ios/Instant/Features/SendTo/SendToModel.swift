@@ -20,7 +20,56 @@ public final class SendToModel {
     public private(set) var candidates: [Candidate] = []
     public private(set) var isLoading = false
     public private(set) var errorMessage: String?
-    public var selectedId: Int?
+    /// Everyone ticked. A photo can go to several people at once, and each of
+    /// them gets an instant of their own.
+    public var selectedIds: Set<Int> = []
+
+    /// Who is ticked, in the order the list shows them.
+    public var selected: [Candidate] {
+        candidates.filter { selectedIds.contains($0.id) }
+    }
+
+    /// Everyone a photo can actually reach: the people with a device enrolled.
+    public var everyoneReachable: [Candidate] {
+        candidates.filter { $0.isEnrolled == true }
+    }
+
+    /// "All" waits until every row has settled. Offered earlier, it would mean
+    /// "everyone whose check happened to come back first", and the count in
+    /// its confirmation would be a guess.
+    public var canSendToEveryone: Bool {
+        !everyoneReachable.isEmpty && !candidates.contains { $0.isEnrolled == nil }
+    }
+
+    /// Names one or two people and counts past that; a send button is not the
+    /// place for a list.
+    public var sendTitle: String {
+        let names = selected.map(\.user.displayName)
+        switch names.count {
+        case 0: return "Send"
+        case 1: return "Send to \(names[0])"
+        case 2: return "Send to \(names[0]) and \(names[1])"
+        default: return "Send to \(names.count) people"
+        }
+    }
+
+    /// What the "All" confirmation says. The count is what makes it a
+    /// confirmation rather than a speed bump: it is the number of people about
+    /// to get the photo.
+    public var everyoneMessage: String {
+        let count = everyoneReachable.count
+        return count == 1
+            ? "This photo will go to the one person who has Instant set up."
+            : "This photo will go to all \(count) people who have Instant set up."
+    }
+
+    public func toggle(_ id: Int) {
+        if selectedIds.contains(id) {
+            selectedIds.remove(id)
+        } else {
+            selectedIds.insert(id)
+        }
+    }
 
     /// People you have exchanged an instant with, most recent first.
     public var recent: [Candidate] {
@@ -150,6 +199,10 @@ public final class SendToModel {
             for await (id, enrolled) in group {
                 guard let index = candidates.firstIndex(where: { $0.id == id }) else { continue }
                 candidates[index].isEnrolled = enrolled
+                // An aim carried in from the camera is ticked before anyone has
+                // been checked. Somebody with no device cannot be sent to, and a
+                // tick on a disabled row is one that cannot be taken off.
+                if !enrolled { selectedIds.remove(id) }
             }
         }
     }
