@@ -18,36 +18,20 @@ public struct WhatsNew: Equatable, Sendable {
     public let fixes: [Item]
 
     public static let current = WhatsNew(
-        version: "1.1",
+        version: "1.2",
         features: [
             Item(
-                symbol: "paperplane.fill",
-                title: "Send and keep going",
-                detail: "Tapping Send takes you straight back to the camera. A pill at the bottom shows your photo on its way, and tells you once it's sent."
+                symbol: "person.2.fill",
+                title: "Send to several people at once",
+                detail: "In Send To, tick as many people as you like and send the photo to all of them in one go. Each of them gets their own copy, which disappears once they've seen it."
             ),
             Item(
-                symbol: "arrow.clockwise.circle.fill",
-                title: "Sends that don't get lost",
-                detail: "If a photo can't be sent, tap Retry. If Instant is closed while a photo is sending, it finishes sending the next time you open the app, and a notification tells you if it hasn't gone yet."
-            ),
-            Item(
-                symbol: "tray.full.fill",
-                title: "Your inbox opens instantly",
-                detail: "Opening Instant from a notification or the widget shows your conversations straight away, instead of \u{201C}No conversations yet\u{201D} while it loads."
+                symbol: "person.3.fill",
+                title: "Send to everyone",
+                detail: "Tap All to send a photo to everyone who has Instant set up. It asks you first, so a slip of the thumb doesn't send it to the whole Lounge."
             ),
         ],
-        fixes: [
-            Item(
-                symbol: "square.grid.2x2.fill",
-                title: "The widget updates by itself",
-                detail: "It now shows a new photo when it arrives. Before, it only updated after you opened the app."
-            ),
-            Item(
-                symbol: "bell.badge.fill",
-                title: "One notification, not two",
-                detail: "If you also use the Lounge in a browser, you now get each photo's notification once, on your phone."
-            ),
-        ]
+        fixes: []
     )
 }
 
