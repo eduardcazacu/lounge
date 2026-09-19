@@ -46,15 +46,24 @@ default. Nothing checks that the hex values match; they are matched by hand, and
 a mismatch shows up as the same person looking like two different people on two
 clients.
 
-## The caption geometry — two places
+## The caption geometry — two places, and two inside iOS
 
-`ios/Instant/Core/Media/OverlayCompositor.swift` matches
-`frontend/src/components/instant/InstantComposer.tsx`, clamped to 0.05–0.95.
+The iOS **plate** caption at scale 1 matches the web's only caption:
+`ios/Instant/Core/Media/OverlayCompositor.swift` against
+`frontend/src/components/instant/InstantComposer.tsx`, font 6% of the image
+width, positions clamped to 0.05–0.95. The bar style, the pinch scale, the
+rotation and several captions per photo are iOS-only and have no web side to
+keep in step.
 
-The caption is burned into the pixels before the photo is sealed, so its
-position is stored as **image fractions** and never travels on the wire. Two
-clients that place it differently produce visibly different photos from the same
-input, with nothing to compare against afterwards.
+A caption is burned into the pixels before the photo is sealed, so its position
+is stored as **image fractions** and never travels on the wire. Two clients
+that place it differently produce visibly different photos from the same input,
+with nothing to compare against afterwards.
+
+Inside the app, the compose preview (`ComposeScreen.swift`) and the compositor
+are the other pair. Both size a caption from `OverlayCompositor.metrics` and
+wrap it with `OverlayCompositor.textSize`, which is how the preview's line
+breaks match the pixels. A preview that measured its own text would drift.
 
 ## The wire types — `common/` and hand-written Swift
 

@@ -400,7 +400,7 @@ struct OverlayCompositorTests {
     func skipsEmptyCaption() throws {
         let base = photo(80, 120)
         let composited = OverlayCompositor.composite(
-            image: base, caption: "   ", placement: .default
+            image: base, captions: [OverlayCompositor.Caption(text: "   ")]
         )
         #expect(composited.size == base.size)
 
@@ -413,7 +413,7 @@ struct OverlayCompositorTests {
     func burnsCaptionIn() throws {
         let base = photo(200, 300)
         let composited = OverlayCompositor.composite(
-            image: base, caption: "hello", placement: .default
+            image: base, captions: [OverlayCompositor.Caption(text: "hello")]
         )
         #expect(composited.size == base.size)
         #expect(
@@ -425,20 +425,63 @@ struct OverlayCompositorTests {
     func placementAffectsOutput() throws {
         let base = photo(200, 300)
         let top = OverlayCompositor.composite(
-            image: base, caption: "hi", placement: OverlayCompositor.Placement(x: 0.5, y: 0.1)
+            image: base,
+            captions: [OverlayCompositor.Caption(text: "hi", placement: OverlayCompositor.Placement(x: 0.5, y: 0.1))]
         )
         let bottom = OverlayCompositor.composite(
-            image: base, caption: "hi", placement: OverlayCompositor.Placement(x: 0.5, y: 0.9)
+            image: base,
+            captions: [OverlayCompositor.Caption(text: "hi", placement: OverlayCompositor.Placement(x: 0.5, y: 0.9))]
         )
         #expect(try WebPEncoder.encode(top, quality: 1) != (try WebPEncoder.encode(bottom, quality: 1)))
+    }
+
+    @Test("Style, scale and a second caption each change the pixels")
+    func stylesScaleAndCount() throws {
+        let base = photo(200, 300)
+        func encoded(_ captions: [OverlayCompositor.Caption]) throws -> Data {
+            try WebPEncoder.encode(OverlayCompositor.composite(image: base, captions: captions), quality: 1)
+        }
+        let bar = OverlayCompositor.Caption(text: "hi", style: .bar)
+        let plate = OverlayCompositor.Caption(text: "hi", style: .plate)
+        let bigPlate = OverlayCompositor.Caption(text: "hi", style: .plate, scale: 2.5)
+        let another = OverlayCompositor.Caption(
+            text: "there", placement: OverlayCompositor.Placement(x: 0.5, y: 0.2)
+        )
+
+        #expect(try encoded([bar]) != (try encoded([plate])))
+        #expect(try encoded([plate]) != (try encoded([bigPlate])))
+        #expect(try encoded([bar]) != (try encoded([bar, another])))
+
+        let turned = OverlayCompositor.Caption(text: "hi", style: .plate, rotation: .pi / 5)
+        #expect(try encoded([plate]) != (try encoded([turned])))
+        // A bar ignores its rotation: it is drawn level whatever it holds.
+        let turnedBar = OverlayCompositor.Caption(text: "hi", style: .bar, rotation: .pi / 5)
+        #expect(try encoded([bar]) == (try encoded([turnedBar])))
+    }
+
+    @Test("The bar spans the photo; the plate hugs its text and stays inside it")
+    func metricsByStyle() {
+        let bar = OverlayCompositor.metrics(for: .bar, scale: 3, width: 1000)
+        #expect(bar.fontSize == 50)
+        #expect(bar.maxTextWidth == 1000 - bar.horizontalPadding * 2)
+
+        // At scale 1 the plate is the web composer's caption.
+        let plate = OverlayCompositor.metrics(for: .plate, scale: 1, width: 1080)
+        #expect(plate.fontSize == OverlayCompositor.fontSize(forWidth: 1080))
+
+        let big = OverlayCompositor.metrics(for: .plate, scale: 3, width: 1000)
+        #expect(big.fontSize == 180)
+        #expect(big.maxTextWidth + big.horizontalPadding * 2 <= 900)
+
+        // Out-of-range scales are clamped rather than trusted.
+        #expect(OverlayCompositor.metrics(for: .plate, scale: 99, width: 1000) == big)
     }
 
     @Test("Long captions are truncated to the wire limit")
     func truncatesLongCaption() {
         let composited = OverlayCompositor.composite(
             image: photo(400, 400),
-            caption: String(repeating: "a", count: 500),
-            placement: .default
+            captions: [OverlayCompositor.Caption(text: String(repeating: "a", count: 500))]
         )
         #expect(composited.size == CGSize(width: 400, height: 400))
     }

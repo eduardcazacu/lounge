@@ -7,26 +7,23 @@ import UserNotifications
 /// Everything the compose screen decided, before any of it is applied.
 ///
 /// Handed over whole so the compose screen can close the moment Send is
-/// tapped: the filter, the caption and the encryption all happen afterwards,
+/// tapped: the filter, the captions and the encryption all happen afterwards,
 /// off the main actor.
 public struct InstantDraft: Sendable {
     public let image: UIImage
     public let filter: PhotoFilter
-    public let caption: String
-    public let placement: OverlayCompositor.Placement
+    public let captions: [OverlayCompositor.Caption]
     public let duration: InstantDurationMode
 
     public init(
         image: UIImage,
         filter: PhotoFilter,
-        caption: String,
-        placement: OverlayCompositor.Placement,
+        captions: [OverlayCompositor.Caption],
         duration: InstantDurationMode
     ) {
         self.image = image
         self.filter = filter
-        self.caption = caption
-        self.placement = placement
+        self.captions = captions
         self.duration = duration
     }
 }
@@ -496,16 +493,15 @@ public final class Outbox {
     /// because it needs the key lookup this runs alongside, and takes a
     /// millisecond or two.
     ///
-    /// The look goes on before the caption, so the caption plate keeps its own
+    /// The look goes on before the captions, so their backing keeps its own
     /// contrast instead of being tinted along with the photo — and both are
     /// burned into the pixels here rather than sent as fields. The server only
-    /// ever holds ciphertext, so it could not read the caption, or apply the
+    /// ever holds ciphertext, so it could not read a caption, or apply the
     /// filter, even if the design wanted it to.
     nonisolated static func render(_ draft: InstantDraft) throws -> Data {
         let flattened = OverlayCompositor.composite(
             image: draft.filter.apply(to: draft.image),
-            caption: draft.caption,
-            placement: draft.placement
+            captions: draft.captions
         )
         return try ImagePipeline.encode(flattened)
     }

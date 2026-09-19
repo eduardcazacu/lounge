@@ -189,6 +189,26 @@ on the wire in the clear.
 
 ---
 
+## iOS captions do more than the web's
+
+**Chosen** several captions per photo on iOS, each either a full-width bar (the
+default) or a plate that drags anywhere, turns, and pinches between 0.5× and 3×
+(`OverlayCompositor.scaleRange`). The web composer keeps its single plate.
+
+**Rejected** holding iOS to what the web can do, and porting the styles to the
+web in the same change.
+
+**Because** captions arrive as pixels, so nothing that receives a photo depends
+on which client composed it. The web composer is a harness for the protocol
+rather than the product's camera ([web-client.md](web-client.md)).
+
+**Cost paid** the two composers no longer offer the same things. Only the plate
+at scale 1 is held in parity.
+
+**Reopen if** the web composer becomes a camera people use day to day.
+
+---
+
 ## Filters are chosen after the shot, not in the viewfinder
 
 **Chosen** `PhotoFilter` on the compose screen.

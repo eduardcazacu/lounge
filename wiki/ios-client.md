@@ -93,8 +93,8 @@ the shot, and that is a property of the preview rather than a preference:
 with nowhere to hang a `CIFilter`, so a filtered viewfinder would mean replacing
 the preview with a video-data-output and a Metal path.
 
-The look is baked into the pixels before the caption and before the seal, for
-the same reason the caption is: the server holds nothing but ciphertext, so
+The look is baked into the pixels before the captions and before the seal, for
+the same reason the captions are: the server holds nothing but ciphertext, so
 there is no later moment at which either could be applied, and no filter name
 rides along on the wire.
 
@@ -105,12 +105,48 @@ compose screen has closed. Nothing in the chains
 measures the photo, so the thumbnail in the strip and the frame that goes on the
 wire are one transform at two resolutions.
 
+## Captions
+
+Tapping the photo anywhere that is not already a caption starts a new one, so
+a photo can carry several. Tapping a caption edits it. The text button in the
+rail switches the style of the caption being typed, and changes glyph while it
+does, because adding text and restyling it are two different buttons. When
+nothing is being typed, it starts a caption in the middle of the photo, for
+someone who has not found out that the photo takes a tap.
+
+Holding a caption hides the chrome and puts a trash button at the top of the
+frame. A caption let go over it is deleted. The drag is measured in global
+space, not the caption's own: the caption moves under the finger, so its local
+space moves too, and a drag read there shudders back and forth.
+
+There are two styles, in `OverlayCompositor.Caption.Style`:
+
+- **The bar** is the default: a translucent black band across the whole photo.
+  It lands at the height of the tap that made it and only drags up and down,
+  because it has no horizontal position to move.
+- **The plate** hugs its text, drags anywhere, pinches between the limits in
+  `OverlayCompositor.scaleRange`, and turns with two fingers. It wraps within
+  90% of the photo at any scale, so a larger caption breaks into more lines
+  instead of running off the edge. A turn that ends within 5° of level or of a
+  quarter turn is set exactly there (`OverlayCompositor.normalizedRotation`),
+  because two fingers cannot let go at exactly zero. The pinch and the turn are
+  on the photo rather than on each caption, because two fingers rarely both land
+  on a line of text. They go to the plate the gesture started on, with 44pt of
+  slack around it. A bar keeps its scale and angle but is drawn level at its
+  usual size, so switching back to a plate restores both.
+
+The editor is the caption itself, drawn in place over a dimmed photo, with the
+same font, wrap width and backing. The same view is used for both styles, so
+switching style mid-sentence keeps the keyboard up. Return means done, because
+a caption is one paragraph that wraps. A caption closed while blank is
+removed.
+
 ## Sending
 
 Tapping Send closes the compose screen at once. `ComposeModel.draft` hands the
 original photo and every choice made about it to `Outbox`
 (`ios/Instant/Core/Store/Outbox.swift`). The outbox then looks up the
-recipient's devices, applies the filter and caption, encodes and seals off the
+recipient's devices, applies the filter and captions, encodes and seals off the
 main actor, and uploads. That used to hold the compose screen for seconds.
 
 **Several recipients are several instants.** The picker ticks any number of

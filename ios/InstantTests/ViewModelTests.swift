@@ -692,14 +692,119 @@ struct ComposeModelTests {
     @Test("Captions are capped and durations cycle")
     func capsCaptionAndCyclesDuration() {
         let model = ComposeModel(image: photo())
-        model.setCaption(String(repeating: "x", count: 300))
-        #expect(model.caption.count == OverlayCompositor.maxCaptionLength)
+        let id = model.addCaption(at: .default)
+        model.setText(String(repeating: "x", count: 300), of: id)
+        #expect(model.caption(id)?.text.count == OverlayCompositor.maxCaptionLength)
 
         #expect(model.duration == .fiveSeconds)
         model.cycleDuration()
         #expect(model.duration == .infinite)
         model.cycleDuration()
         #expect(model.duration == .oneSecond)
+    }
+
+    @Test("A new caption is a bar, and another is added alongside it")
+    func addsCaptionsAlongside() {
+        let model = ComposeModel(image: photo())
+        let first = model.addCaption(at: OverlayCompositor.Placement(x: 0.2, y: 0.3))
+        model.setText("one", of: first)
+        let second = model.addCaption(at: OverlayCompositor.Placement(x: 0.5, y: 0.7))
+        model.setText("two", of: second)
+
+        #expect(model.captions.map(\.text) == ["one", "two"])
+        #expect(model.caption(first)?.style == .bar)
+        #expect(model.caption(first)?.placement.y == 0.3)
+        #expect(model.draft.captions.map(\.text) == ["one", "two"])
+    }
+
+    @Test("A caption left blank is removed when the editor closes")
+    func removesBlankCaption() {
+        let model = ComposeModel(image: photo())
+        let kept = model.addCaption(at: .default)
+        model.setText("kept", of: kept)
+        let blank = model.addCaption(at: .default)
+        model.setText("   ", of: blank)
+
+        model.finishEditing(kept)
+        model.finishEditing(blank)
+        #expect(model.captions.map(\.id) == [kept])
+    }
+
+    @Test("Only a plate turns, and it snaps level when nearly level")
+    func rotatesPlateAndSnaps() {
+        let model = ComposeModel(image: photo())
+        let id = model.addCaption(at: .default)
+        let degree = Double.pi / 180
+
+        model.rotate(id, to: 30 * degree)
+        #expect(model.caption(id)?.rotation == 0)
+
+        model.toggleStyle(of: id)
+        model.rotate(id, to: 30 * degree)
+        #expect(abs((model.caption(id)?.rotation ?? 0) - 30 * degree) < 1e-9)
+
+        // Close to level, or to a quarter turn, is set exactly there.
+        model.rotate(id, to: 3 * degree)
+        #expect(model.caption(id)?.rotation == 0)
+        model.rotate(id, to: 88 * degree)
+        #expect(model.caption(id)?.rotation == .pi / 2)
+
+        // Whole turns wrap rather than accumulate.
+        model.rotate(id, to: 2 * .pi + 30 * degree)
+        #expect(abs((model.caption(id)?.rotation ?? 0) - 30 * degree) < 1e-9)
+
+        // A bar is drawn level, but keeps the angle for when it is a plate again.
+        model.toggleStyle(of: id)
+        #expect(model.caption(id)?.drawnRotation == 0)
+        model.toggleStyle(of: id)
+        #expect(abs((model.caption(id)?.drawnRotation ?? 0) - 30 * degree) < 1e-9)
+    }
+
+    @Test("A caption dropped on the trash is gone, and the others stay")
+    func removesCaption() {
+        let model = ComposeModel(image: photo())
+        let first = model.addCaption(at: .default)
+        model.setText("one", of: first)
+        let second = model.addCaption(at: .default)
+        model.setText("two", of: second)
+
+        model.removeCaption(first)
+        #expect(model.captions.map(\.id) == [second])
+        #expect(model.draft.captions.map(\.text) == ["two"])
+    }
+
+    @Test("A bar only moves up and down; a plate moves anywhere")
+    func movesByStyle() {
+        let model = ComposeModel(image: photo())
+        let id = model.addCaption(at: OverlayCompositor.Placement(x: 0.5, y: 0.5))
+
+        model.move(id, to: OverlayCompositor.Placement(x: 0.1, y: 0.2))
+        #expect(model.caption(id)?.placement == OverlayCompositor.Placement(x: 0.5, y: 0.2))
+
+        model.toggleStyle(of: id)
+        #expect(model.caption(id)?.style == .plate)
+        model.move(id, to: OverlayCompositor.Placement(x: 0.1, y: 0.2))
+        #expect(model.caption(id)?.placement == OverlayCompositor.Placement(x: 0.1, y: 0.2))
+
+        model.toggleStyle(of: id)
+        #expect(model.caption(id)?.style == .bar)
+    }
+
+    @Test("Only a plate scales, and only within the limits")
+    func scalesPlateWithinLimits() {
+        let model = ComposeModel(image: photo())
+        let id = model.addCaption(at: .default)
+
+        model.rescale(id, to: 2)
+        #expect(model.caption(id)?.scale == 1)
+
+        model.toggleStyle(of: id)
+        model.rescale(id, to: 2)
+        #expect(model.caption(id)?.scale == 2)
+        model.rescale(id, to: 40)
+        #expect(model.caption(id)?.scale == OverlayCompositor.scaleRange.upperBound)
+        model.rescale(id, to: 0.01)
+        #expect(model.caption(id)?.scale == OverlayCompositor.scaleRange.lowerBound)
     }
 }
 

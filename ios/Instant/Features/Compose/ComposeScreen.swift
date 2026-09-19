@@ -10,10 +10,36 @@ struct ComposeScreen: View {
     let onDiscard: () -> Void
 
     @State private var model: ComposeModel?
-    @State private var isEditingCaption = false
     @State private var showsRecipients = false
     @State private var showsFilters = false
+
+    /// The caption the keyboard is typing into. It is drawn by the editor
+    /// rather than on the photo while it is, so it is never on screen twice.
+    @State private var editingID: UUID?
     @FocusState private var captionFocused: Bool
+    /// The photo's width on screen. Captions are sized from it, and the editor
+    /// is outside the photo's own geometry, which is where it is measured.
+    @State private var photoWidth: CGFloat = 0
+    /// Where each caption is drawn, for finding the one a pinch meant.
+    @State private var captionFrames: [UUID: CGRect] = [:]
+    @State private var dragOrigin: OverlayCompositor.Placement?
+    @State private var pinchTarget: GestureTarget?
+    @State private var turnTarget: GestureTarget?
+    /// The caption under the finger. While there is one, the chrome gives way
+    /// to the trash, which is the only thing a dragged caption can be dropped on.
+    @State private var draggingID: UUID?
+    @State private var trashFrame: CGRect = .zero
+    @State private var isOverTrash = false
+
+    /// The caption a two-finger gesture took hold of, and its value when it
+    /// did: the gesture reports a total since it began, not a step.
+    private struct GestureTarget {
+        let id: UUID
+        let start: Double
+    }
+
+    private static let photoSpace = "compose.photo"
+    private static let prompt = "Add a caption"
 
     var body: some View {
         ZStack {
@@ -37,16 +63,35 @@ struct ComposeScreen: View {
                             .frame(width: proxy.size.width, height: proxy.size.height)
                             .accessibilityIdentifier("compose.preview")
 
-                        if !model.caption.isEmpty {
-                            captionOverlay(model, in: frame)
+                        ForEach(model.captions.filter { $0.id != editingID && !$0.trimmed.isEmpty }) {
+                            captionOverlay($0, model, in: frame)
                         }
                     }
                     .frame(width: proxy.size.width, height: proxy.size.height)
+                    .contentShape(Rectangle())
+                    .coordinateSpace(.named(Self.photoSpace))
+                    // Anywhere that is not already a caption starts a new one.
+                    // A caption's own tap is nearer, so it wins on the caption.
+                    .onTapGesture { location in
+                        beginEditing(model.addCaption(at: placement(of: location, in: frame)))
+                    }
+                    // On the photo rather than on each caption: two fingers
+                    // rarely both land on a line of text, so the pinch goes to
+                    // the caption it started nearest.
+                    .simultaneousGesture(pinch(model))
+                    .simultaneousGesture(turn(model))
+                    .onChange(of: frame.width, initial: true) { _, width in
+                        photoWidth = width
+                    }
                 }
                 .aspectRatio(InstantStyle.viewportAspectRatio, contentMode: .fit)
                 .clipShape(InstantStyle.viewportShape)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .ignoresSafeArea()
+
+                if let editingID {
+                    captionEditor(model, id: editingID)
+                }
 
                 ViewportOverlay {
                     VStack {
@@ -54,28 +99,36 @@ struct ComposeScreen: View {
                         // line with the first tool opposite it — the line the
                         // camera's own controls are on, which is what makes the
                         // two screens read as one surface.
-                        HStack(alignment: .top) {
-                            CircleIconButton(systemName: "xmark") { onDiscard() }
-                                .accessibilityIdentifier("compose.discard")
-                            Spacer()
-                            toolRail(model)
+                        if draggingID != nil {
+                            trash
+                        } else {
+                            HStack(alignment: .top) {
+                                if editingID == nil {
+                                    CircleIconButton(systemName: "xmark") { onDiscard() }
+                                        .accessibilityIdentifier("compose.discard")
+                                }
+                                Spacer()
+                                toolRail(model)
+                            }
                         }
                         Spacer()
-                        if showsFilters {
-                            filterStrip(model)
-                                .padding(.bottom, 14)
-                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                        // While typing, the text button is the only control:
+                        // everything else would be a way to leave the caption
+                        // half-written.
+                        if editingID == nil && draggingID == nil {
+                            if showsFilters {
+                                filterStrip(model)
+                                    .padding(.bottom, 14)
+                                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                            }
+                            bottomBar(model)
                         }
-                        bottomBar(model)
                     }
                     .animation(.easeOut(duration: 0.2), value: showsFilters)
                 }
-
-                if isEditingCaption {
-                    captionEditor(model)
-                }
             }
         }
+        .sensoryFeedback(.selection, trigger: isOverTrash)
         .task {
             if model == nil {
                 model = ComposeModel(image: image, recipient: environment.aimedAt)
@@ -92,35 +145,61 @@ struct ComposeScreen: View {
 
     private func toolRail(_ model: ComposeModel) -> some View {
         VStack(spacing: 12) {
-            CircleIconButton(systemName: "textformat") {
-                isEditingCaption = true
-                captionFocused = true
-            }
-            .accessibilityIdentifier("compose.caption")
+            textButton(model)
 
-            CircleIconButton(systemName: "camera.filters", isOn: showsFilters) {
-                // The renders happen here, on the tap that asks for them,
-                // rather than on every capture.
-                if !showsFilters { model.prepareThumbnails() }
-                showsFilters.toggle()
+            if editingID == nil {
+                otherTools(model)
             }
-            .accessibilityIdentifier("compose.filters")
-            .accessibilityLabel("Filters")
-            .accessibilityValue(model.filter.name)
-
-            Button {
-                model.cycleDuration()
-            } label: {
-                Text(model.duration.label)
-                    .font(.system(size: 17, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
-                    .background(Circle().fill(Color.black.opacity(0.35)))
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("compose.duration")
-            .accessibilityValue(model.duration.rawValue)
         }
+    }
+
+    /// Swaps the style of the caption being typed. With nothing being typed
+    /// there is no style to swap, so it starts a caption in the middle of the
+    /// photo — the way in for someone who has not found that the photo itself
+    /// takes a tap.
+    private func textButton(_ model: ComposeModel) -> some View {
+        let editing = editingID.flatMap { model.caption($0) }
+        // A different glyph while typing, because it is a different button:
+        // the one that adds text is not the one that restyles it.
+        return CircleIconButton(
+            systemName: editing == nil ? "textformat" : "character.textbox",
+            isOn: editing?.style == .plate
+        ) {
+            if let editing {
+                model.toggleStyle(of: editing.id)
+            } else {
+                beginEditing(model.addCaption(at: OverlayCompositor.Placement(x: 0.5, y: 0.5)))
+            }
+        }
+        .accessibilityIdentifier("compose.caption")
+        .accessibilityLabel(editing == nil ? "Add text" : "Text style")
+        .accessibilityValue(editing?.style.rawValue ?? "")
+    }
+
+    @ViewBuilder
+    private func otherTools(_ model: ComposeModel) -> some View {
+        CircleIconButton(systemName: "camera.filters", isOn: showsFilters) {
+            // The renders happen here, on the tap that asks for them,
+            // rather than on every capture.
+            if !showsFilters { model.prepareThumbnails() }
+            showsFilters.toggle()
+        }
+        .accessibilityIdentifier("compose.filters")
+        .accessibilityLabel("Filters")
+        .accessibilityValue(model.filter.name)
+
+        Button {
+            model.cycleDuration()
+        } label: {
+            Text(model.duration.label)
+                .font(.system(size: 17, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+                .frame(width: 44, height: 44)
+                .background(Circle().fill(Color.black.opacity(0.35)))
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("compose.duration")
+        .accessibilityValue(model.duration.rawValue)
     }
 
     /// The looks, as thumbnails of this photo rather than swatches — the only
@@ -224,59 +303,220 @@ struct ComposeScreen: View {
         onDiscard()
     }
 
-    /// The overlay is positioned against the *image* rect, not the container.
-    /// Anchoring to the container puts the caption somewhere different once the
-    /// photo is letterboxed, so what the sender framed is not what arrives.
-    private func captionOverlay(_ model: ComposeModel, in frame: CGRect) -> some View {
-        let fontSize = OverlayCompositor.fontSize(forWidth: Double(frame.width))
-        return Text(model.caption)
-            .font(.system(size: fontSize, weight: .semibold))
+    // MARK: - Captions
+
+    /// Positioned against the *image* rect, not the container. Anchoring to the
+    /// container puts a caption somewhere different once the photo is
+    /// letterboxed, so what the sender framed is not what arrives.
+    private func captionOverlay(
+        _ caption: OverlayCompositor.Caption,
+        _ model: ComposeModel,
+        in frame: CGRect
+    ) -> some View {
+        let metrics = OverlayCompositor.metrics(
+            for: caption.style, scale: caption.scale, width: Double(frame.width)
+        )
+        let size = OverlayCompositor.textSize(caption.trimmed, metrics: metrics)
+        return Text(caption.trimmed)
+            .font(Font(OverlayCompositor.font(for: metrics)))
             .foregroundStyle(.white)
             .multilineTextAlignment(.center)
-            .padding(fontSize * 0.4)
-            .background(
-                RoundedRectangle(cornerRadius: fontSize * 0.3)
-                    .fill(Color(red: 15 / 255, green: 23 / 255, blue: 42 / 255).opacity(0.55))
-            )
-            .frame(maxWidth: frame.width * 0.9)
+            .frame(width: size.width)
+            .fixedSize(horizontal: false, vertical: true)
+            .modifier(CaptionBacking(style: caption.style, metrics: metrics, photoWidth: frame.width))
+            // Faded while it is over the trash: letting go now removes it.
+            .opacity(draggingID == caption.id && isOverTrash ? 0.4 : 1)
+            // The hit area is set before the turn, so it turns with the
+            // caption instead of staying a level box around it.
+            .contentShape(Rectangle())
+            .rotationEffect(.radians(caption.drawnRotation))
+            .onTapGesture { beginEditing(caption.id) }
+            .gesture(drag(caption, model, in: frame))
+            .onGeometryChange(for: CGRect.self) {
+                $0.frame(in: .named(Self.photoSpace))
+            } action: {
+                captionFrames[caption.id] = $0
+            }
             .position(
-                x: frame.minX + frame.width * model.placement.x,
-                y: frame.minY + frame.height * model.placement.y
-            )
-            .gesture(
-                DragGesture()
-                    .onChanged { value in
-                        model.placement = OverlayCompositor.Placement(
-                            x: (value.location.x - frame.minX) / frame.width,
-                            y: (value.location.y - frame.minY) / frame.height
-                        )
-                    }
+                x: caption.style == .bar
+                    ? frame.midX
+                    : frame.minX + frame.width * caption.placement.x,
+                y: frame.minY + frame.height * caption.placement.y
             )
             .accessibilityIdentifier("compose.captionOverlay")
+            .accessibilityValue(caption.style.rawValue)
     }
 
-    private func captionEditor(_ model: ComposeModel) -> some View {
-        VStack {
-            Spacer()
+    /// Relative to where the drag began rather than to the finger, so taking
+    /// hold of a caption by its edge does not snap its centre to the fingertip.
+    ///
+    /// Measured in global space, never the caption's own. The caption moves
+    /// under the finger, so its local space moves with it, and every move
+    /// changes the next reading; the two chase each other and the caption
+    /// shudders back and forth. Global is also the space the trash is found in.
+    private func drag(
+        _ caption: OverlayCompositor.Caption,
+        _ model: ComposeModel,
+        in frame: CGRect
+    ) -> some Gesture {
+        DragGesture(minimumDistance: 4, coordinateSpace: .global)
+            .onChanged { value in
+                let origin = dragOrigin ?? caption.placement
+                dragOrigin = origin
+                draggingID = caption.id
+                isOverTrash = trashFrame.insetBy(dx: -16, dy: -16).contains(value.location)
+                model.move(caption.id, to: OverlayCompositor.Placement(
+                    x: origin.x + value.translation.width / frame.width,
+                    y: origin.y + value.translation.height / frame.height
+                ))
+            }
+            .onEnded { _ in
+                if isOverTrash {
+                    model.removeCaption(caption.id)
+                    captionFrames[caption.id] = nil
+                }
+                dragOrigin = nil
+                draggingID = nil
+                isOverTrash = false
+            }
+    }
+
+    /// Top and centre, where nothing else is while a caption is held — the
+    /// chrome is hidden for the length of the drag.
+    private var trash: some View {
+        Image(systemName: "trash")
+            .font(.system(size: 20, weight: .semibold))
+            .foregroundStyle(isOverTrash ? .black : .white)
+            .frame(width: 52, height: 52)
+            .background(Circle().fill(isOverTrash ? Color.white : Color.black.opacity(0.45)))
+            .scaleEffect(isOverTrash ? 1.25 : 1)
+            .animation(.spring(duration: 0.2), value: isOverTrash)
+            .onGeometryChange(for: CGRect.self) {
+                $0.frame(in: .global)
+            } action: {
+                trashFrame = $0
+            }
+            .accessibilityIdentifier("compose.trash")
+            .accessibilityLabel("Delete text")
+            .frame(maxWidth: .infinity)
+    }
+
+    /// Pinch and turn are two gestures, each with its own start, so either can
+    /// begin and end without the other: a pinch that never turns far enough to
+    /// count as a turn still scales, and the reverse.
+    private func pinch(_ model: ComposeModel) -> some Gesture {
+        MagnifyGesture()
+            .onChanged { value in
+                if pinchTarget == nil, let caption = pinchedCaption(model, near: value.startLocation) {
+                    pinchTarget = GestureTarget(id: caption.id, start: caption.scale)
+                }
+                guard let pinchTarget else { return }
+                model.rescale(pinchTarget.id, to: pinchTarget.start * value.magnification)
+            }
+            .onEnded { _ in pinchTarget = nil }
+    }
+
+    private func turn(_ model: ComposeModel) -> some Gesture {
+        RotateGesture()
+            .onChanged { value in
+                if turnTarget == nil, let caption = pinchedCaption(model, near: value.startLocation) {
+                    turnTarget = GestureTarget(id: caption.id, start: caption.rotation)
+                }
+                guard let turnTarget else { return }
+                model.rotate(turnTarget.id, to: turnTarget.start + value.rotation.radians)
+            }
+            .onEnded { _ in turnTarget = nil }
+    }
+
+    /// The topmost plate under the pinch, with a finger's width of slack around
+    /// it: a small caption is narrower than two fingers held apart.
+    private func pinchedCaption(_ model: ComposeModel, near point: CGPoint) -> OverlayCompositor.Caption? {
+        model.captions.reversed().first { caption in
+            caption.style == .plate
+                && caption.id != editingID
+                && captionFrames[caption.id]?.insetBy(dx: -44, dy: -44).contains(point) == true
+        }
+    }
+
+    private func placement(of point: CGPoint, in frame: CGRect) -> OverlayCompositor.Placement {
+        guard frame.width > 0, frame.height > 0 else { return .default }
+        return OverlayCompositor.Placement(
+            x: (point.x - frame.minX) / frame.width,
+            y: (point.y - frame.minY) / frame.height
+        )
+    }
+
+    private func beginEditing(_ id: UUID) {
+        if let editingID, editingID != id, let model {
+            model.finishEditing(editingID)
+        }
+        editingID = id
+        captionFocused = true
+    }
+
+    private func finishEditing() {
+        guard let editingID else { return }
+        captionFocused = false
+        self.editingID = nil
+        model?.finishEditing(editingID)
+    }
+
+    /// The caption as it will land, typed into in place: the same font, the
+    /// same wrap width and the same backing as the one on the photo, so
+    /// swapping the style while typing shows exactly what the swap does.
+    ///
+    /// One field for both styles, with only its measurements changing. Two
+    /// fields behind an `if` would be two views, and the swap would take the
+    /// keyboard away mid-sentence.
+    private func captionEditor(_ model: ComposeModel, id: UUID) -> some View {
+        let caption = model.caption(id) ?? OverlayCompositor.Caption(id: id)
+        let metrics = OverlayCompositor.metrics(
+            for: caption.style, scale: caption.scale, width: Double(max(photoWidth, 1))
+        )
+        let measured = OverlayCompositor.textSize(
+            caption.text.isEmpty ? Self.prompt : caption.text, metrics: metrics
+        )
+        // A plate hugs its text, plus room for the caret at the end of a line.
+        let fieldWidth = caption.style == .bar
+            ? metrics.maxTextWidth
+            : min(metrics.maxTextWidth, measured.width + metrics.fontSize * 0.2)
+
+        return ZStack {
+            Color.black.opacity(0.35)
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture { finishEditing() }
+
             TextField(
                 "",
-                text: Binding(get: { model.caption }, set: { model.setCaption($0) }),
-                prompt: Text("Add a caption").foregroundStyle(Color(white: 0.7))
+                text: Binding(
+                    get: { model.caption(id)?.text ?? "" },
+                    set: { text in
+                        // A vertical field turns Return into a newline rather
+                        // than a submit. A caption is one paragraph that wraps,
+                        // so Return means done.
+                        if text.contains("\n") {
+                            model.setText(text.replacingOccurrences(of: "\n", with: ""), of: id)
+                            finishEditing()
+                        } else {
+                            model.setText(text, of: id)
+                        }
+                    }
+                ),
+                prompt: Text(Self.prompt).foregroundStyle(Color(white: 0.7)),
+                axis: .vertical
             )
             .focused($captionFocused)
-            .font(.system(size: 20, weight: .semibold))
+            .font(Font(OverlayCompositor.font(for: metrics)))
             .foregroundStyle(.white)
+            .tint(.white)
             .multilineTextAlignment(.center)
-            .padding()
-            .background(Color.black.opacity(0.75))
             .submitLabel(.done)
-            .onSubmit { isEditingCaption = false }
+            .frame(width: fieldWidth)
+            .modifier(CaptionBacking(style: caption.style, metrics: metrics, photoWidth: photoWidth))
             .accessibilityIdentifier("compose.captionField")
-            Spacer()
+            .onAppear { captionFocused = true }
         }
-        .background(Color.black.opacity(0.45).ignoresSafeArea())
-        .contentShape(Rectangle())
-        .onTapGesture { isEditingCaption = false }
     }
 
     /// Where a `.scaledToFit` image actually lands inside its container.
@@ -293,6 +533,25 @@ struct ComposeScreen: View {
             width: size.width,
             height: size.height
         )
+    }
+}
+
+/// The band or the plate behind a caption, drawn from the same measurements
+/// `OverlayCompositor` burns in.
+private struct CaptionBacking: ViewModifier {
+    let style: OverlayCompositor.Caption.Style
+    let metrics: OverlayCompositor.Metrics
+    let photoWidth: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.horizontal, metrics.horizontalPadding)
+            .padding(.vertical, metrics.verticalPadding)
+            .frame(width: style == .bar ? photoWidth : nil)
+            .background(
+                RoundedRectangle(cornerRadius: metrics.cornerRadius)
+                    .fill(Color(uiColor: OverlayCompositor.backing(for: style)))
+            )
     }
 }
 #endif

@@ -6,8 +6,8 @@ import UIKit
 @MainActor
 @Observable
 public final class ComposeModel {
-    public var caption = ""
-    public var placement = OverlayCompositor.Placement.default
+    /// Every piece of text on the photo, bottom to top.
+    public private(set) var captions: [OverlayCompositor.Caption] = []
     public var duration: InstantDurationMode = .fiveSeconds
 
     /// The chosen look, applied to the photo on the way out.
@@ -111,8 +111,71 @@ public final class ComposeModel {
         )
     }
 
-    public func setCaption(_ text: String) {
-        caption = String(text.prefix(OverlayCompositor.maxCaptionLength))
+    // MARK: - Captions
+
+    public func caption(_ id: UUID) -> OverlayCompositor.Caption? {
+        captions.first { $0.id == id }
+    }
+
+    /// A new, empty caption on top of the others. It starts as the bar, which
+    /// has no horizontal position to speak of, so only the height of the tap
+    /// that made it matters until it becomes a plate.
+    @discardableResult
+    public func addCaption(at placement: OverlayCompositor.Placement) -> UUID {
+        let caption = OverlayCompositor.Caption(placement: placement)
+        captions.append(caption)
+        return caption.id
+    }
+
+    public func setText(_ text: String, of id: UUID) {
+        update(id) { $0.text = String(text.prefix(OverlayCompositor.maxCaptionLength)) }
+    }
+
+    public func toggleStyle(of id: UUID) {
+        update(id) { $0.style = $0.style == .bar ? .plate : .bar }
+    }
+
+    /// A bar keeps its horizontal centre where it was, because it has none on
+    /// screen: were it to take the finger's, it would jump sideways the moment
+    /// it became a plate.
+    public func move(_ id: UUID, to placement: OverlayCompositor.Placement) {
+        update(id) { caption in
+            caption.placement = caption.style == .bar
+                ? OverlayCompositor.Placement(x: caption.placement.x, y: placement.y)
+                : placement
+        }
+    }
+
+    public func rescale(_ id: UUID, to scale: Double) {
+        update(id) { caption in
+            guard caption.style == .plate else { return }
+            caption.scale = OverlayCompositor.clampScale(scale)
+        }
+    }
+
+    public func removeCaption(_ id: UUID) {
+        captions.removeAll { $0.id == id }
+    }
+
+    public func rotate(_ id: UUID, to radians: Double) {
+        update(id) { caption in
+            guard caption.style == .plate else { return }
+            caption.rotation = OverlayCompositor.normalizedRotation(radians)
+        }
+    }
+
+    /// Called when the editor closes. A caption left blank is removed rather
+    /// than kept as an invisible thing that can still be tapped.
+    public func finishEditing(_ id: UUID) {
+        guard let caption = caption(id) else { return }
+        if caption.trimmed.isEmpty {
+            removeCaption(id)
+        }
+    }
+
+    private func update(_ id: UUID, _ change: (inout OverlayCompositor.Caption) -> Void) {
+        guard let index = captions.firstIndex(where: { $0.id == id }) else { return }
+        change(&captions[index])
     }
 
     public func cycleDuration() {
@@ -126,8 +189,7 @@ public final class ComposeModel {
         InstantDraft(
             image: image,
             filter: filter,
-            caption: caption,
-            placement: placement,
+            captions: captions.filter { !$0.trimmed.isEmpty },
             duration: duration
         )
     }

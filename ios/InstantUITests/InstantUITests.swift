@@ -651,16 +651,55 @@ final class InstantUITests: XCTestCase {
         duration.tap()
         XCTAssertEqual(duration.value as? String, "1s")
 
-        app.buttons["compose.caption"].tap()
-        let field = app.textFields["compose.captionField"]
+        // A vertical text field is a text view to XCUITest, and a caption with
+        // gestures on it is not always a static text, so both are found by
+        // identifier alone.
+        let field = app.descendants(matching: .any)["compose.captionField"]
+        let captions = app.descendants(matching: .any).matching(identifier: "compose.captionOverlay")
+        let styleButton = app.buttons["compose.caption"]
+        // Above the editor, which sits in the middle of what the keyboard
+        // leaves, and clear of the text button on the right.
+        let backdrop = app.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.12))
+
+        styleButton.tap()
         XCTAssertTrue(field.waitForExistence(timeout: 15))
         // Type into the focused field and dismiss by tapping the backdrop.
         // Reaching for the keyboard's own Done key invites an interruption that
         // invalidates the element mid-test.
         app.typeText("hello from a test")
-        app.tap()
+        backdrop.tap()
+        XCTAssertTrue(captions.firstMatch.waitForExistence(timeout: 15))
+        XCTAssertEqual(captions.firstMatch.value as? String, "bar")
 
-        XCTAssertTrue(app.staticTexts["compose.captionOverlay"].waitForExistence(timeout: 15))
+        // Tapping the caption edits it; the text button then swaps its style.
+        captions.firstMatch.tap()
+        XCTAssertTrue(field.waitForExistence(timeout: 15))
+        XCTAssertEqual(styleButton.value as? String, "bar")
+        styleButton.tap()
+        XCTAssertEqual(styleButton.value as? String, "plate")
+        backdrop.tap()
+        XCTAssertTrue(captions.firstMatch.waitForExistence(timeout: 15))
+        XCTAssertEqual(captions.firstMatch.value as? String, "plate")
+
+        // Anywhere else on the photo starts a second caption.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)).tap()
+        XCTAssertTrue(field.waitForExistence(timeout: 15))
+        app.typeText("and another")
+        backdrop.tap()
+        XCTAssertTrue(captions.element(boundBy: 1).waitForExistence(timeout: 15))
+        XCTAssertEqual(captions.count, 2)
+
+        // Dragged onto the trash, which takes the top of the frame while a
+        // caption is held, one of them goes.
+        let plate = captions.matching(NSPredicate(format: "value == 'plate'")).firstMatch
+        plate.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(
+            forDuration: 0.1,
+            thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.135)),
+            withVelocity: .slow,
+            thenHoldForDuration: 0.5
+        )
+        XCTAssertTrue(plate.waitForNonExistence(timeout: 5))
+        XCTAssertEqual(captions.count, 1)
 
         app.buttons["compose.sendTo"].tap()
 

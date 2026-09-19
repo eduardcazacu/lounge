@@ -61,7 +61,7 @@ distinction real.
   ratio, because iOS reports stale landscape `videoWidth`/`videoHeight`.
 - **`InstantComposer.tsx`** — caption overlay positioned in image *fractions*,
   duration mode, recipient picker, WebP encode, then `sealForDevices` and
-  upload. The caption geometry here is mirrored in Swift; see
+  upload. The caption geometry here is the iOS plate caption at scale 1; see
   [parallel-implementations.md](parallel-implementations.md).
 - **`InstantViewer.tsx`** — full screen, countdown, and a guard against
   double-fetch because fetching the media destroys it server-side.

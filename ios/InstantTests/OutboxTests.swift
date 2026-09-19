@@ -30,8 +30,9 @@ struct OutboxTests {
             context.fill(CGRect(x: 0, y: 0, width: 200, height: 300))
         }
         return InstantDraft(
-            image: image, filter: .none, caption: caption,
-            placement: .default, duration: .fiveSeconds
+            image: image, filter: .none,
+            captions: caption.isEmpty ? [] : [OverlayCompositor.Caption(text: caption)],
+            duration: .fiveSeconds
         )
     }
 
