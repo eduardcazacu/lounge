@@ -30,6 +30,21 @@ public struct WhatsNew: Equatable, Sendable {
                 title: "Send to everyone",
                 detail: "Tap All to send a photo to everyone who has Instant set up. It asks you first, so a slip of the thumb doesn't send it to the whole Lounge."
             ),
+            Item(
+                symbol: "textformat",
+                title: "Write anywhere on a photo",
+                detail: "Tap anywhere on a photo you've just taken to write on it, and tap somewhere else to add more. Long text wraps onto a new line. Tap any text to change it."
+            ),
+            Item(
+                symbol: "character.textbox",
+                title: "Two styles of text",
+                detail: "Text starts on a band across the photo. While you're typing, tap the button at the top right to put it in its own box instead, which you can drag anywhere, pinch to make bigger or smaller, and turn with two fingers."
+            ),
+            Item(
+                symbol: "trash",
+                title: "Drag text away to delete it",
+                detail: "Hold a piece of text and drag it onto the bin at the top of the photo."
+            ),
         ],
         fixes: []
     )
