@@ -477,6 +477,47 @@ struct OverlayCompositorTests {
         #expect(OverlayCompositor.metrics(for: .plate, scale: 99, width: 1000) == big)
     }
 
+    @Test("A drawn line changes the pixels, and its ink and path both matter")
+    func burnsStrokesIn() throws {
+        let base = photo(200, 300)
+        func encoded(_ strokes: [OverlayCompositor.Stroke]) throws -> Data {
+            try WebPEncoder.encode(
+                OverlayCompositor.composite(image: base, strokes: strokes, captions: []),
+                quality: 1
+            )
+        }
+        let line = [CGPoint(x: 0.2, y: 0.2), CGPoint(x: 0.5, y: 0.4), CGPoint(x: 0.8, y: 0.3)]
+        let red = OverlayCompositor.Stroke(ink: .red, points: line)
+        let blue = OverlayCompositor.Stroke(ink: .blue, points: line)
+        let elsewhere = OverlayCompositor.Stroke(
+            ink: .red, points: line.map { CGPoint(x: $0.x, y: $0.y + 0.4) }
+        )
+
+        #expect(try encoded([red]) != (try WebPEncoder.encode(base, quality: 1)))
+        #expect(try encoded([red]) != (try encoded([blue])))
+        #expect(try encoded([red]) != (try encoded([elsewhere])))
+        // A tap is a dot, not nothing.
+        let dot = OverlayCompositor.Stroke(ink: .white, points: [CGPoint(x: 0.5, y: 0.5)])
+        #expect(try encoded([dot]) != (try WebPEncoder.encode(base, quality: 1)))
+        // A line with no points leaves the photo as it was.
+        let empty = OverlayCompositor.Stroke(ink: .white, points: [])
+        #expect(try encoded([empty]) == (try WebPEncoder.encode(base, quality: 1)))
+    }
+
+    @Test("A line is sized and placed from the photo, not from the screen")
+    func strokeScalesWithWidth() {
+        #expect(OverlayCompositor.strokeWidth(forWidth: 1000) == 15)
+        #expect(OverlayCompositor.strokeWidth(forWidth: 400) / 400 == 0.015)
+
+        let stroke = OverlayCompositor.Stroke(
+            ink: .white, points: [CGPoint(x: 0.25, y: 0.5), CGPoint(x: 0.75, y: 0.5)]
+        )
+        let small = OverlayCompositor.path(for: stroke, size: CGSize(width: 100, height: 200))
+        let large = OverlayCompositor.path(for: stroke, size: CGSize(width: 1000, height: 2000))
+        #expect(small.boundingBoxOfPath == CGRect(x: 25, y: 100, width: 50, height: 0))
+        #expect(large.boundingBoxOfPath == CGRect(x: 250, y: 1000, width: 500, height: 0))
+    }
+
     @Test("Long captions are truncated to the wire limit")
     func truncatesLongCaption() {
         let composited = OverlayCompositor.composite(

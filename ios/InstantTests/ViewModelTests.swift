@@ -806,6 +806,38 @@ struct ComposeModelTests {
         model.rescale(id, to: 0.01)
         #expect(model.caption(id)?.scale == OverlayCompositor.scaleRange.lowerBound)
     }
+
+    @Test("A line is drawn in the ink chosen when it began, and goes out with the draft")
+    func drawsInTheChosenInk() {
+        let model = ComposeModel(image: photo())
+        model.ink = .red
+        model.beginStroke(at: CGPoint(x: 0.1, y: 0.1))
+        model.extendStroke(to: CGPoint(x: 0.2, y: 0.2))
+        model.ink = .blue
+        model.beginStroke(at: CGPoint(x: 0.5, y: 0.5))
+
+        #expect(model.strokes.map(\.ink) == [.red, .blue])
+        #expect(model.strokes.first?.points == [CGPoint(x: 0.1, y: 0.1), CGPoint(x: 0.2, y: 0.2)])
+        #expect(model.draft.strokes == model.strokes)
+    }
+
+    @Test("Undo takes back the last whole line, and nothing once there is none")
+    func undoesTheLastLine() {
+        let model = ComposeModel(image: photo())
+        model.beginStroke(at: CGPoint(x: 0.1, y: 0.1))
+        model.extendStroke(to: CGPoint(x: 0.2, y: 0.2))
+        model.beginStroke(at: CGPoint(x: 0.5, y: 0.5))
+        model.extendStroke(to: CGPoint(x: 0.6, y: 0.6))
+        let first = model.strokes[0]
+
+        model.undoStroke()
+        #expect(model.strokes == [first])
+        model.undoStroke()
+        #expect(model.strokes.isEmpty)
+        model.undoStroke()
+        #expect(model.strokes.isEmpty)
+        #expect(model.draft.strokes.isEmpty)
+    }
 }
 
 @MainActor

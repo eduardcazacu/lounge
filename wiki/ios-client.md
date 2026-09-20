@@ -27,7 +27,7 @@ Points at `https://api.lounge.eduardcazacu.com` by default; switch
   `UserAPI`, `ModerationAPI`), all behind `Sendable` protocols.
 - **`Core/Realtime`** — `InboxSocket`, the WebSocket inbox.
 - **`Core/Media`** — libwebp encoding, the compression ladder, the caption
-  compositor, the filters, the sensitivity check.
+  and drawing compositor, the filters, the sensitivity check.
 - **`Core/Camera`** — capture behind a protocol, so the Simulator's
   photo-library fallback and the UI tests' fixed frame are the same seam.
 - **`Core/Store`** — `InstantStore` (the live inbox), the inbox cache,
@@ -93,8 +93,8 @@ the shot, and that is a property of the preview rather than a preference:
 with nowhere to hang a `CIFilter`, so a filtered viewfinder would mean replacing
 the preview with a video-data-output and a Metal path.
 
-The look is baked into the pixels before the captions and before the seal, for
-the same reason the captions are: the server holds nothing but ciphertext, so
+The look is baked into the pixels before the drawing, the captions and the
+seal, for the same reason those are: the server holds nothing but ciphertext, so
 there is no later moment at which either could be applied, and no filter name
 rides along on the wire.
 
@@ -141,12 +141,44 @@ switching style mid-sentence keeps the keyboard up. Return means done, because
 a caption is one paragraph that wraps. A caption closed while blank is
 removed.
 
+## Drawing
+
+The pencil in the rail turns the photo into a page to draw on. While it is on,
+every other tool is hidden — the cross, the text button, filters, duration and
+Send — and the pencil moves to the top of the rail with the colours in a column
+under it and undo beside it. The pencil is the only way out.
+
+One flag decides what a finger on the photo does. While drawing, the drawing
+gesture is the only one enabled (`isEnabled:` in `ComposeScreen.swift`), and
+captions stop taking touches, so a tap is a dot rather than a new caption and a
+finger on a caption draws over it. The other gestures are switched off, not
+outranked: an outranked tap is still waited on (see [gotchas.md](gotchas.md)).
+
+The line is drawn by `DrawingLayer`, a view of its own that reads the strokes in
+its `body`, so each new point redraws that layer and not the whole screen.
+
+Points are stored as fractions of the photo, like a caption's placement, but
+unclamped: a line may run off the edge. The width is fixed at 1.5% of the
+photo's width (`OverlayCompositor.strokeWidth`), so it is the same share of the
+picture on screen and at capture resolution. The preview and the compositor
+stroke the same `OverlayCompositor.path`, which curves through the midpoints
+between samples. Joined straight, a finger sampled 60–120 times a second draws
+a corner at every sample.
+
+A new line is detected by the drag's start location changing, not only by
+`onEnded`. A cancelled touch never reaches `onEnded`, and the next line would
+then be joined on to the last. Undo removes the last whole line.
+
+The drawing lies **under** the captions, on screen and in the pixels, so a
+scribble cannot make text unreadable, and it goes on after the filter, so ink
+keeps its colour.
+
 ## Sending
 
 Tapping Send closes the compose screen at once. `ComposeModel.draft` hands the
 original photo and every choice made about it to `Outbox`
 (`ios/Instant/Core/Store/Outbox.swift`). The outbox then looks up the
-recipient's devices, applies the filter and captions, encodes and seals off the
+recipient's devices, applies the filter, drawing and captions, encodes and seals off the
 main actor, and uploads. That used to hold the compose screen for seconds.
 
 **Several recipients are several instants.** The picker ticks any number of

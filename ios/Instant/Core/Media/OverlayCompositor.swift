@@ -2,16 +2,17 @@
 import Foundation
 import UIKit
 
-/// Burns the captions into the pixels.
+/// Burns the drawing and the captions into the pixels.
 ///
-/// Captions are deliberately not a field on the wire: the backend only ever
-/// sees final image bytes, and since those bytes are encrypted it could not read
-/// the text even if it wanted to.
+/// Neither is a field on the wire: the backend only ever sees final image
+/// bytes, and since those bytes are encrypted it could not read the text even
+/// if it wanted to.
 ///
 /// A plate caption at scale 1 is the web composer's caption
-/// (`frontend/src/components/instant/InstantComposer.tsx`). The bar, the scale
-/// and there being more than one caption exist only here — the web composer
-/// cannot produce them, but it never has to: what arrives is pixels.
+/// (`frontend/src/components/instant/InstantComposer.tsx`). The bar, the
+/// scale, there being more than one caption, and drawing exist only here — the
+/// web composer cannot produce them, but it never has to: what arrives is
+/// pixels.
 public enum OverlayCompositor {
     /// Normalized position of a caption's centre, clamped to the same
     /// 0.05...0.95 range the web composer uses so a caption cannot be dragged
@@ -83,6 +84,80 @@ public enum OverlayCompositor {
     }
 
     public static let maxCaptionLength = 80
+
+    /// The drawing pen's colours. A fixed handful rather than a picker: a
+    /// finger on a photo wants a few loud, distinct colours, not a spectrum.
+    public enum Ink: String, CaseIterable, Sendable {
+        case white, black, red, orange, yellow, green, blue, purple, pink
+
+        public var color: UIColor {
+            switch self {
+            case .white: UIColor(white: 1, alpha: 1)
+            case .black: UIColor(white: 0, alpha: 1)
+            case .red: UIColor(red: 1, green: 0.23, blue: 0.19, alpha: 1)
+            case .orange: UIColor(red: 1, green: 0.58, blue: 0, alpha: 1)
+            case .yellow: UIColor(red: 1, green: 0.84, blue: 0.04, alpha: 1)
+            case .green: UIColor(red: 0.2, green: 0.84, blue: 0.29, alpha: 1)
+            case .blue: UIColor(red: 0.04, green: 0.52, blue: 1, alpha: 1)
+            case .purple: UIColor(red: 0.69, green: 0.32, blue: 0.87, alpha: 1)
+            case .pink: UIColor(red: 1, green: 0.22, blue: 0.62, alpha: 1)
+            }
+        }
+    }
+
+    /// One touch of the pen, from finger down to finger up.
+    public struct Stroke: Identifiable, Equatable, Sendable {
+        public let id: UUID
+        public let ink: Ink
+        /// Fractions of the photo, like a caption's placement, so the preview
+        /// and the full-resolution render draw the same line. Unclamped: a
+        /// line may run off the edge, and whatever is off it is simply not
+        /// drawn.
+        public var points: [CGPoint]
+
+        public init(id: UUID = UUID(), ink: Ink, points: [CGPoint]) {
+            self.id = id
+            self.ink = ink
+            self.points = points
+        }
+    }
+
+    /// Fixed, and a fraction of the photo's width rather than of the screen,
+    /// so a line is the same share of the picture at any capture resolution.
+    public static func strokeWidth(forWidth width: Double) -> Double {
+        width * 0.015
+    }
+
+    /// The line through a stroke's points, at `size`. The compose screen draws
+    /// this same path over the preview, which is what keeps it honest.
+    ///
+    /// Curved through the midpoints between samples, with each sample as the
+    /// control point. Joined straight, a finger sampled sixty to a hundred and
+    /// twenty times a second draws a visible corner at every sample.
+    public static func path(for stroke: Stroke, size: CGSize) -> CGPath {
+        let points = stroke.points.map {
+            CGPoint(x: $0.x * size.width, y: $0.y * size.height)
+        }
+        let path = CGMutablePath()
+        guard let first = points.first, let last = points.last else { return path }
+        path.move(to: first)
+        // A tap is a stroke of one point; a round cap on a line of no length
+        // is a dot.
+        guard points.count > 1 else {
+            path.addLine(to: first)
+            return path
+        }
+        for index in 1..<points.count {
+            let previous = points[index - 1]
+            let current = points[index]
+            path.addQuadCurve(
+                to: CGPoint(x: (previous.x + current.x) / 2, y: (previous.y + current.y) / 2),
+                control: previous
+            )
+        }
+        path.addLine(to: last)
+        return path
+    }
 
     /// Small enough to stay legible, large enough that a caption can fill most
     /// of the photo's width in a few words.
@@ -163,10 +238,15 @@ public enum OverlayCompositor {
         style == .bar ? barColor : plateColor
     }
 
-    public static func composite(image: UIImage, captions: [Caption]) -> UIImage {
+    public static func composite(
+        image: UIImage,
+        strokes: [Stroke] = [],
+        captions: [Caption]
+    ) -> UIImage {
         let base = ImagePipeline.normalizingOrientation(image)
         let drawn = captions.filter { !$0.trimmed.isEmpty }
-        guard !drawn.isEmpty else { return base }
+        let lines = strokes.filter { !$0.points.isEmpty }
+        guard !drawn.isEmpty || !lines.isEmpty else { return base }
 
         let size = base.size
         let format = UIGraphicsImageRendererFormat.preferred()
@@ -175,6 +255,9 @@ public enum OverlayCompositor {
 
         return UIGraphicsImageRenderer(size: size, format: format).image { context in
             base.draw(in: CGRect(origin: .zero, size: size))
+            // Under the captions, as on the compose screen, so a scribble
+            // never makes the text unreadable.
+            draw(lines, in: context.cgContext, size: size)
             // In order, so a later caption lands on top — as it does on the
             // compose screen.
             for caption in drawn {
@@ -208,6 +291,19 @@ public enum OverlayCompositor {
             .foregroundColor: UIColor.white,
             .paragraphStyle: paragraph,
         ]
+    }
+
+    private static func draw(_ strokes: [Stroke], in context: CGContext, size: CGSize) {
+        context.saveGState()
+        defer { context.restoreGState() }
+        context.setLineWidth(strokeWidth(forWidth: Double(size.width)))
+        context.setLineCap(.round)
+        context.setLineJoin(.round)
+        for stroke in strokes {
+            context.addPath(path(for: stroke, size: size))
+            context.setStrokeColor(stroke.ink.color.cgColor)
+            context.strokePath()
+        }
     }
 
     private static func draw(_ caption: Caption, in context: CGContext, size: CGSize) {

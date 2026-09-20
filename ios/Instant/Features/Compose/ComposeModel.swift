@@ -8,6 +8,10 @@ import UIKit
 public final class ComposeModel {
     /// Every piece of text on the photo, bottom to top.
     public private(set) var captions: [OverlayCompositor.Caption] = []
+    /// The drawing, oldest line first. Undo takes from the end.
+    public private(set) var strokes: [OverlayCompositor.Stroke] = []
+    /// The pen's colour for the next line. Lines already drawn keep theirs.
+    public var ink: OverlayCompositor.Ink = .white
     public var duration: InstantDurationMode = .fiveSeconds
 
     /// The chosen look, applied to the photo on the way out.
@@ -178,6 +182,26 @@ public final class ComposeModel {
         change(&captions[index])
     }
 
+    // MARK: - Drawing
+
+    /// A new line in the current ink, starting where the finger went down.
+    /// Points are fractions of the photo.
+    public func beginStroke(at point: CGPoint) {
+        strokes.append(OverlayCompositor.Stroke(ink: ink, points: [point]))
+    }
+
+    /// Continues the line being drawn, which is always the newest.
+    public func extendStroke(to point: CGPoint) {
+        guard !strokes.isEmpty else { return }
+        strokes[strokes.count - 1].points.append(point)
+    }
+
+    /// Takes back the last whole line, not the last few points: a line is
+    /// what the finger drew in one go, and that is the thing that went wrong.
+    public func undoStroke() {
+        _ = strokes.popLast()
+    }
+
     public func cycleDuration() {
         duration = duration.next
     }
@@ -189,6 +213,7 @@ public final class ComposeModel {
         InstantDraft(
             image: image,
             filter: filter,
+            strokes: strokes,
             captions: captions.filter { !$0.trimmed.isEmpty },
             duration: duration
         )

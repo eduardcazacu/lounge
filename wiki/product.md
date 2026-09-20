@@ -27,7 +27,7 @@ their own.
 
 - **Posts** — markdown, one image each, comments, likes, @-mentions.
 - **Chat** — a single room with a retention window, default 24 hours.
-- **Instant** — a photo, optionally captioned, sealed to the recipient's
+- **Instant** — a photo, optionally captioned or drawn on, sealed to the recipient's
   devices, viewable once and then gone. Streaks count consecutive days two
   people send to each other.
 - **Themes** — each person picks a palette that follows them around the app, so

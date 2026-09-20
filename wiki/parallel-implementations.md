@@ -52,8 +52,8 @@ The iOS **plate** caption at scale 1 matches the web's only caption:
 `ios/Instant/Core/Media/OverlayCompositor.swift` against
 `frontend/src/components/instant/InstantComposer.tsx`, font 6% of the image
 width, positions clamped to 0.05–0.95. The bar style, the pinch scale, the
-rotation and several captions per photo are iOS-only and have no web side to
-keep in step.
+rotation, several captions per photo and drawing are iOS-only and have no web
+side to keep in step.
 
 A caption is burned into the pixels before the photo is sealed, so its position
 is stored as **image fractions** and never travels on the wire. Two clients
@@ -63,7 +63,9 @@ with nothing to compare against afterwards.
 Inside the app, the compose preview (`ComposeScreen.swift`) and the compositor
 are the other pair. Both size a caption from `OverlayCompositor.metrics` and
 wrap it with `OverlayCompositor.textSize`, which is how the preview's line
-breaks match the pixels. A preview that measured its own text would drift.
+breaks match the pixels. A preview that measured its own text would drift. A
+drawn line is the same: both stroke `OverlayCompositor.path` at the width
+`OverlayCompositor.strokeWidth` gives for the photo's width.
 
 ## The wire types — `common/` and hand-written Swift
 

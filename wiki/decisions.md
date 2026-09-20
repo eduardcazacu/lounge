@@ -174,14 +174,15 @@ be remembered. See [gotchas.md](gotchas.md).
 
 ---
 
-## Filters and captions are baked into the pixels
+## Filters, drawing and captions are baked into the pixels
 
-**Chosen** both are applied before the photo is sealed.
+**Chosen** all three are applied before the photo is sealed.
 
-**Rejected** sending a filter name or caption text alongside the ciphertext.
+**Rejected** sending a filter name, strokes or caption text alongside the
+ciphertext.
 
 **Because** the server holds nothing but ciphertext, so there is no later moment
-at which either could be applied — and nothing about the photo's content rides
+at which any of them could be applied — and nothing about the photo's content rides
 on the wire in the clear.
 
 **Cost paid** the caption's geometry has to match between two clients; see
@@ -189,16 +190,17 @@ on the wire in the clear.
 
 ---
 
-## iOS captions do more than the web's
+## The iOS composer does more than the web's
 
 **Chosen** several captions per photo on iOS, each either a full-width bar (the
 default) or a plate that drags anywhere, turns, and pinches between 0.5× and 3×
-(`OverlayCompositor.scaleRange`). The web composer keeps its single plate.
+(`OverlayCompositor.scaleRange`), and drawing with a finger. The web composer
+keeps its single plate and does not draw.
 
-**Rejected** holding iOS to what the web can do, and porting the styles to the
-web in the same change.
+**Rejected** holding iOS to what the web can do, and porting the styles or the
+pen to the web in the same change.
 
-**Because** captions arrive as pixels, so nothing that receives a photo depends
+**Because** captions and drawings arrive as pixels, so nothing that receives a photo depends
 on which client composed it. The web composer is a harness for the protocol
 rather than the product's camera ([web-client.md](web-client.md)).
 

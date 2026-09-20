@@ -30,6 +30,13 @@ struct ComposeScreen: View {
     @State private var draggingID: UUID?
     @State private var trashFrame: CGRect = .zero
     @State private var isOverTrash = false
+    /// While on, the photo is a page to draw on: a finger draws instead of
+    /// starting a caption, and every other tool steps aside.
+    @State private var isDrawing = false
+    /// Where the finger went down for the line being drawn. A new start is a
+    /// new line; it is not left to `onEnded` alone, which a cancelled touch
+    /// never reaches, and the next line would then join on to the last.
+    @State private var strokeStart: CGPoint?
 
     /// The caption a two-finger gesture took hold of, and its value when it
     /// did: the gesture reports a total since it began, not a step.
@@ -63,6 +70,8 @@ struct ComposeScreen: View {
                             .frame(width: proxy.size.width, height: proxy.size.height)
                             .accessibilityIdentifier("compose.preview")
 
+                        DrawingLayer(model: model, frame: frame)
+
                         ForEach(model.captions.filter { $0.id != editingID && !$0.trimmed.isEmpty }) {
                             captionOverlay($0, model, in: frame)
                         }
@@ -72,14 +81,23 @@ struct ComposeScreen: View {
                     .coordinateSpace(.named(Self.photoSpace))
                     // Anywhere that is not already a caption starts a new one.
                     // A caption's own tap is nearer, so it wins on the caption.
-                    .onTapGesture { location in
-                        beginEditing(model.addCaption(at: placement(of: location, in: frame)))
-                    }
+                    //
+                    // Drawing switches every other gesture off with `isEnabled`
+                    // rather than outranking them. A tap that is merely
+                    // outranked is still waited on, and it only fails when the
+                    // finger lifts, so the whole line arrived at once.
+                    .gesture(
+                        SpatialTapGesture().onEnded { value in
+                            beginEditing(model.addCaption(at: placement(of: value.location, in: frame)))
+                        },
+                        isEnabled: !isDrawing
+                    )
                     // On the photo rather than on each caption: two fingers
                     // rarely both land on a line of text, so the pinch goes to
                     // the caption it started nearest.
-                    .simultaneousGesture(pinch(model))
-                    .simultaneousGesture(turn(model))
+                    .simultaneousGesture(pinch(model), isEnabled: !isDrawing)
+                    .simultaneousGesture(turn(model), isEnabled: !isDrawing)
+                    .gesture(draw(model, in: frame), isEnabled: isDrawing)
                     .onChange(of: frame.width, initial: true) { _, width in
                         photoWidth = width
                     }
@@ -103,11 +121,14 @@ struct ComposeScreen: View {
                             trash
                         } else {
                             HStack(alignment: .top) {
-                                if editingID == nil {
+                                if editingID == nil && !isDrawing {
                                     CircleIconButton(systemName: "xmark") { onDiscard() }
                                         .accessibilityIdentifier("compose.discard")
                                 }
                                 Spacer()
+                                if isDrawing {
+                                    UndoButton(model: model)
+                                }
                                 toolRail(model)
                             }
                         }
@@ -115,7 +136,7 @@ struct ComposeScreen: View {
                         // While typing, the text button is the only control:
                         // everything else would be a way to leave the caption
                         // half-written.
-                        if editingID == nil && draggingID == nil {
+                        if editingID == nil && draggingID == nil && !isDrawing {
                             if showsFilters {
                                 filterStrip(model)
                                     .padding(.bottom, 14)
@@ -125,6 +146,7 @@ struct ComposeScreen: View {
                         }
                     }
                     .animation(.easeOut(duration: 0.2), value: showsFilters)
+                    .animation(.easeOut(duration: 0.2), value: isDrawing)
                 }
             }
         }
@@ -145,10 +167,16 @@ struct ComposeScreen: View {
 
     private func toolRail(_ model: ComposeModel) -> some View {
         VStack(spacing: 12) {
-            textButton(model)
+            if isDrawing {
+                drawButton
+                inkBar(model)
+            } else {
+                textButton(model)
 
-            if editingID == nil {
-                otherTools(model)
+                if editingID == nil {
+                    drawButton
+                    otherTools(model)
+                }
             }
         }
     }
@@ -303,6 +331,73 @@ struct ComposeScreen: View {
         onDiscard()
     }
 
+    // MARK: - Drawing
+
+    /// The only way out of drawing, so while drawing it is the only tool left
+    /// in the rail, at the top, with the colours under it.
+    private var drawButton: some View {
+        CircleIconButton(systemName: "pencil", isOn: isDrawing) {
+            isDrawing.toggle()
+        }
+        .accessibilityIdentifier("compose.draw")
+        .accessibilityLabel("Draw")
+        .accessibilityValue(isDrawing ? "on" : "off")
+    }
+
+    private func inkBar(_ model: ComposeModel) -> some View {
+        VStack(spacing: 6) {
+            ForEach(OverlayCompositor.Ink.allCases, id: \.self) { ink in
+                let isSelected = model.ink == ink
+                Button {
+                    model.ink = ink
+                } label: {
+                    Circle()
+                        .fill(Color(uiColor: ink.color))
+                        .frame(width: 24, height: 24)
+                        // White and black each vanish against half of all
+                        // photos, so every swatch carries a ring.
+                        .overlay(Circle().strokeBorder(Color.white, lineWidth: isSelected ? 3 : 1.5))
+                        .scaleEffect(isSelected ? 1.25 : 1)
+                        .frame(width: 44, height: 30)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("compose.ink.\(ink.rawValue)")
+                .accessibilityLabel(ink.rawValue.capitalized)
+                .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+            }
+        }
+        .padding(.vertical, 8)
+        .background(Capsule().fill(Color.black.opacity(0.35)))
+        .animation(.spring(duration: 0.2), value: model.ink)
+    }
+
+    /// Read in the photo's own space, which stays put while a line is drawn —
+    /// unlike a caption, nothing under the finger moves, so there is nothing
+    /// for the reading to chase. No minimum distance, so a tap leaves a dot.
+    private func draw(_ model: ComposeModel, in frame: CGRect) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                let point = fraction(of: value.location, in: frame)
+                if strokeStart == value.startLocation {
+                    model.extendStroke(to: point)
+                } else {
+                    strokeStart = value.startLocation
+                    model.beginStroke(at: point)
+                }
+            }
+            .onEnded { _ in strokeStart = nil }
+    }
+
+    /// Unclamped, unlike a caption's placement: a line may run off the edge.
+    private func fraction(of point: CGPoint, in frame: CGRect) -> CGPoint {
+        guard frame.width > 0, frame.height > 0 else { return .zero }
+        return CGPoint(
+            x: (point.x - frame.minX) / frame.width,
+            y: (point.y - frame.minY) / frame.height
+        )
+    }
+
     // MARK: - Captions
 
     /// Positioned against the *image* rect, not the container. Anchoring to the
@@ -332,6 +427,9 @@ struct ComposeScreen: View {
             .rotationEffect(.radians(caption.drawnRotation))
             .onTapGesture { beginEditing(caption.id) }
             .gesture(drag(caption, model, in: frame))
+            // While drawing, a finger on a caption draws over it rather than
+            // moving it.
+            .allowsHitTesting(!isDrawing)
             .onGeometryChange(for: CGRect.self) {
                 $0.frame(in: .named(Self.photoSpace))
             } action: {
@@ -533,6 +631,66 @@ struct ComposeScreen: View {
             width: size.width,
             height: size.height
         )
+    }
+}
+
+/// Stroked from `OverlayCompositor.path`, at the photo's size on screen, with
+/// the width it takes from that size — the compositor does the same at full
+/// resolution, which is what puts the line where it was drawn. Beneath the
+/// captions, as it is in the pixels.
+///
+/// Its own view so that a line being drawn redraws this layer alone, not the
+/// whole compose screen, sixty to a hundred and twenty times a second. The
+/// strokes are read here in `body` and handed to the canvas as a value:
+/// `Canvas` runs its closure after `body`, where reading the model is not
+/// observed, so a line read there would appear only when the finger lifted.
+private struct DrawingLayer: View {
+    let model: ComposeModel
+    let frame: CGRect
+
+    var body: some View {
+        let strokes = model.strokes
+        Canvas { context, size in
+            let style = StrokeStyle(
+                lineWidth: OverlayCompositor.strokeWidth(forWidth: Double(size.width)),
+                lineCap: .round,
+                lineJoin: .round
+            )
+            for stroke in strokes {
+                context.stroke(
+                    Path(OverlayCompositor.path(for: stroke, size: size)),
+                    with: .color(Color(uiColor: stroke.ink.color)),
+                    style: style
+                )
+            }
+        }
+        .frame(width: frame.width, height: frame.height)
+        // A letterboxed photo has bars beside it, and nothing drawn over them
+        // is sent.
+        .clipped()
+        .offset(x: frame.minX, y: frame.minY)
+        .allowsHitTesting(false)
+        .accessibilityElement()
+        .accessibilityIdentifier("compose.drawing")
+        .accessibilityValue("\(strokes.count)")
+    }
+}
+
+/// Its own view for the same reason as `DrawingLayer`: it reads the strokes,
+/// and read in the compose screen's body, every point of a line would rebuild
+/// the whole screen.
+private struct UndoButton: View {
+    let model: ComposeModel
+
+    var body: some View {
+        let isEmpty = model.strokes.isEmpty
+        CircleIconButton(systemName: "arrow.uturn.backward") {
+            model.undoStroke()
+        }
+        .disabled(isEmpty)
+        .opacity(isEmpty ? 0.4 : 1)
+        .accessibilityIdentifier("compose.undo")
+        .accessibilityLabel("Undo")
     }
 }
 

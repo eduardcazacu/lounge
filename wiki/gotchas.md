@@ -178,6 +178,19 @@ the banner is passed through untouched either way.
 why the widget's view and timeline live in `ios/Shared/` rather than in
 `InstantWidget`.
 
+**A gesture that outranks a tap still waits for it.** A `DragGesture` attached
+with `highPriorityGesture`, or with a `GestureMask` meant to switch the others
+off, on a view that also has a tap, had every `onChanged` held back and
+delivered in one burst when the finger lifted. That is when the tap fails.
+Nothing errors, and a UI test that checks only the end state passes. Take the
+competing gesture out with `isEnabled:` instead (`ComposeScreen.swift`, the
+drawing).
+
+**A `Canvas` closure is not observed.** It runs after `body`, so an
+`@Observable` property read only inside it does not redraw the canvas when it
+changes. Read the value in `body` and let the closure capture it
+(`DrawingLayer`).
+
 **UI-test fixtures need relative timestamps.** A fixed future date in
 `StubBackend` inverted the recency ordering and the failure looked like a
 sorting bug.

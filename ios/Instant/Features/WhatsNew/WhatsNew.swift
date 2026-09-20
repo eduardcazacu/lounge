@@ -45,6 +45,11 @@ public struct WhatsNew: Equatable, Sendable {
                 title: "Drag text away to delete it",
                 detail: "Hold a piece of text and drag it onto the bin at the top of the photo."
             ),
+            Item(
+                symbol: "pencil",
+                title: "Draw on a photo",
+                detail: "Tap the pencil to draw with your finger, and pick a colour from the column under it. Undo takes back the last line. Tap the pencil again when you're done."
+            ),
         ],
         fixes: []
     )

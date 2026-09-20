@@ -713,6 +713,68 @@ final class InstantUITests: XCTestCase {
         XCTAssertTrue(shutter.waitForExistence(timeout: 30))
     }
 
+    /// Drawing takes over the screen: the other tools go, the colours and undo
+    /// come, and the photo stops taking a tap as the start of a caption.
+    func testDrawingHidesTheOtherToolsAndUndoesLineByLine() {
+        let app = launch(signedIn: true)
+
+        let shutter = app.buttons["camera.shutter"]
+        XCTAssertTrue(shutter.waitForExistence(timeout: 30))
+        shutter.tap()
+        XCTAssertTrue(app.buttons["compose.sendTo"].waitForExistence(timeout: 30))
+
+        let draw = app.buttons["compose.draw"]
+        let undo = app.buttons["compose.undo"]
+        let drawing = app.descendants(matching: .any)["compose.drawing"]
+        XCTAssertTrue(draw.waitForExistence(timeout: 15))
+        XCTAssertFalse(undo.exists)
+        draw.tap()
+        XCTAssertEqual(draw.value as? String, "on")
+
+        XCTAssertTrue(app.buttons["compose.ink.red"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["compose.caption"].waitForNonExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["compose.filters"].exists)
+        XCTAssertFalse(app.buttons["compose.discard"].exists)
+        XCTAssertFalse(app.buttons["compose.sendTo"].exists)
+        XCTAssertFalse(undo.isEnabled)
+
+        app.buttons["compose.ink.red"].tap()
+        XCTAssertTrue(app.buttons["compose.ink.red"].isSelected)
+
+        func stroke(from start: CGVector, to end: CGVector) {
+            app.coordinate(withNormalizedOffset: start).press(
+                forDuration: 0.05,
+                thenDragTo: app.coordinate(withNormalizedOffset: end)
+            )
+        }
+        stroke(from: CGVector(dx: 0.2, dy: 0.4), to: CGVector(dx: 0.6, dy: 0.5))
+        XCTAssertEqual(drawing.value as? String, "1")
+        // A tap draws a dot rather than starting a caption.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0.7)).tap()
+        XCTAssertEqual(drawing.value as? String, "2")
+        XCTAssertFalse(app.descendants(matching: .any)["compose.captionField"].exists)
+
+        XCTAssertTrue(undo.isEnabled)
+        undo.tap()
+        XCTAssertEqual(drawing.value as? String, "1")
+
+        // Leaving keeps the drawing and brings the tools back.
+        draw.tap()
+        XCTAssertEqual(draw.value as? String, "off")
+        XCTAssertTrue(app.buttons["compose.caption"].waitForExistence(timeout: 5))
+        XCTAssertFalse(undo.exists)
+        XCTAssertFalse(app.buttons["compose.ink.red"].exists)
+        XCTAssertEqual(drawing.value as? String, "1")
+
+        app.buttons["compose.sendTo"].tap()
+        let recipient = app.buttons["sendTo.row.Ana"]
+        XCTAssertTrue(recipient.waitForExistence(timeout: 30))
+        recipient.tap()
+        app.buttons["sendTo.send"].tap()
+
+        XCTAssertTrue(shutter.waitForExistence(timeout: 30))
+    }
+
     /// The look is chosen against the photo, so the strip has to be reachable
     /// from the compose screen and survive being folded away again.
     func testPickingAFilterSticksAndSends() {

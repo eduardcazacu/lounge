@@ -7,22 +7,25 @@ import UserNotifications
 /// Everything the compose screen decided, before any of it is applied.
 ///
 /// Handed over whole so the compose screen can close the moment Send is
-/// tapped: the filter, the captions and the encryption all happen afterwards,
-/// off the main actor.
+/// tapped: the filter, the drawing, the captions and the encryption all happen
+/// afterwards, off the main actor.
 public struct InstantDraft: Sendable {
     public let image: UIImage
     public let filter: PhotoFilter
+    public let strokes: [OverlayCompositor.Stroke]
     public let captions: [OverlayCompositor.Caption]
     public let duration: InstantDurationMode
 
     public init(
         image: UIImage,
         filter: PhotoFilter,
+        strokes: [OverlayCompositor.Stroke] = [],
         captions: [OverlayCompositor.Caption],
         duration: InstantDurationMode
     ) {
         self.image = image
         self.filter = filter
+        self.strokes = strokes
         self.captions = captions
         self.duration = duration
     }
@@ -493,14 +496,16 @@ public final class Outbox {
     /// because it needs the key lookup this runs alongside, and takes a
     /// millisecond or two.
     ///
-    /// The look goes on before the captions, so their backing keeps its own
-    /// contrast instead of being tinted along with the photo — and both are
-    /// burned into the pixels here rather than sent as fields. The server only
-    /// ever holds ciphertext, so it could not read a caption, or apply the
-    /// filter, even if the design wanted it to.
+    /// The look goes on before the drawing and the captions, so the ink and
+    /// the captions' backing keep their own colour instead of being tinted
+    /// along with the photo — and all of it is burned into the pixels here
+    /// rather than sent as fields. The server only ever holds ciphertext, so it
+    /// could not read a caption, or apply the filter, even if the design wanted
+    /// it to.
     nonisolated static func render(_ draft: InstantDraft) throws -> Data {
         let flattened = OverlayCompositor.composite(
             image: draft.filter.apply(to: draft.image),
+            strokes: draft.strokes,
             captions: draft.captions
         )
         return try ImagePipeline.encode(flattened)
