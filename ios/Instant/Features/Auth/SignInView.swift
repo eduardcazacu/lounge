@@ -66,6 +66,11 @@ struct SignInView: View {
                                 }
                             }
                             .frame(maxWidth: .infinity, minHeight: 52)
+                            // The capsule is painted outside the label, so the
+                            // label itself draws nothing but the word: without
+                            // a content shape the button only answers taps that
+                            // land on the glyphs.
+                            .contentShape(Capsule())
                         }
                         .buttonStyle(.plain)
                         .background(model.canSubmit ? Color.white : Color(white: 0.3))

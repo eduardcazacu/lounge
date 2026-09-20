@@ -208,3 +208,12 @@ is `WhatsNew.current.version`, not the text. Rewriting the notes without
 changing `version` shows them to nobody who saw the last ones.
 `WhatsNewTests` checks only that the notes do not name a version newer than
 the app.
+
+**A `.plain` button is hit-tested from what its label draws.** The full-width
+capsule buttons painted their background *outside* the label, so the label drew
+nothing but its word and only taps on the glyphs registered — the rest of the
+capsule looked pressable and was dead. Nothing errors, and the UI tests pass,
+because `XCUIElement.tap()` aims at the element's centre, which is exactly where
+the text is. Give the label a `.contentShape` matching the visible shape
+(`SignInView`, `TermsScreen`, `WhatsNewScreen`), or paint the background inside
+the label as the circular buttons do.

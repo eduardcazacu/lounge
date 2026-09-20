@@ -83,6 +83,9 @@ struct TermsScreen: View {
                             }
                         }
                         .frame(maxWidth: .infinity, minHeight: 52)
+                        // Hit-tested from the label, not from the capsule the
+                        // modifiers below paint — see SignInView.
+                        .contentShape(Capsule())
                     }
                     .buttonStyle(.plain)
                     .background(Color.white)
