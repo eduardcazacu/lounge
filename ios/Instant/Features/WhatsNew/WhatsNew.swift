@@ -50,6 +50,11 @@ public struct WhatsNew: Equatable, Sendable {
                 title: "Draw on a photo",
                 detail: "Tap the pencil to draw with your finger, and pick a colour from the column under it. Undo takes back the last line. Tap the pencil again when you're done."
             ),
+            Item(
+                symbol: "widget.small",
+                title: "A widget with their face on it",
+                detail: "The home screen widget now gives the whole of itself to the picture of whoever has sent you something, with their name, how many are waiting and the streak along the bottom."
+            ),
         ],
         fixes: []
     )
