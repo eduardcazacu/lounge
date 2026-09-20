@@ -226,6 +226,14 @@ final class StubAPIClient: APIClientProtocol, @unchecked Sendable {
                         "lastSentAt": StubBackend.timestamp(offsetBySeconds: -21 * 3600),
                         "lastReceivedAt": StubBackend.receivedAt,
                         "unopenedCount": state.mediaFetched ? 0 : 1,
+                        // A receipt that must stay hidden: what is waiting from
+                        // her, and then the reply her opened photo asks for,
+                        // both outrank the last one sent the other way.
+                        "lastSentReceipt": [
+                            "sentAt": StubBackend.timestamp(offsetBySeconds: -21 * 3600),
+                            "openedAt": StubBackend.timestamp(offsetBySeconds: -20 * 3600),
+                            "expiresAt": StubBackend.timestamp(offsetBySeconds: 3 * 3600),
+                        ],
                         "streakCount": 9,
                         "streakDeadline": StubBackend.expiresAt, "streakAtRisk": true,
                     ],
@@ -238,6 +246,13 @@ final class StubAPIClient: APIClientProtocol, @unchecked Sendable {
                         "lastSentAt": StubBackend.timestamp(offsetBySeconds: -23 * 3600),
                         "lastReceivedAt": StubBackend.timestamp(offsetBySeconds: -2 * 3600),
                         "unopenedCount": 0,
+                        // Sent just before the streak went quiet and still not
+                        // opened — the line asking for a send outranks it.
+                        "lastSentReceipt": [
+                            "sentAt": StubBackend.timestamp(offsetBySeconds: -23 * 3600),
+                            "openedAt": NSNull(),
+                            "expiresAt": StubBackend.timestamp(offsetBySeconds: 3600),
+                        ],
                         "streakCount": 12,
                         "streakDeadline": StubBackend.timestamp(offsetBySeconds: 3600),
                         "streakAtRisk": true,
@@ -251,6 +266,9 @@ final class StubAPIClient: APIClientProtocol, @unchecked Sendable {
                         "lastSentAt": StubBackend.timestamp(offsetBySeconds: -86_400 * 30),
                         "lastReceivedAt": NSNull(),
                         "unopenedCount": 0,
+                        // A month ago is well past the receipt window, so the
+                        // row says nothing until this session sends to him.
+                        "lastSentReceipt": NSNull(),
                         "streakCount": 0,
                         "streakDeadline": NSNull(), "streakAtRisk": false,
                     ],

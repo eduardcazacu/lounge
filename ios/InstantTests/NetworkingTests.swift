@@ -308,6 +308,35 @@ struct InstantAPITests {
         }
     }
 
+    /// The receipt for the last photo sent the other way, which is the only
+    /// part of a conversation that is about the caller rather than the partner.
+    @Test("Conversations carry the receipt for what was sent to them")
+    func decodesSendReceipts() async throws {
+        let stub = Stub(handler: Stub.json(#"""
+        {"conversations":[
+          {"userId":2,"name":"Ana","themeKey":"rose","profilePictureUrl":null,
+           "lastInteractionAt":"2026-01-01T00:00:00.000Z","lastSentAt":"2026-01-01T00:00:00.000Z",
+           "lastReceivedAt":null,"unopenedCount":0,
+           "lastSentReceipt":{"sentAt":"2026-01-01T00:00:00.000Z",
+             "openedAt":"2026-01-01T00:05:00.000Z","expiresAt":"2026-01-02T00:00:00.000Z"},
+           "streakCount":0,"streakDeadline":null,"streakAtRisk":false},
+          {"userId":3,"name":"Bo","themeKey":"forest","profilePictureUrl":null,
+           "lastInteractionAt":"2026-01-01T00:00:00.000Z","lastSentAt":null,
+           "lastReceivedAt":"2026-01-01T00:00:00.000Z","unopenedCount":0,
+           "streakCount":0,"streakDeadline":null,"streakAtRisk":false}
+        ]}
+        """#, status: 200))
+
+        let conversations = try await makeAPI(stub).conversations()
+
+        #expect(stub.requests.first?.path == "/api/v1/instant/conversations")
+        #expect(conversations[0].lastSentReceipt?.openedAt == "2026-01-01T00:05:00.000Z")
+        // Bo's entry leaves the key out altogether, which is what an inbox
+        // cached by a build older than receipts looks like. It decodes as
+        // nothing rather than failing the whole list and losing the cache.
+        #expect(conversations[1].lastSentReceipt == nil)
+    }
+
     @Test("Receipt and undecryptable hit the right paths")
     func postsLifecycleEndpoints() async throws {
         let stub = Stub(handler: Stub.json(

@@ -689,6 +689,7 @@ instantRouter.get("/:id/media", async (c) => {
     const bucket = c.env?.BLOG_IMAGES;
     const userId = c.get("userId");
 
+    const openedAt = new Date();
     const claimed = await prisma.instant.updateMany({
       where: {
         id,
@@ -697,7 +698,7 @@ instantRouter.get("/:id/media", async (c) => {
         mediaKey: { not: null },
         expiresAt: { gt: new Date() },
       },
-      data: { openedAt: new Date() },
+      data: { openedAt },
     });
     if (claimed.count === 0) {
       c.status(410);
@@ -706,8 +707,22 @@ instantRouter.get("/:id/media", async (c) => {
 
     const instant = await prisma.instant.findUnique({
       where: { id },
-      select: { mediaKey: true },
+      select: { mediaKey: true, senderId: true },
     });
+
+    // The claim is the read receipt, and this is the one place it can be born:
+    // exactly one request ever gets past the `updateMany` above, and from here
+    // the photo is gone whatever happens next. Telling the sender from
+    // `/viewed` instead would leave a recipient whose app died mid-view owing a
+    // receipt that never comes. See wiki/decisions.md.
+    const senderStub = instant ? getInboxStub(c, instant.senderId) : null;
+    if (senderStub) {
+      scheduleBackgroundWork(
+        c,
+        Promise.resolve(senderStub.notifyOpened(id, userId, openedAt.toISOString()))
+      );
+    }
+
     const object = instant?.mediaKey && bucket ? await bucket.get(instant.mediaKey) : null;
     const bytes = object ? await object.arrayBuffer() : null;
 
@@ -740,23 +755,19 @@ instantRouter.post("/:id/viewed", async (c) => {
 
     const instant = await prisma.instant.findFirst({
       where: { id, recipientId: userId },
-      select: { id: true, senderId: true, viewedAt: true },
+      select: { id: true, viewedAt: true },
     });
     if (!instant) {
       c.status(404);
       return c.json({ msg: "Instant not found" });
     }
 
+    // Records that the photo reached a screen, which the claim on `/media`
+    // cannot know. The sender was already told by then — a receipt that waits
+    // for this call is one a viewer that crashed never sends.
     const viewedAt = instant.viewedAt ?? new Date();
     if (!instant.viewedAt) {
       await prisma.instant.update({ where: { id }, data: { viewedAt } });
-      const stub = getInboxStub(c, instant.senderId);
-      if (stub) {
-        scheduleBackgroundWork(
-          c,
-          Promise.resolve(stub.notifyOpened(id, userId, viewedAt.toISOString()))
-        );
-      }
     }
 
     return c.json({ ok: true, viewedAt: viewedAt.toISOString() });

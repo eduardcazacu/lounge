@@ -149,6 +149,19 @@ export type InstantWireEvent =
     | { type: "instant"; instant: InstantDelivery }
     | { type: "opened"; instantId: string; recipientId: number; openedAt: string };
 
+// The sender's side of a photo: when it went, and whether it has been taken.
+//
+// `openedAt` is the moment the recipient's device claimed the media and the
+// server destroyed it — not the client's `viewedAt` confirmation, which is a
+// call that may never come. See wiki/decisions.md.
+export type InstantSendReceipt = {
+    sentAt: string;
+    /// Null while it is still waiting to be opened.
+    openedAt: string | null;
+    /// When an unopened one is swept, 24 hours after it was sent.
+    expiresAt: string;
+};
+
 // One person you have exchanged instants with, whether or not a streak is
 // running. Built from the streak table, which keeps a row per pair for good —
 // `recordSend` upserts one on every send and lapsing only zeroes the count.
@@ -163,6 +176,10 @@ export type InstantConversation = {
     lastReceivedAt: string | null;
     /// Instants from them still waiting to be opened.
     unopenedCount: number;
+    /// The newest photo *you* sent them, while it is recent enough to be worth
+    /// reporting on. Null once it is older than that, so a quiet conversation
+    /// does not keep showing a receipt for something nobody is thinking about.
+    lastSentReceipt: InstantSendReceipt | null;
     /// 0 once a streak has lapsed; the conversation stays either way.
     streakCount: number;
     streakDeadline: string | null;

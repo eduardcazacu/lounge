@@ -1049,6 +1049,71 @@ struct InstantStoreTests {
         #expect(bo.lastInteractionAt == WireTimestamp.string(from: afterwards))
     }
 
+    /// The receipt has to be there the moment the inbox is next looked at,
+    /// which is usually before any refresh has come back. Nothing newer than
+    /// this send can have been opened, so waiting is the only honest state.
+    @Test("A send shows as waiting before the server has answered for it")
+    func sendReadsAsWaitingAtOnce() {
+        let store = makeStore(api: FakeInstantAPI())
+        store.applyHistory([.fixture(userId: 3, name: "Bo")])
+
+        store.noteSent(toUserId: 3, at: afterwards)
+
+        let receipt = try! #require(store.conversations.first?.sentReceipt)
+        #expect(receipt.status(now: afterwards.addingTimeInterval(120)) == .waiting(since: afterwards))
+        // Carrying the wire's own rule: unopened, it is swept 24 hours on.
+        #expect(
+            receipt.status(now: afterwards.addingTimeInterval(25 * 3600)) == .expiredUnopened,
+            "the local receipt expires on the same schedule the server's would"
+        )
+    }
+
+    /// Only the server can say a photo has been taken — the claim happens on
+    /// somebody else's phone.
+    @Test("The server's receipt replaces the local one once it catches up")
+    func serverReceiptWinsOverTheLocalOne() {
+        let store = makeStore(api: FakeInstantAPI())
+        store.applyHistory([.fixture(userId: 3, name: "Bo")])
+        store.noteSent(toUserId: 3, at: afterwards)
+
+        let opened = afterwards.addingTimeInterval(60)
+        store.applyHistory([
+            .fixture(
+                userId: 3, name: "Bo",
+                lastSentReceipt: InstantSendReceipt(
+                    sentAt: WireTimestamp.string(from: afterwards),
+                    openedAt: WireTimestamp.string(from: opened),
+                    expiresAt: WireTimestamp.string(from: afterwards.addingTimeInterval(24 * 3600))
+                )
+            ),
+        ])
+
+        let receipt = try! #require(store.conversations.first?.sentReceipt)
+        #expect(receipt.status(now: opened.addingTimeInterval(60)) == .opened(at: opened))
+    }
+
+    /// The rows for people who have something waiting are rebuilt from the
+    /// inbox rather than from the history, and used to drop everything the
+    /// history knew that the delivery does not carry.
+    @Test("An arriving instant does not wipe the receipt on that row")
+    func receiptSurvivesAnArrival() {
+        let store = makeStore(api: FakeInstantAPI())
+        store.applyHistory([
+            .fixture(
+                userId: 2, name: "Ana",
+                lastSentReceipt: InstantSendReceipt(
+                    sentAt: "2026-01-01T00:00:00.000Z",
+                    openedAt: "2026-01-01T00:01:00.000Z",
+                    expiresAt: "2026-01-02T00:00:00.000Z"
+                )
+            ),
+        ])
+
+        store.merge([.fixture(id: "a", senderId: 2)])
+
+        #expect(store.conversations.first?.sentReceipt?.openedAt == "2026-01-01T00:01:00.000Z")
+    }
+
     /// The picker's "Recent" section reads the same history, so a send has to
     /// move somebody there too.
     @Test("The send shows up in the history the recipient picker reads")
@@ -1254,6 +1319,115 @@ struct InstantStoreTests {
         #expect(store.unreadCount == 2)
         store.dismiss("a")
         #expect(store.unreadCount == 1)
+    }
+}
+
+@Suite("Send receipts")
+struct SendReceiptTests {
+    private let sentAt = Date(timeIntervalSince1970: 1_800_000_000)
+
+    private func receipt(openedAfter seconds: TimeInterval? = nil) -> InstantSendReceipt {
+        InstantSendReceipt(
+            sentAt: WireTimestamp.string(from: sentAt),
+            openedAt: seconds.map { WireTimestamp.string(from: sentAt.addingTimeInterval($0)) },
+            expiresAt: WireTimestamp.string(from: sentAt.addingTimeInterval(24 * 3600))
+        )
+    }
+
+    @Test("A photo nobody has opened yet reports when it went")
+    func waiting() {
+        #expect(
+            receipt().status(now: sentAt.addingTimeInterval(600)) == .waiting(since: sentAt)
+        )
+    }
+
+    @Test("An opened one reports when it was taken, not when it was sent")
+    func opened() {
+        let openedAt = sentAt.addingTimeInterval(300)
+        #expect(
+            receipt(openedAfter: 300).status(now: sentAt.addingTimeInterval(3600))
+                == .opened(at: openedAt)
+        )
+    }
+
+    /// The most informative of the three: they never looked, and now they
+    /// cannot. It is why the window outlives the photo by a day.
+    @Test("One that ran out of its 24 hours says nobody opened it")
+    func expiredUnopened() {
+        #expect(receipt().status(now: sentAt.addingTimeInterval(25 * 3600)) == .expiredUnopened)
+    }
+
+    @Test("An opened one stays opened after the photo's own expiry")
+    func openedOutlivesTheExpiry() {
+        let openedAt = sentAt.addingTimeInterval(300)
+        #expect(
+            receipt(openedAfter: 300).status(now: sentAt.addingTimeInterval(30 * 3600))
+                == .opened(at: openedAt)
+        )
+    }
+
+    /// Past the window there is nothing left to say, and a row saying it anyway
+    /// would be reporting on a photo nobody is thinking about any more. This is
+    /// also what stops a send this client recorded locally, and that the server
+    /// has since stopped reporting, from sitting on a row for good.
+    @Test("Nothing is said about a send older than the window")
+    func tooOldToMention() {
+        #expect(receipt().status(now: sentAt.addingTimeInterval(49 * 3600)) == nil)
+        #expect(receipt(openedAfter: 60).status(now: sentAt.addingTimeInterval(49 * 3600)) == nil)
+    }
+
+    @Test("A clock a little behind the server's does not report the future")
+    func skewedClock() {
+        #expect(receipt().status(now: sentAt.addingTimeInterval(-5)) == .waiting(since: sentAt))
+    }
+}
+
+@Suite("Relative time")
+struct RelativeTimeTests {
+    private let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+    private func short(_ secondsAgo: TimeInterval) -> String {
+        RelativeTime.short(since: now.addingTimeInterval(-secondsAgo), now: now)
+    }
+
+    /// The one `RelativeDateTimeFormatter` spells worst, and the one most
+    /// often read: a photo sent four seconds ago.
+    @Test("Under a minute is just now, not zero of anything")
+    func floorIsJustNow() {
+        #expect(short(0) == "just now")
+        #expect(short(4) == "just now")
+        #expect(short(59) == "just now")
+    }
+
+    @Test("Units are floored, so the phrase is never ahead of the clock")
+    func floorsRatherThanRounds() {
+        #expect(short(60) == "1m ago")
+        #expect(short(119) == "1m ago")
+        #expect(short(3599) == "59m ago")
+        #expect(short(3600) == "1h ago")
+        #expect(short(86_399) == "23h ago")
+        #expect(short(86_400) == "1d ago")
+    }
+
+    @Test("A time in the future reads as just now rather than counting up")
+    func neverNegative() {
+        #expect(RelativeTime.short(since: now.addingTimeInterval(60), now: now) == "just now")
+    }
+
+    /// VoiceOver reads "3m ago" as a letter, so the spoken form spells the unit
+    /// and agrees with the written one about the number.
+    @Test("The spoken form spells the unit and singularises one of them")
+    func spokenForm() {
+        let spoken = { (secondsAgo: TimeInterval) in
+            RelativeTime.spoken(since: now.addingTimeInterval(-secondsAgo), now: now)
+        }
+        #expect(spoken(30) == "just now")
+        #expect(spoken(60) == "1 minute ago")
+        #expect(spoken(180) == "3 minutes ago")
+        #expect(spoken(3600) == "1 hour ago")
+        #expect(spoken(7200) == "2 hours ago")
+        #expect(spoken(86_400) == "1 day ago")
+        #expect(spoken(172_800) == "2 days ago")
     }
 }
 

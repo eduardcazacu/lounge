@@ -107,6 +107,58 @@ public struct InstantStreakSummary: Codable, Equatable, Sendable, Identifiable {
     public var displayName: String { name ?? "Someone" }
 }
 
+/// The sender's side of a photo: when it went, and whether it has been taken.
+///
+/// `openedAt` is the server's own mark — the moment the recipient's device
+/// claimed the media and it stopped existing anywhere — and not the `viewedAt`
+/// the viewer posts back afterwards, which is a call a client that died
+/// mid-view never makes.
+public struct InstantSendReceipt: Codable, Equatable, Sendable {
+    public let sentAt: String
+    /// Nil while it is still waiting to be opened.
+    public let openedAt: String?
+    /// 24 hours after it was sent, when an unopened one is swept.
+    public let expiresAt: String
+
+    public init(sentAt: String, openedAt: String?, expiresAt: String) {
+        self.sentAt = sentAt
+        self.openedAt = openedAt
+        self.expiresAt = expiresAt
+    }
+
+    public enum Status: Equatable, Sendable {
+        /// Delivered and not opened yet, with when it went.
+        case waiting(since: Date)
+        case opened(at: Date)
+        /// The 24 hours ran out and nobody looked. The most informative of the
+        /// three, and the reason the window outlives the photo.
+        case expiredUnopened
+    }
+
+    /// How long a receipt is worth showing. Past this the photo is long gone
+    /// either way and the row has nothing to add.
+    ///
+    /// The server stops reporting a receipt at about the same age. Neither side
+    /// depends on the other's exact number — whichever is shorter is the one
+    /// that shows, and this one also covers a send this client recorded
+    /// locally and the server has not answered for.
+    public static let displayWindow: TimeInterval = 48 * 60 * 60
+
+    /// What there is to say about it, or nil when there is nothing worth saying.
+    public func status(now: Date = Date()) -> Status? {
+        guard let sentAt = WireTimestamp.date(from: sentAt),
+              now.timeIntervalSince(sentAt) < Self.displayWindow
+        else { return nil }
+        if let openedAt, let opened = WireTimestamp.date(from: openedAt) {
+            return .opened(at: opened)
+        }
+        guard let expiresAt = WireTimestamp.date(from: expiresAt), expiresAt > now else {
+            return .expiredUnopened
+        }
+        return .waiting(since: sentAt)
+    }
+}
+
 /// One person you have exchanged instants with, from
 /// `GET /api/v1/instant/conversations`.
 ///
@@ -121,6 +173,11 @@ public struct InstantConversationSummary: Codable, Equatable, Sendable, Identifi
     public let lastSentAt: String?
     public let lastReceivedAt: String?
     public let unopenedCount: Int
+    /// The newest photo *you* sent them, while it is recent enough to report
+    /// on. Optional rather than merely nullable: an inbox cached by an older
+    /// build has no such key, and a required one would fail the whole decode
+    /// and lose the cold-start inbox.
+    public let lastSentReceipt: InstantSendReceipt?
     /// 0 once a streak has lapsed; the conversation stays either way.
     public let streakCount: Int
     public let streakDeadline: String?
@@ -144,8 +201,26 @@ public struct InstantConversationSummary: Codable, Equatable, Sendable, Identifi
             lastSentAt: max(lastSentAt ?? timestamp, timestamp),
             lastReceivedAt: lastReceivedAt,
             unopenedCount: unopenedCount,
+            lastSentReceipt: receipt(forSendAt: timestamp),
             streakCount: streakCount, streakDeadline: streakDeadline,
             streakAtRisk: streakAtRisk
+        )
+    }
+
+    /// The receipt for a send this client has just made, which the server has
+    /// not answered for yet: nothing newer can have been opened, so it is
+    /// waiting by definition. The server's own receipt wins as soon as it
+    /// catches up — it is the only side that can say the photo has been taken.
+    private func receipt(forSendAt timestamp: String) -> InstantSendReceipt? {
+        if let lastSentReceipt, lastSentReceipt.sentAt >= timestamp {
+            return lastSentReceipt
+        }
+        guard let sentAt = WireTimestamp.date(from: timestamp) else { return lastSentReceipt }
+        return InstantSendReceipt(
+            sentAt: timestamp,
+            openedAt: nil,
+            // The wire's own rule: an unopened instant is swept 24 hours on.
+            expiresAt: WireTimestamp.string(from: sentAt.addingTimeInterval(24 * 60 * 60))
         )
     }
 
@@ -170,6 +245,7 @@ public struct InstantConversationSummary: Codable, Equatable, Sendable, Identifi
             lastInteractionAt: lastInteractionAt,
             lastSentAt: lastSentAt, lastReceivedAt: lastReceivedAt,
             unopenedCount: max(0, count),
+            lastSentReceipt: lastSentReceipt,
             streakCount: streakCount, streakDeadline: streakDeadline,
             streakAtRisk: streakAtRisk
         )
@@ -192,7 +268,8 @@ public struct InstantConversationSummary: Codable, Equatable, Sendable, Identifi
     public init(
         userId: Int, name: String?, themeKey: String, profilePictureUrl: String?,
         lastInteractionAt: String, lastSentAt: String?, lastReceivedAt: String?,
-        unopenedCount: Int, streakCount: Int, streakDeadline: String?, streakAtRisk: Bool
+        unopenedCount: Int, lastSentReceipt: InstantSendReceipt?,
+        streakCount: Int, streakDeadline: String?, streakAtRisk: Bool
     ) {
         self.userId = userId
         self.name = name
@@ -202,6 +279,7 @@ public struct InstantConversationSummary: Codable, Equatable, Sendable, Identifi
         self.lastSentAt = lastSentAt
         self.lastReceivedAt = lastReceivedAt
         self.unopenedCount = unopenedCount
+        self.lastSentReceipt = lastSentReceipt
         self.streakCount = streakCount
         self.streakDeadline = streakDeadline
         self.streakAtRisk = streakAtRisk
@@ -227,6 +305,12 @@ public enum WireTimestamp {
 
     public static func string(from date: Date) -> String {
         formatter.string(from: date)
+    }
+
+    /// The other direction, for the few places that need to measure a wire
+    /// timestamp against the clock rather than compare it with another one.
+    public static func date(from string: String) -> Date? {
+        formatter.date(from: string)
     }
 }
 

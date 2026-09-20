@@ -44,6 +44,9 @@ type FakeInstant = {
   openedAt: Date | null;
   mediaKey: string | null;
   expiresAt: Date;
+  // Only the receipt query reads it, and only rows that carry one are sends as
+  // far as it is concerned. The waiting tally never looks.
+  createdAt?: Date;
 };
 
 function makePrisma(users: FakeUser[], streaks: FakeStreak[], instants: FakeInstant[]) {
@@ -63,8 +66,27 @@ function makePrisma(users: FakeUser[], streaks: FakeStreak[], instants: FakeInst
       },
     },
     instant: {
-      findMany: async ({ where }: any) =>
-        instants
+      // Two different queries land here: what is waiting for the caller, and
+      // what the caller sent. They are told apart the same way the module
+      // writes them — by which end of the instant the `where` names.
+      findMany: async ({ where }: any) => {
+        if (where.senderId !== undefined) {
+          return instants
+            .filter(
+              (instant): instant is FakeInstant & { createdAt: Date } =>
+                instant.senderId === where.senderId &&
+                instant.createdAt !== undefined &&
+                instant.createdAt.getTime() > where.createdAt.gt.getTime()
+            )
+            .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+            .map((instant) => ({
+              recipientId: instant.recipientId,
+              createdAt: instant.createdAt,
+              openedAt: instant.openedAt,
+              expiresAt: instant.expiresAt,
+            }));
+        }
+        return instants
           .filter(
             (instant) =>
               instant.recipientId === where.recipientId &&
@@ -72,7 +94,8 @@ function makePrisma(users: FakeUser[], streaks: FakeStreak[], instants: FakeInst
               instant.mediaKey !== null &&
               instant.expiresAt.getTime() > where.expiresAt.gt.getTime()
           )
-          .map((instant) => ({ senderId: instant.senderId })),
+          .map((instant) => ({ senderId: instant.senderId }));
+      },
     },
   } as unknown as PrismaClient;
 }
@@ -175,6 +198,75 @@ async function main() {
     const bo = result.find((c) => c.userId === 3)!;
     check("counts only what is still openable", ana.unopenedCount === 2, ana.unopenedCount);
     check("an expired instant is not waiting", bo.unopenedCount === 0, bo.unopenedCount);
+  }
+
+  console.log("\nread receipts");
+  {
+    // What the caller sent, which is the other direction from everything else
+    // here: three people, three states of the same question.
+    const sent = (recipientId: number, hoursAgo: number, openedAt: Date | null): FakeInstant => ({
+      senderId: me,
+      recipientId,
+      createdAt: ago(hoursAgo),
+      openedAt,
+      mediaKey: openedAt ? null : "instant/x",
+      expiresAt: new Date(ago(hoursAgo).getTime() + 24 * 3_600_000),
+    });
+    const prisma = makePrisma(
+      [approved(me, "Me"), approved(2, "Ana"), approved(3, "Bo"), approved(4, "Cass"), approved(5, "Dee")],
+      [
+        { userLowId: 1, userHighId: 2, count: 0, lastLowSentAt: ago(1), lastHighSentAt: null },
+        { userLowId: 1, userHighId: 3, count: 0, lastLowSentAt: ago(2), lastHighSentAt: null },
+        { userLowId: 1, userHighId: 4, count: 0, lastLowSentAt: ago(30), lastHighSentAt: null },
+        { userLowId: 1, userHighId: 5, count: 0, lastLowSentAt: ago(60), lastHighSentAt: null },
+      ],
+      [
+        // Ana: sent an hour ago, still waiting.
+        sent(2, 1, null),
+        // Bo: sent two hours ago and opened an hour later — and an older one he
+        // never opened, which must not be the one reported.
+        sent(3, 2, ago(1)),
+        sent(3, 20, null),
+        // Cass: sent 30 hours ago and never opened, so it has expired.
+        sent(4, 30, null),
+        // Dee: sent 60 hours ago, past the window entirely.
+        sent(5, 60, null),
+      ]
+    );
+    const result = await listConversationsForUser(prisma, me, url, now);
+    const receipt = (userId: number) => result.find((c) => c.userId === userId)!.lastSentReceipt;
+    check("a send still waiting reports no open", receipt(2)?.openedAt === null, receipt(2));
+    check("and says when it went", receipt(2)?.sentAt === ago(1).toISOString(), receipt(2));
+    check("an opened one carries the moment it was claimed", receipt(3)?.openedAt === ago(1).toISOString(), receipt(3));
+    check("the newest send is the one reported", receipt(3)?.sentAt === ago(2).toISOString(), receipt(3));
+    check("an expired send is still reported, unopened", receipt(4)?.openedAt === null, receipt(4));
+    check("with an expiry already past", (receipt(4)?.expiresAt ?? "") < now.toISOString(), receipt(4));
+    check("a send older than the window is not reported", receipt(5) === null, receipt(5));
+  }
+
+  console.log("\nreceipts are the caller's own sends");
+  {
+    // The receipt belongs to whoever sent, so the same instant read from the
+    // recipient's side is not one.
+    const prisma = makePrisma(
+      [approved(me, "Me"), approved(2, "Ana")],
+      [{ userLowId: 1, userHighId: 2, count: 1, lastLowSentAt: ago(1), lastHighSentAt: ago(2) }],
+      [
+        {
+          senderId: me,
+          recipientId: 2,
+          createdAt: ago(1),
+          openedAt: null,
+          mediaKey: "instant/a",
+          expiresAt: ago(-23),
+        },
+      ]
+    );
+    const [mine] = await listConversationsForUser(prisma, me, url, now);
+    const [theirs] = await listConversationsForUser(prisma, 2, url, now);
+    check("the sender gets a receipt", mine.lastSentReceipt !== null, mine.lastSentReceipt);
+    check("the recipient gets none", theirs.lastSentReceipt === null, theirs.lastSentReceipt);
+    check("the recipient sees it as waiting instead", theirs.unopenedCount === 1, theirs.unopenedCount);
   }
 
   console.log("\nlive streaks");

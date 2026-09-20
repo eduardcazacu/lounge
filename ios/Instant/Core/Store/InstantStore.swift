@@ -176,6 +176,9 @@ public final class InstantStore {
         /// server. Nil only for one that arrived over the socket before the
         /// first history refresh caught up.
         public let lastInteractionAt: String?
+        /// The last photo sent *to* them, and whether they have taken it. Nil
+        /// when nothing was sent recently enough to be worth a word about.
+        public let sentReceipt: InstantSendReceipt?
         /// Their instant has been opened and nothing has gone back yet. What is
         /// waiting still comes first where both are true — the row says one
         /// thing, and "open this" beats "answer that".
@@ -205,6 +208,7 @@ public final class InstantStore {
                 pending: nil,
                 pendingCount: 0,
                 lastInteractionAt: entry.lastInteractionAt,
+                sentReceipt: entry.lastSentReceipt,
                 suggestsReply: replyHints.contains(entry.userId),
                 streakNeedsYourSend: entry.streakNeedsYourSend
             )
@@ -230,6 +234,7 @@ public final class InstantStore {
                 pending: existing?.pending ?? instant,
                 pendingCount: (existing?.pendingCount ?? 0) + 1,
                 lastInteractionAt: existing?.lastInteractionAt ?? instant.createdAt,
+                sentReceipt: existing?.sentReceipt,
                 suggestsReply: existing?.suggestsReply ?? replyHints.contains(instant.senderId),
                 streakNeedsYourSend: existing?.streakNeedsYourSend ?? false
             )

@@ -270,6 +270,30 @@ The Send To picker's "Recent" section reads the same history, so recency
 survives a reinstall and is identical on every device you sign in from. It used
 to come from a device-local store, which was neither.
 
+### What a row says about the photo you sent
+
+The line under a name is ordered by what wants a tap: anything waiting, then
+the reply prompt, then a streak waiting on your send, and last the receipt for
+the newest photo you sent them — "Sent 3m ago", "Opened 3m ago", or
+"Expired unopened" when the 24 hours ran out with nobody looking. Last because
+it is the only line there that asks for nothing.
+
+It comes from `lastSentReceipt` on `/conversations`, and `openedAt` is the
+server's claim of the media rather than the viewer's `viewedAt` confirmation;
+see [decisions.md](decisions.md). A send made here fills one in locally the
+moment it lands — `withSend` in `ios/Instant/Core/Networking/DTOs.swift` —
+because nothing newer than that send can have been opened, and the server's own
+receipt replaces it as soon as it catches up. `InstantSendReceipt.status` says
+nothing at all about a send older than its window, which is also what stops a
+local mark the server has since stopped reporting from sitting on a row for
+good.
+
+`InboxScreen` ages what is on screen on a timer of its own, one minute at a
+time: a receipt is the only thing here that goes stale while nothing happens,
+and a list nobody is touching never redraws. The phrasing is
+`ios/Instant/Core/RelativeTime.swift`, which carries a spoken form beside the
+written one because VoiceOver reads "3m ago" as a letter.
+
 ## Tapping someone
 
 A row means one of two things, depending on whether they have something waiting:

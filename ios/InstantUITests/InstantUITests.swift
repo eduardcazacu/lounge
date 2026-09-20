@@ -205,6 +205,10 @@ final class InstantUITests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 30))
         XCTAssertTrue(row.label.contains("9"), "expected the streak count, got: \(row.label)")
         XCTAssertTrue(row.label.contains("New Instant"), "expected the waiting state, got: \(row.label)")
+        // She has a receipt too — a photo of yours she opened last night — and
+        // it must not be what the row says. A row says one thing, and something
+        // waiting to be opened beats news about something already read.
+        XCTAssertFalse(row.label.contains("Opened"), "the receipt must not outrank what is waiting: \(row.label)")
 
         // And there is no separate streaks section any more.
         XCTAssertFalse(app.staticTexts["STREAKS"].exists)
@@ -380,6 +384,12 @@ final class InstantUITests: XCTestCase {
             evaluatedWith: row
         )
         wait(for: [stopsAsking], timeout: 30)
+        // And says what it is waiting on instead: the photo that just went,
+        // with nobody having opened it yet.
+        let reportsTheSend = expectation(
+            for: NSPredicate(format: "label CONTAINS %@", "Sent just now"), evaluatedWith: row
+        )
+        wait(for: [reportsTheSend], timeout: 30)
         // The streak itself is still running, and still about to lapse — what
         // changed is whose move it is.
         XCTAssertTrue(row.label.contains("12"), "the streak count stays: \(row.label)")

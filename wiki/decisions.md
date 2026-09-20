@@ -100,6 +100,54 @@ talked to". A conversation survives with no instants left in the table at all.
 
 ---
 
+## A read receipt is the claim on the media, not the viewer's confirmation
+
+**Chosen** `instants.opened_at`, the claim `GET /api/v1/instant/:id/media`
+makes before it reads R2, as the receipt — both the mark reported on the
+conversation and the moment the sender's Durable Object is told.
+
+**Rejected** `viewed_at`, which `POST /:id/viewed` writes once the photo has
+actually reached a screen.
+
+**Because** exactly one request ever gets past the claim, and from that moment
+the photo is destroyed whatever happens next. `viewed_at` needs the recipient's
+client to come back and say so: a viewer that crashes after the download, or a
+client that never implements the call, leaves a photo that is provably gone
+showing on the sender's row as still waiting. The two are normally under a
+second apart, and where they differ the claim is the one that is true.
+
+`viewed_at` is still recorded — it is the only thing that knows a photo was
+looked at rather than merely fetched — and iOS still uses its own local answer
+to that question to decide whether to offer a reply (`ViewerModel.wasSeen`).
+
+**Would reopen if** a receipt ever needed to distinguish "downloaded" from
+"seen" on the server, which would mean reporting both marks rather than swapping
+one for the other.
+
+---
+
+## The receipt rides on the conversation, not a sent-items endpoint
+
+**Chosen** `lastSentReceipt` on each `GET /api/v1/instant/conversations` entry:
+the newest photo the caller sent that person, within 48 hours.
+
+**Rejected** an endpoint listing the instants you have sent, with their states.
+
+**Because** a row has space for one line, and the question it answers is "did
+the last one land" rather than "what have I sent". The inbox already refreshes
+conversations on every socket event, every foreground and every pull — a sent
+list would be a second endpoint, a second cache, and a second thing to reconcile
+with the first, for strictly less than one line of text per row. The rows are
+swept after 30 days anyway, so it could never be a real history.
+
+**Cost paid** a third query in `backend/src/instant-conversations.ts`, and the
+fact that a photo sent to several people reports only the newest one per person.
+
+**Would reopen if** the app ever grew a screen about your own sending — a
+per-photo list of who opened what — which a conversation row cannot carry.
+
+---
+
 ## Streaks count sends, not opens
 
 **Chosen** a streak advances on sending, whether or not the photo was ever

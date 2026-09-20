@@ -498,6 +498,7 @@ extension InstantConversationSummary {
         lastSentAt: String? = nil,
         lastReceivedAt: String? = nil,
         unopenedCount: Int = 0,
+        lastSentReceipt: InstantSendReceipt? = nil,
         streakCount: Int = 0,
         streakAtRisk: Bool = false
     ) -> InstantConversationSummary {
@@ -506,6 +507,7 @@ extension InstantConversationSummary {
             lastInteractionAt: lastInteractionAt,
             lastSentAt: lastSentAt, lastReceivedAt: lastReceivedAt ?? lastInteractionAt,
             unopenedCount: unopenedCount,
+            lastSentReceipt: lastSentReceipt,
             streakCount: streakCount,
             streakDeadline: streakCount > 0 ? "2026-01-02T00:00:00.000Z" : nil,
             streakAtRisk: streakAtRisk

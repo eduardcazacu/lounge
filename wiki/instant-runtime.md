@@ -75,6 +75,15 @@ reads R2**. The ordering is the whole mechanism:
 Having claimed it, `destroyInstantMedia` nulls `mediaKey`, `mediaIv` and
 `ephemeralPubKey`, deletes every envelope, and deletes the R2 object.
 
+**The claim is also the read receipt.** Exactly one request ever gets past that
+`updateMany`, and from there the photo is gone whatever happens next, so that is
+where the sender is told: `/media` calls `notifyOpened` on the *sender's*
+Durable Object, which fans `{ type: "opened" }` out to their connected devices.
+`POST /:id/viewed` still records `viewedAt` — the photo reached a screen, which
+the claim cannot know — but it sends nothing, because a receipt that waits for
+that call is one a viewer that died mid-view never makes. See
+[decisions.md](decisions.md).
+
 Clients must guard this with a flag that can only flip once —
 `ios/Instant/Features/Viewer/ViewerModel.swift` does, and so does
 `frontend/src/components/instant/InstantViewer.tsx`. A retry is not a retry
@@ -133,10 +142,19 @@ permanent conversation index. See [data-model.md](data-model.md).
 
 Each entry carries `lastInteractionAt`, `lastSentAt` and `lastReceivedAt`
 oriented to the caller (the same row read from the other side swaps them),
-`unopenedCount`, and the streak as `streakCount` (0 when lapsed),
-`streakDeadline` and `streakAtRisk`. Partners who are not approved and verified
-are filtered out, matching the rest of the API — listing somebody unaddressable
-would only offer a send that 404s.
+`unopenedCount`, `lastSentReceipt`, and the streak as `streakCount` (0 when
+lapsed), `streakDeadline` and `streakAtRisk`.
+
+Partners who are not approved and verified are filtered out, matching the rest
+of the API — listing somebody unaddressable would only offer a send that 404s.
+
+`lastSentReceipt` is the one field about the caller rather than the partner: the
+newest photo *they* sent, with `sentAt`, `expiresAt` and `openedAt` — null while
+it is still waiting. It is the only part of the answer that comes from the
+`instants` table rather than the streak row, so it is bounded to sends from the
+last 48 hours: an instant lives 24 of them, and the day after that is what lets
+a row say nobody ever opened it. A client applies its own window to what it
+draws, and the shorter of the two is the one that shows.
 
 None of this reads media, keys or envelopes. It is metadata the server already
 holds in the clear.

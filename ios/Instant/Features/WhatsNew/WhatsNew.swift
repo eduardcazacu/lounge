@@ -55,6 +55,11 @@ public struct WhatsNew: Equatable, Sendable {
                 title: "A widget with their face on it",
                 detail: "The home screen widget now gives the whole of itself to the picture of whoever has sent you something, with their name, how many are waiting and the streak along the bottom."
             ),
+            Item(
+                symbol: "eye.fill",
+                title: "See when they open it",
+                detail: "Your conversations now say what happened to the last photo you sent them: when it went, and when they opened it. If the day runs out with nobody looking, it says that too."
+            ),
         ],
         fixes: []
     )

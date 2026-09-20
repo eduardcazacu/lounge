@@ -141,6 +141,13 @@ cached instant missing from the first drain is removed from both
 (`InstantStore.dropUnconfirmed`). The inbox is paged, so a missing instant may
 only be on a later page. If it stays in the seen-set, it never comes back.
 
+**A new field on a cached type must be optional.** `InboxCache` decodes
+`InstantConversationSummary` off the disk with `try?`, so a required property
+the last build never wrote turns the whole cold-start inbox into nil — no error,
+no log, just "No conversations yet" for the three round trips the cache exists
+to cover, which reads as a slow launch rather than a decode failure.
+`lastSentReceipt` is declared optional for exactly this reason.
+
 **A force quit runs no code.** Swiping the app away in the switcher kills a
 suspended process: `applicationWillTerminate` is not called, and neither is
 anything else. Anything the app wants to say about an unfinished send has to be

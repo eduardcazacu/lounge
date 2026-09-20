@@ -13,6 +13,9 @@ struct InboxScreen: View {
     @State private var report: ReportModel?
     @State private var blockCandidate: InstantStore.Conversation?
     @State private var blockError: String?
+    /// Read once per row draw so every receipt on screen is aged against the
+    /// same clock, and advanced by `ageReceipts` while the inbox is up.
+    @State private var now = Date()
 
     private var store: InstantStore { environment.store }
 
@@ -93,6 +96,18 @@ struct InboxScreen: View {
         // just sitting there with the instant one tap away.
         .onChange(of: store.instants) { _, _ in openPendingIfPossible() }
         .onAppear { openPendingIfPossible() }
+        .task { await ageReceipts() }
+    }
+
+    /// A receipt is the one thing on this screen that changes with nothing
+    /// happening: "sent just now" is wrong a few minutes later, and an inbox
+    /// nobody has touched never redraws on its own. A minute is the resolution
+    /// the phrasing has, so it is also the interval worth spending.
+    private func ageReceipts() async {
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(60))
+            now = Date()
+        }
     }
 
     /// The account button is pinned above the pager, so this row starts to the
@@ -285,7 +300,36 @@ struct InboxScreen: View {
             Text("Send one today to keep your streak")
                 .font(.system(size: 13))
                 .foregroundStyle(InstantStyle.unread)
+        } else if let receipt = conversation.sentReceipt?.status(now: now) {
+            // Last, because it is the only line here that asks for nothing. It
+            // is what the row has to say when the conversation is the reader's
+            // own photo sitting at the other end.
+            sentStatus(receipt)
         }
+    }
+
+    /// The receipt for the last photo sent to this person. Quiet — secondary
+    /// text, no colour — so it never competes with a line that wants a tap.
+    private func sentStatus(_ status: InstantSendReceipt.Status) -> some View {
+        let (glyph, text, spoken): (String, String, String) = switch status {
+        case .waiting(let since):
+            ("paperplane.fill", "Sent \(RelativeTime.short(since: since, now: now))",
+             "Sent \(RelativeTime.spoken(since: since, now: now)), not opened yet")
+        case .opened(let at):
+            ("eye.fill", "Opened \(RelativeTime.short(since: at, now: now))",
+             "Opened \(RelativeTime.spoken(since: at, now: now))")
+        case .expiredUnopened:
+            ("clock.badge.xmark", "Expired unopened", "Expired unopened")
+        }
+        return HStack(spacing: 5) {
+            Image(systemName: glyph)
+                .font(.system(size: 11, weight: .semibold))
+            Text(text)
+                .font(.system(size: 13))
+        }
+        .foregroundStyle(InstantStyle.secondaryText)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(spoken)
     }
 
     /// Only on a first launch, or after signing in: every later cold start
