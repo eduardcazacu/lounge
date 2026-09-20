@@ -12,7 +12,10 @@ struct InstantWaitingWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: InstantWidgetStore.widgetKind, provider: WaitingProvider()) { entry in
             InstantWidgetView(entry: entry)
-                .containerBackground(InstantStyle.background, for: .widget)
+                // The picture goes here rather than inside the view: a widget's
+                // content is inset by the system's margins, and only the
+                // container background reaches the widget's own edges.
+                .containerBackground(for: .widget) { InstantWidgetBackground(entry: entry) }
         }
         .configurationDisplayName("Instant")
         .description("Shows who has sent you an instant.")

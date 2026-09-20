@@ -168,6 +168,14 @@ Developer → WidgetKit Developer Mode, which lifts the limit.
 simply never appears, which is why the app caches profile pictures to the App
 Group rather than letting the widget fetch them.
 
+**Only `containerBackground` reaches a widget's edges.** A widget's content is
+inset by the system's margins, so a picture meant to fill the widget that is
+drawn inside the view's own `body` comes out a few points short on every side,
+framed in whatever is behind it. Nothing errors — it just looks like a bad
+crop. `ios/InstantWidget/InstantWidget.swift` hands the picture to
+`containerBackground`, which is also why it is a separate view from
+`InstantWidgetView`.
+
 **The extension holds no credential and cannot call the API.** Anything the
 Notification Service Extension needs must ride in the push payload.
 

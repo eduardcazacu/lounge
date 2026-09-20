@@ -80,14 +80,16 @@ public struct WidgetSnapshotPublisher: WidgetSnapshotPublishing {
         guard let (data, response) = try? await session.data(from: url),
               (response as? HTTPURLResponse)?.statusCode == 200,
               // Decoded once here so the widget never has to reject a bad file
-              // mid-render, and downsized because a widget avatar is tiny.
+              // mid-render, and downsized to about what a medium widget needs
+              // at 3x. The picture fills the whole widget now, so the old
+              // avatar-sized 160 pixels would be visibly soft.
               let image = UIImage(data: data),
               let encoded = Self.downsized(image).pngData()
         else { return nil }
         return InstantWidgetStore.writeAvatar(encoded, for: contact.userId)
     }
 
-    static func downsized(_ image: UIImage, to edge: CGFloat = 160) -> UIImage {
+    static func downsized(_ image: UIImage, to edge: CGFloat = 768) -> UIImage {
         let longest = max(image.size.width, image.size.height)
         guard longest > edge else { return image }
         let scale = edge / longest

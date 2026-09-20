@@ -224,6 +224,29 @@ of machinery for a preference.
 
 ---
 
+## The widget is the picture
+
+**Chosen** the sender's profile picture fills the whole widget, with the name,
+the count and the streak over a scrim along the bottom.
+
+**Rejected** the picture as a circle above the name.
+
+**Because** a widget is looked at from across a room, at a size where a
+68-point circle is a smudge and the only thing carrying who it is from is the
+name. The photograph is the one part of the widget legible at a glance, so it
+gets the whole of it. It is also what Instant is about: the app is photographs
+of people, and a home screen that shows a face reads as one of them.
+
+**Consequence** everything else has to survive being drawn over an arbitrary
+photograph — hence the scrim gradient and the shadow on the type in
+`ios/Shared/InstantWidgetView.swift`, and the cached pictures being kept at the
+widget's size rather than an avatar's in `WidgetSnapshotPublisher.downsized`.
+
+**Would reopen it** a tinted or accented widget family, where a photograph is
+desaturated to a single colour by the system and stops being a face at all.
+
+---
+
 ## The app publishes the widget's data; the widget only reads
 
 **Chosen** `InstantStore` writes a snapshot into the

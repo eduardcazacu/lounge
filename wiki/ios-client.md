@@ -302,11 +302,23 @@ since a row says one thing and "open this" beats "answer that".
 ## The widget
 
 `InstantWidget` is a WidgetKit extension showing who has sent you an instant:
-the app mark when nothing is waiting, otherwise the sender's picture (or their
-initials on their own theme colour), their name, how many are waiting, and the
-streak if there is one. Several people cycle every 30 seconds, as an hour of
-pre-built entries; only a cycling timeline asks WidgetKit to call back, because
-scheduled refreshes spend the budget that push-driven reloads need.
+the app mark when nothing is waiting, otherwise the sender's picture filling the
+whole widget, with their name, how many are waiting, and the streak if there is
+one stacked along the bottom over a scrim. Someone whose picture has not been
+cached yet gets their initials, large, on their own theme colour — the same
+shape, so the two states do not read as two different widgets. Several people
+cycle every 30 seconds, as an hour of pre-built entries; only a cycling timeline
+asks WidgetKit to call back, because scheduled refreshes spend the budget that
+push-driven reloads need.
+
+The picture is handed to `containerBackground` rather than drawn inside
+`InstantWidgetView`, because only the container background reaches the widget's
+own edges — see `wiki/gotchas.md`. `InstantWidgetBackground` in
+`ios/Shared/InstantWidgetView.swift` is that layer, and it caches what it
+decodes: a cycling timeline renders about 120 entries in one pass, and a
+picture that fills the widget is an order of magnitude more pixels than an
+avatar-sized one — decoding it per entry is how a render pass runs out of the
+memory WidgetKit allows it.
 
 **The app publishes; the widget only reads.** An extension can reach neither the
 access token nor the refresh cookie, and a token lives fifteen minutes — a
@@ -321,7 +333,9 @@ Two consequences:
 - **Profile pictures are cached by the app, not fetched by the widget.** Widgets
   render synchronously off local state; an image loaded at draw time simply
   never appears. The app downsizes and writes them next to the snapshot, and
-  prunes the ones nobody is waiting on.
+  prunes the ones nobody is waiting on. `WidgetSnapshotPublisher.downsized`
+  keeps 768 pixels, about what a medium widget asks for at 3x — a picture that
+  fills the widget is held to the widget's size, not an avatar's.
 - **A Notification Service Extension keeps it fresh while the app is closed.**
   `InstantNotificationService` runs on delivery of every Instant push, folds the
   new arrival into the snapshot and reloads the widget. It has no access token

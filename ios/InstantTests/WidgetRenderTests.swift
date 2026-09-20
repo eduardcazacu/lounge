@@ -17,15 +17,22 @@ struct WidgetRenderTests {
     static let outputDirectory = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("instant-widget-renders", isDirectory: true)
 
+    /// The widget's own content margins, which `containerBackground` draws
+    /// behind and the content sits inside. Applied here by hand, since only
+    /// WidgetKit applies them for real.
+    private static let contentMargin: CGFloat = 16
+
     private func render(
         _ entry: WaitingEntry,
         family: WidgetFamily,
         size: CGSize,
-        name: String
+        name: String,
+        avatar: UIImage? = nil
     ) -> UIImage? {
         let view = InstantWidgetView(entry: entry, family: family)
+            .padding(Self.contentMargin)
             .frame(width: size.width, height: size.height)
-            .background(InstantStyle.background)
+            .background(InstantWidgetBackground(entry: entry, avatar: avatar))
 
         let renderer = ImageRenderer(content: view)
         renderer.scale = 2
@@ -87,6 +94,36 @@ struct WidgetRenderTests {
         )
         #expect(render(entry, family: .systemSmall, size: Self.small, name: "small-long") != nil)
         #expect(render(entry, family: .systemMedium, size: Self.medium, name: "medium-long") != nil)
+    }
+
+    /// The state the whole widget is built around, and the one the other tests
+    /// cannot reach: with a picture cached, it fills the widget edge to edge and
+    /// the name has only the scrim keeping it readable.
+    @Test("A cached picture fills the widget")
+    func rendersFullBleedPicture() throws {
+        let entry = WaitingEntry(
+            date: .now,
+            contact: .fixture(
+                userId: 5, name: "Ada Lovelace", themeKey: "indigo",
+                avatarFile: "5.img", unopenedCount: 2, streakCount: 4
+            ),
+            totalWaiting: 2, contactCount: 2, position: 0
+        )
+        // Deliberately pale: white type over a bright photograph is the case
+        // the scrim exists for, and the one a PNG has to be looked at to judge.
+        let picture = Self.swatch(.init(white: 0.86, alpha: 1))
+
+        #expect(render(entry, family: .systemSmall, size: Self.small, name: "small-photo", avatar: picture) != nil)
+        #expect(render(entry, family: .systemMedium, size: Self.medium, name: "medium-photo", avatar: picture) != nil)
+    }
+
+    /// A stand-in for a profile picture. The real one comes from the App Group,
+    /// which a test process has no container for.
+    private static func swatch(_ color: UIColor) -> UIImage {
+        UIGraphicsImageRenderer(size: CGSize(width: 400, height: 400)).image { context in
+            color.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 400, height: 400))
+        }
     }
 
     @Test("Renders where a directory of PNGs can be inspected")
