@@ -72,13 +72,18 @@ frame — the inbox's title sitting a row higher than the account button pinned
 over it. `viewportTopLine` in `style.ts` is that band plus the inset, and it is
 what the inbox's header is dropped onto.
 
-**The camera keeps its own shape.** The phone's app frames 16:9 because
-`AVCaptureSession` is told to deliver it. A browser gives whatever the camera
-has — 4:3 standing up on a phone, 16:9 lying down on a laptop — and both are
-shown whole inside the viewport rather than filled to it, because the
-alternative is cropping a picture the sender never agreed to crop. The photo is
-that frame, so a web instant is not always 9:16; every screen that draws one
-letterboxes it already, and a caption's place in it is a fraction of the photo.
+**The camera frames 16:9 out of whatever it is given.** The phone's app has
+`AVCaptureSession` deliver that shape; a browser hands over the camera's own —
+4:3 standing up on a phone — and the preview fills the viewport with it, which
+costs it a quarter of its width. That is the same trade the phone makes out of
+the same 4:3 sensor, and the capture crops to exactly what the preview showed,
+because the preview *is* the framing.
+
+The frame has to be the camera's own shape for that to be a quarter rather than
+a third of the picture, which is why `openCamera` asks for no size at all: see
+[gotchas.md](gotchas.md). A laptop's webcam is 16:9 lying down and there is no
+kind answer — it fills the frame from the middle of a picture three times the
+wrong shape.
 
 **The system's own strip is made dark too.** Installed to the home screen on
 iOS, the area under the Dynamic Island is painted by the system from the
@@ -97,7 +102,7 @@ the viewer.
 | File | What it is |
 |---|---|
 | `InstantApp.tsx` | The pager, the aim, the account button, the send pill |
-| `CameraScreen.tsx` | `getUserMedia`, flip, shutter cover, whole-frame capture |
+| `CameraScreen.tsx` | `getUserMedia`, flip, shutter cover, capture cropped to the frame |
 | `ComposeScreen.tsx` | Captions, drawing, filters, duration, Send To |
 | `InboxScreen.tsx` | Conversation rows, status line, press-and-hold menu |
 | `SendToSheet.tsx` | Recent/everyone, several recipients, All behind a confirmation |

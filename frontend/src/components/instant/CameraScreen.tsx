@@ -253,31 +253,28 @@ export function CameraScreen({
     // black, which is the one thing the shutter cover exists to avoid.
     <div className={`absolute inset-0 ${captured ? "invisible" : ""}`}>
       <Viewport className="bg-gradient-to-b from-neutral-800 to-neutral-950">
-        {/* The frame is shown whole, at whatever shape the camera gives, rather
-            than filled to the viewport and cropped — what is framed is what is
-            taken. A phone's camera is 4:3 standing up, so it fills the width
-            and leaves a band at each end, which is where the controls sit
-            anyway; a laptop's is 16:9 lying down and lands as a strip across
-            the middle. The size is the video's own: an element told its
-            dimensions cannot correct itself when iOS revises `videoWidth` and
-            `videoHeight` after the fact (see wiki/gotchas.md), and one that
-            lays itself out does. */}
-        <div className="flex h-full w-full items-center justify-center">
-          <video
-            ref={videoRef}
-            playsInline
-            muted
-            onLoadedMetadata={() => setReady(true)}
-            onDoubleClick={flip}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            onPointerCancel={handlePointerUp}
-            className={`block max-h-full max-w-full touch-none select-none transition-opacity duration-300 ${
-              ready && !noCamera ? "opacity-100" : "opacity-0"
-            } ${facing === "user" ? "-scale-x-100" : ""}`}
-          />
-        </div>
+        {/* The frame fills the viewport, which costs it the sides. That is the
+            same trade the phone app makes — `AVCaptureSession` frames 16:9 out
+            of a sensor that is 4:3 — and it is only a quarter of the width of a
+            camera standing up. The earlier version of this filled the viewport
+            with a *landscape* frame, which is the same rule applied to a frame
+            three times the wrong shape, and that is what read as a photo zoomed
+            into its own middle. The frame is portrait now because nothing asks
+            the camera to be anything else; see `openCamera`. */}
+        <video
+          ref={videoRef}
+          playsInline
+          muted
+          onLoadedMetadata={() => setReady(true)}
+          onDoubleClick={flip}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
+          className={`h-full w-full touch-none select-none object-cover transition-opacity duration-300 ${
+            ready && !noCamera ? "opacity-100" : "opacity-0"
+          } ${facing === "user" ? "-scale-x-100" : ""}`}
+        />
         {noCamera && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-8 text-center">
             <IconPhotos size={40} className="text-white" />
@@ -493,21 +490,30 @@ async function upgradeResolution(track: MediaStreamTrack | undefined) {
   }
 }
 
-/// The whole frame, at the camera's own shape.
+/// The frame as it was framed: the viewport's 16:9 out of the middle of it.
 ///
-/// Nothing is cropped here, because nothing is cropped on screen either: the
-/// preview shows the frame whole, so the photo is the picture the sender was
-/// looking at. The compose screen and the viewer both letterbox whatever shape
-/// arrives, and a caption's place in it is stored as a fraction of the photo,
-/// so no part of the app has an opinion about 16:9 except the frame it draws
-/// the photo inside.
+/// This is the same arithmetic `object-cover` is doing on the preview, and it
+/// has to be, because the preview *is* the framing. A photo cropped differently
+/// from the picture the sender was looking at is a photo they never took.
 async function captureFrame(video: HTMLVideoElement, mirrored: boolean): Promise<Blob | null> {
+  const sourceWidth = video.videoWidth;
+  const sourceHeight = video.videoHeight;
+  const target = 9 / 16;
+  const sourceAspect = sourceWidth / sourceHeight;
+
+  // Wider than the frame loses its sides, which is every camera; taller than it
+  // loses its ends, which is nothing in practice and is here for completeness.
+  const cropWidth = sourceAspect > target ? sourceHeight * target : sourceWidth;
+  const cropHeight = sourceAspect > target ? sourceHeight : sourceWidth / target;
+  const cropX = (sourceWidth - cropWidth) / 2;
+  const cropY = (sourceHeight - cropHeight) / 2;
+
   // The encode ladder shrinks from here anyway; this only stops a 4K webcam
-  // painting eight megapixels nobody will send.
-  const scale = Math.min(1, 1920 / Math.max(video.videoWidth, video.videoHeight));
+  // painting megapixels nobody will send.
+  const scale = Math.min(1, 1920 / cropHeight);
   const canvas = document.createElement("canvas");
-  canvas.width = Math.round(video.videoWidth * scale);
-  canvas.height = Math.round(video.videoHeight * scale);
+  canvas.width = Math.round(cropWidth * scale);
+  canvas.height = Math.round(cropHeight * scale);
   const context = canvas.getContext("2d");
   if (!context) {
     return null;
@@ -518,6 +524,6 @@ async function captureFrame(video: HTMLVideoElement, mirrored: boolean): Promise
     context.translate(canvas.width, 0);
     context.scale(-1, 1);
   }
-  context.drawImage(video, 0, 0, canvas.width, canvas.height);
+  context.drawImage(video, cropX, cropY, cropWidth, cropHeight, 0, 0, canvas.width, canvas.height);
   return new Promise((resolve) => canvas.toBlob((blob) => resolve(blob), "image/png"));
 }
