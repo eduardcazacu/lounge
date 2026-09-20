@@ -72,6 +72,23 @@ frame — the inbox's title sitting a row higher than the account button pinned
 over it. `viewportTopLine` in `style.ts` is that band plus the inset, and it is
 what the inbox's header is dropped onto.
 
+**The camera keeps its own shape.** The phone's app frames 16:9 because
+`AVCaptureSession` is told to deliver it. A browser gives whatever the camera
+has — 4:3 standing up on a phone, 16:9 lying down on a laptop — and both are
+shown whole inside the viewport rather than filled to it, because the
+alternative is cropping a picture the sender never agreed to crop. The photo is
+that frame, so a web instant is not always 9:16; every screen that draws one
+letterboxes it already, and a caption's place in it is a fraction of the photo.
+
+**The system's own strip is made dark too.** Installed to the home screen on
+iOS, the area under the Dynamic Island is painted by the system from the
+*document's* background, not from whatever is drawn over it — so a black app on
+the Lounge's default white canvas came up with a white strip above it.
+`useDarkChrome` blackens the document, sets `color-scheme: dark` and points the
+`theme-color` meta at black for as long as Instant is mounted, and puts all
+three back on the way out, because the rest of the Lounge is a light page that
+follows the system.
+
 **Every gesture has a button.** A pointer that cannot swipe still turns the page
 (the chat button on the camera, the camera button in the inbox), a pointer that
 cannot press-and-hold still opens the row menu (right-click), and Escape closes
@@ -80,7 +97,7 @@ the viewer.
 | File | What it is |
 |---|---|
 | `InstantApp.tsx` | The pager, the aim, the account button, the send pill |
-| `CameraScreen.tsx` | `getUserMedia`, flip, shutter cover, capture cropped to the viewport |
+| `CameraScreen.tsx` | `getUserMedia`, flip, shutter cover, whole-frame capture |
 | `ComposeScreen.tsx` | Captions, drawing, filters, duration, Send To |
 | `InboxScreen.tsx` | Conversation rows, status line, press-and-hold menu |
 | `SendToSheet.tsx` | Recent/everyone, several recipients, All behind a confirmation |

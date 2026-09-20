@@ -11,6 +11,7 @@ import { SendStatusPill } from "./SendStatusPill";
 import { InstantAvatar } from "./chrome";
 import { INSTANT_COLORS, VIEWPORT_INSET, viewportStyle } from "./style";
 import { useOutbox, type InstantRecipient } from "./useOutbox";
+import { useDarkChrome } from "./useDarkChrome";
 import { useSignedInProfile } from "./useSignedInProfile";
 
 // Snapchat's spine, ported from `ios/Instant/App/RootView.swift`: the camera is
@@ -47,6 +48,9 @@ export function InstantApp({ authExpiredRedirect }: { authExpiredRedirect: () =>
   } = useInstant(true);
   const { users, loading: usersLoading } = useUsers();
   const profile = useSignedInProfile();
+  // Instant is black to the edges of the window, including the parts the system
+  // paints. The rest of the Lounge is not, so this is undone on the way out.
+  useDarkChrome();
 
   const [showsInbox, setShowsInbox] = useState(false);
   const [isComposing, setIsComposing] = useState(false);

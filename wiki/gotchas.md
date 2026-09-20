@@ -125,9 +125,16 @@ transient reason.
 **iOS reports stale landscape `videoWidth`/`videoHeight`.** They arrive in the
 camera's native orientation and are updated after the fact, so any aspect ratio
 read from them is both wrong to begin with and stale after a rotation.
-`CameraScreen.tsx` stores none: the preview is `object-cover` inside the 16:9
-viewport, and the capture crops with the same cover arithmetic, so the photo is
-the frame that was on screen whatever the numbers say.
+`CameraScreen.tsx` stores none and tells the element nothing: the video is
+`max-h-full max-w-full` inside the viewport and lays itself out, so it corrects
+itself when the numbers do.
+
+**Constraining both axes of `getUserMedia` states an aspect ratio.** Asking for
+`width: 1080, height: 1920` looks like asking for a sharp portrait frame, and a
+browser that has no such mode natively satisfies it by cropping the sensor
+instead — on a phone that is a threefold crop of the middle of the picture, and
+nothing reports it: the preview looks like a camera, just a suspiciously narrow
+one. Constrain one axis and leave the shape to the camera.
 
 **A caption preview that wraps its own text drifts from the file.** Canvas has
 no text wrapping, so the burn-in has to wrap the caption itself — and if the
