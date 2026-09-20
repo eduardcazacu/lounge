@@ -129,12 +129,17 @@ read from them is both wrong to begin with and stale after a rotation.
 `max-h-full max-w-full` inside the viewport and lays itself out, so it corrects
 itself when the numbers do.
 
-**Constraining both axes of `getUserMedia` states an aspect ratio.** Asking for
-`width: 1080, height: 1920` looks like asking for a sharp portrait frame, and a
-browser that has no such mode natively satisfies it by cropping the sensor
-instead — on a phone that is a threefold crop of the middle of the picture, and
-nothing reports it: the preview looks like a camera, just a suspiciously narrow
-one. Constrain one axis and leave the shape to the camera.
+**Every dimension in a `getUserMedia` constraint is a dimension the browser may
+deliver by cropping.** Asking for `width: 1080, height: 1920` looks like asking
+for a sharp portrait frame; a browser with no such mode natively satisfies it by
+cropping the sensor, and Safari took the sides off the picture — a threefold
+crop of the middle. Asking for a height alone looks safer and is not: Firefox on
+Android satisfies that by cropping the top and the bottom. Nothing reports
+either one. The preview still looks like a camera, just a suspiciously narrow
+one, and the photo matches the preview, so there is nothing to compare against.
+`CameraScreen.tsx` therefore opens the camera with no size at all and calls
+`upgradeResolution`, which reads the shape the camera chose and asks for a
+bigger frame of *that* shape — scaling it can do, cropping it does not need to.
 
 **A caption preview that wraps its own text drifts from the file.** Canvas has
 no text wrapping, so the burn-in has to wrap the caption itself — and if the

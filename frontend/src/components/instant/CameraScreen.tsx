@@ -99,15 +99,14 @@ export function CameraScreen({
         return;
       }
       try {
-        // One axis only, and deliberately so. Asking for both — 1080×1920,
-        // say — states an aspect ratio as well as a size, and a browser that
-        // cannot serve that shape natively satisfies it by *cropping* the
-        // sensor: on a phone whose camera hands back a landscape frame that is
-        // a threefold crop of the middle of the picture, and on a laptop it
-        // trims the sides off a 16:9 webcam. A single ideal height asks for a
-        // sharp frame and leaves the shape to the camera.
+        // No size asked for at all. Every dimension in a constraint is a
+        // dimension the browser may deliver by *cropping* the sensor, and each
+        // one crops a different edge: both axes together cost Safari the sides
+        // of the picture, and a height on its own costs Firefox the top and the
+        // bottom. The shape is the camera's to state, and `upgradeResolution`
+        // asks for more pixels of it afterwards.
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: facing, height: { ideal: 1440 } },
+          video: { facingMode: facing },
           audio: false,
         });
         if (cancelled) {
@@ -120,9 +119,12 @@ export function CameraScreen({
           videoRef.current.srcObject = stream;
           await videoRef.current.play().catch(() => undefined);
         }
-        const capabilities = stream
-          .getVideoTracks()[0]
-          ?.getCapabilities?.() as ExtendedCapabilities | undefined;
+        const track = stream.getVideoTracks()[0];
+        // After the preview is live, not before it: the element sizes itself
+        // from the frame, so a larger one arriving a moment later simply
+        // re-lays it out.
+        void upgradeResolution(track);
+        const capabilities = track?.getCapabilities?.() as ExtendedCapabilities | undefined;
         setTorch({ on: false, available: Boolean(capabilities?.torch) });
         setZoom(
           capabilities?.zoom
@@ -434,6 +436,61 @@ function Shutter({ enabled }: { enabled: boolean }) {
       />
     </span>
   );
+}
+
+/// Enough for a photo, and no more than the encode ladder will keep.
+const IDEAL_LONG_EDGE = 1920;
+
+/// Asks an open camera for more pixels **of the shape it already has**.
+///
+/// Unconstrained, a browser hands over its default mode, which is often 640×480
+/// — fine for a video call and soft for a photo. The way to ask for better
+/// without asking for a crop is to let the camera answer first: read the frame
+/// it chose, work out its aspect, and ask for a bigger frame of exactly that
+/// aspect, which it can serve by scaling rather than by cutting something off.
+///
+/// If the shape moves anyway, the browser cropped to reach it, and the frame it
+/// started with is asked for back — it has just proved it can deliver that one.
+/// A browser that does not implement `getCapabilities` keeps its default, which
+/// is the whole picture at a modest size: the right way round of the trade.
+async function upgradeResolution(track: MediaStreamTrack | undefined) {
+  const initial = track?.getSettings();
+  if (!track || !initial?.width || !initial?.height) {
+    return;
+  }
+  const aspect = initial.width / initial.height;
+  const capabilities = track.getCapabilities?.();
+  const ceiling = Math.min(
+    IDEAL_LONG_EDGE,
+    Math.max(capabilities?.width?.max ?? 0, capabilities?.height?.max ?? 0)
+  );
+  if (ceiling <= Math.max(initial.width, initial.height)) {
+    return;
+  }
+
+  const [width, height] =
+    aspect >= 1
+      ? [ceiling, Math.round(ceiling / aspect)]
+      : [Math.round(ceiling * aspect), ceiling];
+  try {
+    await track.applyConstraints({ width: { ideal: width }, height: { ideal: height } });
+  } catch {
+    return;
+  }
+
+  const settled = track.getSettings();
+  if (
+    settled.width &&
+    settled.height &&
+    Math.abs(settled.width / settled.height - aspect) > 0.01
+  ) {
+    await track
+      .applyConstraints({
+        width: { ideal: initial.width },
+        height: { ideal: initial.height },
+      })
+      .catch(() => undefined);
+  }
 }
 
 /// The whole frame, at the camera's own shape.
