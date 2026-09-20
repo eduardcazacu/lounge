@@ -46,26 +46,48 @@ default. Nothing checks that the hex values match; they are matched by hand, and
 a mismatch shows up as the same person looking like two different people on two
 clients.
 
-## The caption geometry — two places, and two inside iOS
+## The photo overlay — two clients, and a preview inside each
 
-The iOS **plate** caption at scale 1 matches the web's only caption:
-`ios/Instant/Core/Media/OverlayCompositor.swift` against
-`frontend/src/components/instant/InstantComposer.tsx`, font 6% of the image
-width, positions clamped to 0.05–0.95. The bar style, the pinch scale, the
-rotation, several captions per photo and drawing are iOS-only and have no web
-side to keep in step.
+`ios/Instant/Core/Media/OverlayCompositor.swift` and
+`frontend/src/components/instant/overlay.ts` are the same file in two languages:
+the caption placement and its clamp, the two styles and their metrics, the
+scale range, the rotation snap, the stroke width and the curve through the
+midpoints. Both clients have the whole model now — bar and plate, several
+captions, pinch, turn, drawing — so there is no longer a smaller web version to
+allow for.
 
-A caption is burned into the pixels before the photo is sealed, so its position
-is stored as **image fractions** and never travels on the wire. Two clients
-that place it differently produce visibly different photos from the same input,
-with nothing to compare against afterwards.
+A caption and a line are burned into the pixels before the photo is sealed, so
+their positions are stored as **image fractions** and never travel on the wire.
+Two clients that place them differently produce visibly different photos from
+the same input, with nothing to compare against afterwards.
 
-Inside the app, the compose preview (`ComposeScreen.swift`) and the compositor
-are the other pair. Both size a caption from `OverlayCompositor.metrics` and
-wrap it with `OverlayCompositor.textSize`, which is how the preview's line
-breaks match the pixels. A preview that measured its own text would drift. A
-drawn line is the same: both stroke `OverlayCompositor.path` at the width
-`OverlayCompositor.strokeWidth` gives for the photo's width.
+**Inside each client there is a second pair**: the preview and the burn-in. Both
+read the same metrics and, crucially, the same *wrapping* —
+`OverlayCompositor.textSize` on iOS, `wrapLines` on the web, where the preview
+renders the lines that function returns rather than letting the browser wrap the
+text itself. A preview that measured its own text would drift from the file, and
+nothing would say so. The drawing is the same story: preview and compositor
+stroke one path at one width.
+
+The numbers that can be checked without a font are checked:
+
+```bash
+cd backend && npx tsx ../frontend/scripts/verify-instant-parity.ts
+```
+
+## The seven looks — two clients, and they need not match exactly
+
+`ios/Instant/Core/Media/PhotoFilter.swift` and
+`frontend/src/components/instant/filters.ts`. Same seven ids, same names, same
+order, same intent — vibrance before saturation for vivid, a fixed per-channel
+gain for warm and cool.
+
+The arithmetic deliberately does **not** match: `CIPhotoEffectMono` and friends
+are proprietary curves with no published definition, and the web side is a
+per-pixel approximation. That is fine, and it is worth knowing why — the look is
+burned in before the photo is sealed, so what travels is an image, not a filter
+name, and nothing downstream can tell. What must not drift is the list itself,
+which the verifier above pins.
 
 ## The wire types — `common/` and hand-written Swift
 
@@ -97,6 +119,12 @@ A third client would have to reimplement all three. They are in
 
 - **`PrivacyInfo.xcprivacy` and the App Privacy table in `ios/APP_STORE.md`**
   describe the same disclosures and must change together.
+- **The receipt and the relative-time phrasing** exist as
+  `ios/Instant/Core/RelativeTime.swift` plus `InstantSendReceipt.status`, and
+  `frontend/src/components/instant/relativeTime.ts` plus `sendReceipt.ts`. Two
+  clients telling the same person two different things about the same photo is
+  the kind of difference nobody can explain afterwards. Pinned by the verifier
+  above.
 - **The image compression ladder** exists as `frontend/src/lib/image.ts` and
   `ios/Instant/Core/Media/ImagePipeline.swift`. They need not agree exactly —
   each targets its own budget — but both must stay under the 3 MiB ciphertext

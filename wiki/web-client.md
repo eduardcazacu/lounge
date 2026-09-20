@@ -50,31 +50,74 @@ Three details that look like mistakes and are not:
 
 ## Instant on the web
 
-`frontend/src/pages/Instant.tsx` plus `frontend/src/components/instant/`. It
-works, and it is a harness rather than the product — see
-[product.md](product.md) for why, and
-[instant-protocol.md](instant-protocol.md) for the threat model that makes the
-distinction real.
+`frontend/src/pages/Instant.tsx` is four lines; everything is in
+`frontend/src/components/instant/`. It is a **port of the iOS app's screens**,
+not a page of the Lounge: black, full-bleed, no app bar, the camera as the home
+screen and conversations one swipe to the left. See
+[ios-client.md](ios-client.md) for why each screen is shaped the way it is —
+that page is the reference for both clients, and this one only records what is
+different here.
 
-- **`InstantCapture.tsx`** — `getUserMedia` viewfinder, front/back toggle, file
-  picker fallback for non-secure contexts. It deliberately stores **no** aspect
-  ratio, because iOS reports stale landscape `videoWidth`/`videoHeight`.
-- **`InstantComposer.tsx`** — caption overlay positioned in image *fractions*,
-  duration mode, recipient picker, WebP encode, then `sealForDevices` and
-  upload. The caption geometry here is the iOS plate caption at scale 1; see
-  [parallel-implementations.md](parallel-implementations.md).
-- **`InstantViewer.tsx`** — full screen, countdown, and a guard against
-  double-fetch because fetching the media destroys it server-side.
-- **`InstantKeySetup.tsx`** — the honest disclosure panel: encryption is local,
-  the key is non-extractable, there is no recovery, and the web client is itself
-  the weak link because it is re-downloaded on every visit.
-- **`SafetyNumberPanel.tsx`** — the 12×5-digit number, and a warning when a
-  remembered peer fingerprint has changed.
+**One rectangle does the desktop.** `style.ts` centres the same rounded 16:9
+viewport the phone uses: as wide as the window until 16:9 would run off the
+bottom, then as tall as the window. On a phone it fills the screen; on a laptop
+it becomes a phone-shaped card on black with every control still inside the
+frame it belongs to. There is one layout, not two, and it is measured in `dvh`
+because mobile browser chrome slides in and out.
+
+The catch is anything positioned against the **window** instead. A phone is
+taller than 16:9, so the viewport is centred with a black band above it, and a
+header measured from the top of the window lands above the controls inside the
+frame — the inbox's title sitting a row higher than the account button pinned
+over it. `viewportTopLine` in `style.ts` is that band plus the inset, and it is
+what the inbox's header is dropped onto.
+
+**Every gesture has a button.** A pointer that cannot swipe still turns the page
+(the chat button on the camera, the camera button in the inbox), a pointer that
+cannot press-and-hold still opens the row menu (right-click), and Escape closes
+the viewer.
+
+| File | What it is |
+|---|---|
+| `InstantApp.tsx` | The pager, the aim, the account button, the send pill |
+| `CameraScreen.tsx` | `getUserMedia`, flip, shutter cover, capture cropped to the viewport |
+| `ComposeScreen.tsx` | Captions, drawing, filters, duration, Send To |
+| `InboxScreen.tsx` | Conversation rows, status line, press-and-hold menu |
+| `SendToSheet.tsx` | Recent/everyone, several recipients, All behind a confirmation |
+| `InstantViewer.tsx` | Full screen, countdown, report; the one-shot fetch guard |
+| `useOutbox.ts` | Render once, seal per recipient, retry; the send pill's state |
+| `overlay.ts`, `filters.ts` | The caption and drawing geometry, and the seven looks |
+| `InstantKeySetup.tsx` | The honest disclosure panel |
+| `SafetyNumberPanel.tsx` | The 12×5-digit number, and a changed-key warning |
+| `moderation.ts`, `ReportSheet.tsx` | Blocking and reporting |
+
+### What a browser cannot do
+
+Four things are missing on purpose, because the platform has no honest version
+of them:
+
+- **A send does not survive the tab closing.** iOS writes the sealed bytes to
+  disk and finishes the upload on the next launch. A page that is gone runs
+  nothing, so a reload mid-send loses it.
+- **No home-screen widget and no notification service extension.** Web Push
+  still delivers the banner; see [instant-runtime.md](instant-runtime.md).
+- **No sensitivity check.** The iOS viewer blurs a photo its on-device
+  classifier flags. There is no browser equivalent that does not send the pixels
+  somewhere.
+- **No update notes.** `WhatsNewScreen` announces a version people install. A
+  web app has no install to announce.
+
+**Flash and zoom are capability-gated.** Both ride on `MediaStreamTrack`
+constraints that most desktops and iOS Safari do not implement, so each control
+is drawn only once the track says it has it — rather than offered and then doing
+nothing.
 
 ### `useInstant.ts`
 
-`frontend/src/hooks/useInstant.ts` is the realtime machinery, and three of its
-oddities are load-bearing:
+`frontend/src/hooks/useInstant.ts` is the store as well as the socket: the
+conversation rows, the local send marks and the reply prompts are all derived
+here, the same merge `InstantStore` does on iOS. Four of its oddities are
+load-bearing:
 
 - **`useSignedInUserId` polls every 5 seconds**, plus `storage` and
   `visibilitychange`. One shared `localStorage.token` means a second account
@@ -84,10 +127,21 @@ oddities are load-bearing:
 - **Dedup bookkeeping happens outside the `setInstants` updater.** React
   StrictMode double-invokes an impure updater, and an impure one here drops the
   instant. See [gotchas.md](gotchas.md).
+- **`/conversations` is the spine and `/streaks` is not fetched at all** — it is
+  a strict subset, and a conversation used to vanish the moment its streak
+  lapsed.
 
 Reconnect backs off 1s→30s. A 501 from the ticket endpoint means no Durable
 Object binding and is surfaced as `connection: "unsupported"` rather than
 retried forever.
+
+```bash
+cd backend && npx tsx ../frontend/scripts/verify-instant-parity.ts
+```
+
+Checks the rules that now exist twice and cannot be seen to differ from either
+client alone: the receipt states, the relative-time phrasing, the caption
+geometry and the names of the seven looks.
 
 ## Themes are a user column, not a CSS theme
 

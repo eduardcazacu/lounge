@@ -72,6 +72,24 @@ export function getAuthHeader() {
   return `Bearer ${token}`;
 }
 
+// What this client already knows about the signed-in person, with no request.
+//
+// `Auth.tsx` writes all three at sign-in and `Account.tsx` rewrites them
+// whenever the profile changes, so they are populated from the first moment
+// anybody is signed in. `Appbar` reads the same keys to draw its avatar; this
+// function exists so the next reader does not have to know their spelling.
+//
+// Deliberately not `/user/list`: the signed-in person is in that list, but it is
+// a fetch, so anything drawn from it is nameless on the first frame — and a name
+// that arrives a beat late reads as a bug.
+export function getCachedProfile() {
+  return {
+    name: localStorage.getItem("displayName") || "",
+    themeKey: localStorage.getItem("themeKey"),
+    profilePictureUrl: localStorage.getItem("profilePictureUrl"),
+  };
+}
+
 export function getCurrentUserId() {
   const token = normalizeToken(localStorage.getItem("token"));
   if (!token) {

@@ -12,17 +12,17 @@ export function InstantKeySetup({
   nonExtractable: boolean | null;
 }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm">
-      <p className="font-semibold text-slate-800">
+    <div className="rounded-2xl border border-white/10 bg-neutral-900/95 p-4 text-sm backdrop-blur">
+      <p className="font-semibold text-white">
         {state === "working" && "Setting up Instant on this device…"}
         {state === "ready" && "This device has its own Instant key"}
         {state === "failed" && "Instant could not start on this device"}
       </p>
 
       {state === "failed" ? (
-        <p className="mt-2 text-rose-600">{error}</p>
+        <p className="mt-2 text-rose-400">{error}</p>
       ) : (
-        <ul className="mt-2 space-y-1.5 text-xs text-slate-600">
+        <ul className="mt-2 space-y-1.5 text-xs text-neutral-400">
           <li>
             Photos are encrypted here before upload. The server stores ciphertext and
             wrapped keys it cannot unwrap.

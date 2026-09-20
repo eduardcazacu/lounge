@@ -67,25 +67,26 @@ export function SafetyNumberPanel({
   }, [currentUserId, peerUserId, peerName]);
 
   if (error) {
-    return <p className="text-xs text-slate-500">{error}</p>;
+    return <p className="text-xs text-neutral-400">{error}</p>;
   }
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-3">
+    <div className="rounded-xl border border-white/10 bg-neutral-900 p-3">
       {changed && (
-        <p className="mb-2 rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
-          {peerName}'s keys changed since you last checked. That happens when they reinstall
+        <p className="mb-2 rounded-md bg-amber-500/15 px-2 py-1.5 text-xs text-amber-300">
+          {peerName}&apos;s keys changed since you last checked. That happens when they reinstall
           or clear their browser data — but it is also what a key substitution attack looks
           like. Compare the number below with them before sending anything sensitive.
         </p>
       )}
-      <p className="text-xs font-medium text-slate-600">
-        Safety number with {peerName}
-      </p>
-      <p className="mt-1 font-mono text-xs leading-relaxed tracking-wide text-slate-800">
+      <p className="text-xs font-medium text-neutral-400">Safety number with {peerName}</p>
+      <p
+        className="mt-1 font-mono text-xs leading-relaxed tracking-wide text-white"
+        data-testid="safety.number"
+      >
         {digits ?? "…"}
       </p>
-      <p className="mt-2 text-[11px] text-slate-500">
+      <p className="mt-2 text-[11px] text-neutral-500">
         Read this aloud together. If it matches on both screens, nobody swapped the keys.
       </p>
     </div>

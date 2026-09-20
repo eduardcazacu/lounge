@@ -21,11 +21,12 @@ because anything sealed to a P-256 key stays sealed.
 
 ---
 
-## The native app is the product; the web client is a harness
+## The native app carries the guarantee; the web client does not
 
-**Chosen** iOS as the real endpoint for Instant.
+**Chosen** iOS as the endpoint the crypto is designed around.
 
-**Rejected** treating the React `/instant` page as the primary client.
+**Rejected** treating the React `/instant` page as somewhere the guarantee could
+be as strong.
 
 **Because** browser end-to-end encryption is only ever as strong as the channel
 delivering the JavaScript, and that channel is a Vercel deployment that can
@@ -35,6 +36,36 @@ guarantee is actually strong.
 
 The web client says this to the user rather than hiding it
 (`frontend/src/components/instant/InstantKeySetup.tsx`).
+
+This is about the threat model and nothing else. The interface is a separate
+question, answered separately below.
+
+---
+
+## The web client runs the iOS app's screens
+
+**Chosen** the same product on both: camera-first, black, full-bleed, the
+conversations one swipe to the left, the same tools on the photo and the same
+words on every row. `frontend/src/components/instant/` is a port of `ios/Instant/`
+screen for screen.
+
+**Rejected** the scrolling panel of sections it used to be — a streaks strip, a
+"waiting for you" list and a "send one" form on the Lounge's own grey page.
+
+**Because** the two clients are used by the same dozen people, often on the same
+day, and the old page made that feel like two different products that happened
+to share a login. Everything the phone had learned — that the camera is the
+home screen, that a row means "open this" or "aim at them", that a receipt is
+the quiet line under a name — had to be learned again in a different shape.
+
+**Cost paid** roughly the whole of `frontend/src/components/instant/`, four
+things that only a phone can do (see [web-client.md](web-client.md)), and a
+second implementation of the caption geometry, the filters and the send queue.
+The first of those is a real risk and is listed in
+[parallel-implementations.md](parallel-implementations.md).
+
+**Would reopen if** the web client were ever retired in favour of the app, which
+would delete the port rather than reshape it.
 
 ---
 

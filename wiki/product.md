@@ -57,17 +57,22 @@ These are choices, re-made deliberately, not gaps waiting to be filled.
   a human approval, so an in-app form could only ever end on a waiting screen.
   It links to the web instead.
 
-## The web Instant client is not the product
+## The web Instant client is the same app with a weaker guarantee
 
-`/instant` in the React app came first and still works, but it was always a test
-harness. The design target is the signed iOS binary: an app that does not
-re-download its own cryptography on every visit, with the private key in the
-Secure Enclave.
+`/instant` in the React app runs the iOS app's screens — the same camera, the
+same compose tools, the same conversations, the same words — because somebody
+who uses both should not be learning Instant twice. See
+[web-client.md](web-client.md).
 
-This is not modesty about the web client — it is the threat model. Browser
-end-to-end encryption is only ever as strong as the channel that delivers the
-JavaScript, and that channel is a Vercel deployment. The web client says so, to
-the user's face, in `frontend/src/components/instant/InstantKeySetup.tsx`.
+What does **not** carry over is the guarantee. Browser end-to-end encryption is
+only ever as strong as the channel that delivers the JavaScript, and that
+channel is a Vercel deployment that can serve different code tomorrow. The
+design target is still the signed iOS binary: an app that does not re-download
+its own cryptography on every visit, with the private key in the Secure Enclave.
+
+That is a statement about the threat model, not about the interface, and the web
+client says it to the user's face rather than hiding it
+(`frontend/src/components/instant/InstantKeySetup.tsx`).
 
 P-256 was chosen over X25519 for exactly one reason: it is the only curve the
 Secure Enclave supports. The whole crypto contract bends around an app that did

@@ -122,8 +122,37 @@ the 5-second poll in `useSignedInUserId` and the re-check mid-keygen.
 routinely fail to send the refresh cookie. Clearing would sign people out for a
 transient reason.
 
-**iOS reports stale landscape `videoWidth`/`videoHeight`.** `InstantCapture.tsx`
-stores no aspect ratio as a result.
+**iOS reports stale landscape `videoWidth`/`videoHeight`.** They arrive in the
+camera's native orientation and are updated after the fact, so any aspect ratio
+read from them is both wrong to begin with and stale after a rotation.
+`CameraScreen.tsx` stores none: the preview is `object-cover` inside the 16:9
+viewport, and the capture crops with the same cover arithmetic, so the photo is
+the frame that was on screen whatever the numbers say.
+
+**A caption preview that wraps its own text drifts from the file.** Canvas has
+no text wrapping, so the burn-in has to wrap the caption itself — and if the
+preview then lets CSS wrap the same string, the two agree until they do not.
+The break lands in a different place in the photo that was sent from the one on
+screen, and nobody finds out, because the sender never sees the file.
+`frontend/src/components/instant/overlay.ts` exports `wrapLines`, the preview
+renders the lines it returns, and the compositor draws the same ones.
+
+**A control that acts on what is being typed has two ways to never run.** The
+caption editor dims the photo with a full-frame layer, and the text button that
+restyles the caption being typed sits in the rail above it. Give that layer a
+`z-index` and it paints over the rail and eats the click; close the editor on
+`blur` and the click arrives after the caption has already been committed, so
+the button acts on nothing. Neither errors, and the button looks live either
+way. The editor in `ComposeScreen.tsx` carries no `z-index` — `ViewportOverlay`
+is a later sibling and paints above it — closes only on the dim layer, Return or
+Escape, and the button both `preventDefault`s its mousedown and hands the caret
+back afterwards.
+
+**`loadImageElement` revokes the object URL it loaded from.** The element keeps
+its decoded bitmap, so the image still draws — but `element.src` is a dead
+`blob:` URL by the time anybody reads it, and putting it back into an `<img>`
+renders nothing at all, silently. Anything that needs a URL for the same bytes
+makes its own.
 
 ## iOS
 
