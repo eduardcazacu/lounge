@@ -138,6 +138,9 @@ public enum LaunchOptions {
             store: store,
             pendingSends: stubOutboxStore(),
             whatsNew: stubWhatsNew(),
+            // Every stubbed launch starts from the defaults, so one test's
+            // muted clip or red pen is never the next test's starting point.
+            preferences: .inMemory(),
             ownsCaptureScratch: true,
             makeCamera: { StubCameraController(frame: StubBackend.cameraFrame()) }
         )

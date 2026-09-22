@@ -570,6 +570,24 @@ should not count as reading them.
 
 ---
 
+## Compose and viewer choices are remembered per device
+
+**Chosen** duration, loop, both speakers and the pen colour are kept in
+`UserDefaults` on the phone (`ios/Instant/Core/Store/Preferences.swift`).
+
+**Rejected** storing them on the account. That is a table or a column, a route,
+a schema in `common/src/index.ts` and its mirror in `DTOs.swift`, for choices
+that cost one tap to redo when wrong. They also describe how someone uses this
+phone rather than anything about them: the web client, which is a harness, has
+no reason to inherit a pen colour.
+
+**Cost paid** a reinstall or a second phone starts from the defaults.
+
+**Would reopen if** people use Instant on more than one device routinely and
+notice.
+
+---
+
 ## A photo to several people is several instants
 
 **Chosen** the iOS client fans out: one `POST /api/v1/instant` per recipient,

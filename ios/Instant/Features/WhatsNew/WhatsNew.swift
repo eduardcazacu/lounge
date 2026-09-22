@@ -25,6 +25,11 @@ public struct WhatsNew: Equatable, Sendable {
                 title: "Send a video",
                 detail: "Hold the shutter to record up to five seconds, with sound — the ring round the button shows how long you have left. Write and draw on it like a photo, then choose whether it plays once or loops. It disappears once it's been watched, just like a photo."
             ),
+            Item(
+                symbol: "slider.horizontal.3",
+                title: "Your settings stick",
+                detail: "How long a photo shows, whether a video loops, sound on or off, and your pen colour are remembered, so the next one starts the way you left the last."
+            ),
         ],
         fixes: []
     )

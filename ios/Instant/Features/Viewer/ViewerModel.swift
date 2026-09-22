@@ -22,8 +22,10 @@ public final class ViewerModel {
     /// The clip, when the instant is one. Played from memory: the plaintext
     /// never touches the disk, as a photo's never does.
     public private(set) var video: VideoPlaying?
-    /// A clip opens silent and the speaker button turns it up.
-    public private(set) var isMuted = true
+    /// A clip opens the way the last one was left: silent until the speaker
+    /// has once been turned up, and with sound from then on until it is turned
+    /// back down.
+    public private(set) var isMuted: Bool
     /// 1 down to 0 for timed instants and a clip that plays once; stays at 1
     /// for `.infinite` and a loop.
     public private(set) var progress: Double = 1
@@ -54,6 +56,7 @@ public final class ViewerModel {
     private let time: TimeSource
     private let sensitivity: SensitivityChecking
     private let makeVideoPlayer: @MainActor (Data, _ loops: Bool) -> VideoPlaying
+    private let preferences: Preferences
 
     public init(
         instant: InstantDelivery,
@@ -61,6 +64,7 @@ public final class ViewerModel {
         device: DeviceIdentity,
         time: TimeSource = .live,
         sensitivity: SensitivityChecking = SystemSensitivityChecker(),
+        preferences: Preferences = .inMemory(),
         makeVideoPlayer: @escaping @MainActor (Data, _ loops: Bool) -> VideoPlaying = {
             AVVideoPlayback(data: $0, loops: $1)
         }
@@ -71,6 +75,8 @@ public final class ViewerModel {
         self.time = time
         self.sensitivity = sensitivity
         self.makeVideoPlayer = makeVideoPlayer
+        self.preferences = preferences
+        isMuted = preferences.viewerMuted
     }
 
     /// Decided by what the bytes are, not by the duration mode: the server
@@ -171,6 +177,7 @@ public final class ViewerModel {
     /// the middle one. Either flagged conceals the clip.
     private func showVideo(_ plaintext: Data) async {
         let player = makeVideoPlayer(plaintext, instant.durationMode == .loop)
+        player.isMuted = isMuted
         video = player
         var flagged = false
         for fraction in [0, 0.5] {
@@ -209,6 +216,7 @@ public final class ViewerModel {
         guard let video else { return }
         isMuted.toggle()
         video.isMuted = isMuted
+        preferences.viewerMuted = isMuted
     }
 
     /// What a report attaches for a clip: the frame on screen when it was

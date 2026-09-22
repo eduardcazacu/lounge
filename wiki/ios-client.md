@@ -251,7 +251,8 @@ rides in `mediaType` so the web can ask whether it can play it. See
 of the decrypted bytes through `InMemoryAssetLoader`, so the plaintext is never
 written anywhere, as a photo's never is. A clip opens muted with a speaker
 button; the recording audio session ignores the silent switch, so muted is the
-default and sound is a tap. Once closes at its end with the ring
+default and sound is a tap. The speaker is remembered (see Remembered choices),
+so someone who has turned it up once hears the next clip too. Once closes at its end with the ring
 tracking playback; Loop stays until tapped. The sensitivity check sees the
 first and the middle frame, and a report attaches the frame it was paused on.
 The model reaches the player through `VideoPlaying`, so its rules are tested
@@ -306,6 +307,24 @@ way out instead: `Outbox.didEnterBackground` asks for background time and
 schedules a local notification 30 seconds out, and it is withdrawn if the send
 finishes. A send that fails in the background leaves it to fire. Tapping it
 opens the app where it normally opens, not the inbox (`OutboxReminder`).
+
+## Remembered choices
+
+`Preferences` (`ios/Instant/Core/Store/Preferences.swift`) keeps the photo
+duration, the clip's Once or Loop, compose's speaker, the viewer's speaker and
+the pen's colour, so a capture starts where the last one left off. Each is
+written the moment it is chosen rather than on send: a discarded capture still
+says what the person wants next time.
+
+Photo and clip durations are remembered separately and each refuses the other
+family's modes, on the way in and on the way out. A Loop leaking into a photo's
+duration would be refused by the server, and a value a later build wrote falls
+back to the default rather than becoming something this one cannot send.
+
+Per device, in `UserDefaults`, and not synced to the account; see
+[decisions.md](decisions.md). The models default to `Preferences.inMemory()`,
+and so do the stubbed UI-test launches, so one test's red pen is never the next
+test's starting point. Only `AppEnvironment` hands them the persistent one.
 
 ## Where the inbox comes from
 

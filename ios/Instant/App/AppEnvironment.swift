@@ -41,6 +41,7 @@ public final class AppEnvironment {
     public let identities: DeviceIdentityProviding
     public let makeCamera: @MainActor () -> CameraControlling
     public let whatsNew: WhatsNewTracker
+    public let preferences: Preferences
     /// Whether this environment empties `CaptureScratch` at launch and
     /// sign-out. The app's one environment does. The tests build dozens side
     /// by side, and one of them clearing the shared directory would delete
@@ -160,6 +161,7 @@ public final class AppEnvironment {
         pendingSends: PendingSendStoring = InMemoryPendingSendStore(),
         outboxSystem: OutboxSystem = RecordingOutboxSystem(),
         whatsNew: WhatsNewTracker = WhatsNewTracker(),
+        preferences: Preferences = Preferences(),
         ownsCaptureScratch: Bool = false,
         makeCamera: @escaping @MainActor () -> CameraControlling
     ) {
@@ -173,6 +175,7 @@ public final class AppEnvironment {
         self.store = store
         self.makeCamera = makeCamera
         self.whatsNew = whatsNew
+        self.preferences = preferences
         outbox = Outbox(
             api: instantAPI,
             store: pendingSends,

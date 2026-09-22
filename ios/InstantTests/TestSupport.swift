@@ -487,6 +487,7 @@ func makeTestEnvironment(
             api: instantAPI, identities: identities, makeSocket: { _ in StubSocket() }
         ),
         whatsNew: whatsNew,
+        preferences: .inMemory(),
         makeCamera: { StubCameraController(frame: UIImage()) }
     )
 }

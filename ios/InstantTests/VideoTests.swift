@@ -262,6 +262,22 @@ struct VideoSuites {
             #expect(drafted == recorded)
         }
 
+        @Test("The next clip starts looped and silent if that is how the last was left")
+        func videoRemembers() async throws {
+            let recorded = try await clip(of: twoTone(width: 90, height: 160))
+            defer { CaptureScratch.remove(recorded.url) }
+            let preferences = Preferences.inMemory()
+            let first = ComposeModel(capture: .video(recorded), preferences: preferences)
+            first.cycleDuration()
+            first.toggleSound()
+
+            let next = ComposeModel(capture: .video(recorded), preferences: preferences)
+            #expect(next.duration == .loop)
+            #expect(!next.includesSound)
+            let photo = ComposeModel(image: twoTone(width: 9, height: 16), preferences: preferences)
+            #expect(photo.duration == .fiveSeconds, "a clip's Loop is not a photo's duration")
+        }
+
         @Test("The filter strip is built from the clip's first frame")
         func thumbnailsFromFirstFrame() async throws {
             let recorded = try await clip(of: twoTone(width: 90, height: 160))
@@ -495,9 +511,11 @@ struct VideoSuites {
             let api = FakeInstantAPI()
             api.mediaResult = .success(ciphertext)
             let stub = StubVideoPlayback(still: twoTone(width: 9, height: 16))
+            let preferences = Preferences.inMemory()
             let model = ViewerModel(
                 instant: delivery, api: api, device: device, time: TestTime().source,
                 sensitivity: FixedSensitivity(sensitive: false),
+                preferences: preferences,
                 makeVideoPlayer: { _, _ in stub }
             )
             await model.start()
@@ -509,6 +527,16 @@ struct VideoSuites {
             model.toggleMute()
             #expect(!model.isMuted && !stub.isMuted)
             #expect(await model.reportableImage() != nil)
+
+            let unmuted = StubVideoPlayback(still: twoTone(width: 9, height: 16))
+            let next = ViewerModel(
+                instant: delivery, api: api, device: device, time: TestTime().source,
+                sensitivity: FixedSensitivity(sensitive: false),
+                preferences: preferences,
+                makeVideoPlayer: { _, _ in unmuted }
+            )
+            await next.start()
+            #expect(!next.isMuted && !unmuted.isMuted, "the speaker stays up for the next clip")
 
             let flagged = StubVideoPlayback(still: twoTone(width: 9, height: 16))
             let concealedAPI = FakeInstantAPI()
