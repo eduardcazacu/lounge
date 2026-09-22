@@ -31,7 +31,7 @@ struct SignInView: View {
                 if let model {
                     VStack(spacing: 12) {
                         field("Email", text: Binding(get: { model.email }, set: { model.email = $0 }))
-                            .textContentType(.emailAddress)
+                            .textContentType(.username)
                             .keyboardType(.emailAddress)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()

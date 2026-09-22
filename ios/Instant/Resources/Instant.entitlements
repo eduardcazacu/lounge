@@ -4,6 +4,14 @@
 <dict>
 	<key>aps-environment</key>
 	<string>development</string>
+	<!-- Lets password managers treat the app as the Lounge website, so they
+	     suggest the account already saved for lounge.eduardcazacu.com. The
+	     site vouches back in frontend/public/.well-known/apple-app-site-association;
+	     both halves are needed or iOS silently ignores this. -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>webcredentials:lounge.eduardcazacu.com</string>
+	</array>
 	<!-- Shared with the widget extension: the app writes the snapshot the
 	     widget draws, because an extension can reach neither the access token
 	     nor the refresh cookie it would need to fetch for itself. -->

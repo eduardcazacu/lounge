@@ -168,6 +168,16 @@ makes its own.
 
 ## iOS
 
+**Password AutoFill needs both halves of Associated Domains.** The
+`webcredentials:` entitlement in `Instant.entitlements` does nothing unless
+`frontend/public/.well-known/apple-app-site-association` names the app by
+`<Team ID>.<bundle id>`, is served as JSON, and has reached Apple's CDN
+(`app-site-association.cdn-apple.com`), which iOS asks rather than the site.
+Any one of those wrong, and the password manager just shows no suggestion.
+The SPA rewrite in `vercel.json` leaves the file alone only because its path
+contains a dot; a rewrite that caught it would serve `index.html`. The email field is `.textContentType(.username)`, not `.emailAddress`:
+only `.username` pairs it with the password field as one login.
+
 **Install the `UNUserNotificationCenter` delegate at launch**, not after
 sign-in. iOS hands a notification tapped from a cold start to whatever delegate
 exists when launching finishes, once — set it later and the tap is dropped
