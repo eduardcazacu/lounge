@@ -22,8 +22,12 @@ public final class ReportModel {
     public private(set) var isSubmitting = false
     public private(set) var errorMessage: String?
 
-    /// The photo being looked at, when reporting from the viewer.
+    /// The photo being looked at, when reporting from the viewer — or, for a
+    /// clip, the frame it was paused on.
     private let photo: UIImage?
+    /// The attachment is one frame of a video, and the toggle says so: a
+    /// reporter must not think the moderators are getting the whole clip.
+    public let isVideoFrame: Bool
     private let api: ModerationAPIProtocol
     private let encodeEvidence: @Sendable (UIImage) throws -> Data
 
@@ -32,6 +36,7 @@ public final class ReportModel {
         reportedName: String,
         instantId: String? = nil,
         photo: UIImage? = nil,
+        isVideoFrame: Bool = false,
         api: ModerationAPIProtocol,
         encodeEvidence: @escaping @Sendable (UIImage) throws -> Data = ReportModel.encodeForModerators
     ) {
@@ -39,11 +44,16 @@ public final class ReportModel {
         self.reportedName = reportedName
         self.instantId = instantId
         self.photo = photo
+        self.isVideoFrame = isVideoFrame
         self.api = api
         self.encodeEvidence = encodeEvidence
     }
 
     public var canAttachPhoto: Bool { photo != nil }
+
+    public var attachLabel: String {
+        isVideoFrame ? "Include a frame from this video" : "Include this photo"
+    }
 
     public var canSubmit: Bool { reason != nil && !isSubmitting }
 
@@ -60,7 +70,7 @@ public final class ReportModel {
             do {
                 evidence = try encodeEvidence(photo)
             } catch {
-                errorMessage = "Couldn't attach the photo. Turn off \"Include this photo\" to send the report without it."
+                errorMessage = "Couldn't attach the \(isVideoFrame ? "frame" : "photo"). Turn off \"\(attachLabel)\" to send the report without it."
                 return false
             }
         }

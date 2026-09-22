@@ -48,19 +48,22 @@ Before each submission:
 >    (profile button top-left → Sign out). This registers its device key.
 > 2. Sign in as App Review 1. Take a photo (or pick one — the shutter falls back
 >    to the photo library without a camera), tap Send To, choose App Review 2.
+>    Holding the shutter instead records a video of up to five seconds, with
+>    sound; the microphone is asked for together with the camera.
 > 3. Sign out, sign back in as App Review 2. Swipe right or tap the chat button
 >    for conversations and open the instant.
 >
 > **User-generated content (Guideline 1.2):**
 > - Everyone must agree to the Community Guidelines (zero tolerance for
 >   objectionable content and abusive users) before using the app.
-> - Report a photo: while viewing it, tap ••• (top right). The reporter can
->   choose to attach the photo for the moderators; photos are otherwise end-to-end
->   encrypted and cannot be seen by us.
+> - Report a photo or video: while viewing it, tap ••• (top right). The
+>   reporter can choose to attach the photo — for a video, the frame it was
+>   paused on — for the moderators; instants are otherwise end-to-end encrypted
+>   and cannot be seen by us.
 > - Report or block a person: press and hold them in the conversation list.
 > - Blocked people are listed, and can be unblocked, under profile → Blocked people.
-> - Filtering: received photos are checked on-device with Apple's
->   SensitiveContentAnalysis framework and hidden behind a warning when the user
+> - Filtering: received photos, and two frames of every received video, are
+>   checked on-device with Apple's SensitiveContentAnalysis framework and hidden behind a warning when the user
 >   has Sensitive Content Warnings or Communication Safety turned on.
 > - Every report emails the administrators, is reviewed within 24 hours, and
 >   offending accounts are suspended. Contact: hello@eduardcazacu.com.
@@ -68,8 +71,8 @@ Before each submission:
 > **Account deletion (Guideline 5.1.1(v)):** profile → Delete account. It asks
 > for the password and deletes the account and all its data immediately.
 >
-> **Encryption:** photos are end-to-end encrypted with CryptoKit and the Secure
-> Enclave; the server stores only ciphertext.
+> **Encryption:** photos and videos are end-to-end encrypted with CryptoKit and
+> the Secure Enclave; the server stores only ciphertext.
 
 ## App Privacy ("nutrition label")
 
@@ -83,11 +86,12 @@ tracking*, purpose **App Functionality** only. This mirrors
 | Contact Info → Name | Display name shown to the group |
 | Identifiers → User ID | Account id |
 | Identifiers → Device ID | Each device's Instant key id |
-| User Content → Photos or Videos | Profile pictures, and a photo a reporter chooses to attach to a report |
+| User Content → Photos or Videos | Profile pictures, and a photo (or one frame of a video) a reporter chooses to attach to a report |
 | User Content → Other User Content | Bio; report details |
 
-Not collected: instant photo contents (end-to-end encrypted — Apple's
-definition excludes data the developer cannot read), location, contacts,
+Not collected: instant photo and video contents, including a video's sound
+(end-to-end encrypted — Apple's definition excludes data the developer cannot
+read), location, contacts,
 health, financial info, browsing history, search history, usage data,
 diagnostics.
 

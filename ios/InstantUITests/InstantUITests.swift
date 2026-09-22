@@ -934,6 +934,105 @@ final class InstantUITests: XCTestCase {
         XCTAssertTrue(shutter.waitForExistence(timeout: 30))
     }
 
+    // MARK: - Video
+
+    /// A tap is a photo and a hold is a clip; both go through one gesture on
+    /// the shutter, so both are driven here.
+    func testHoldingTheShutterRecordsAClipThatPlaysOnceOrLoops() {
+        let app = launch(signedIn: true)
+        let shutter = app.buttons["camera.shutter"]
+        XCTAssertTrue(shutter.waitForExistence(timeout: 30))
+        shutter.press(forDuration: 1.2)
+
+        // The stand-in camera writes a real clip, which compose plays.
+        let clip = app.descendants(matching: .any)["compose.video"]
+        XCTAssertTrue(clip.waitForExistence(timeout: 30))
+        XCTAssertFalse(app.images["compose.preview"].exists)
+
+        // Once and loop instead of 1s, 5s and ∞.
+        let duration = app.buttons["compose.duration"]
+        XCTAssertEqual(duration.value as? String, "once")
+        duration.tap()
+        XCTAssertEqual(duration.value as? String, "loop")
+        duration.tap()
+        XCTAssertEqual(duration.value as? String, "once")
+
+        // Sound on by default, and off takes it out of what is sent.
+        let sound = app.buttons["compose.sound"]
+        XCTAssertEqual(sound.value as? String, "on")
+        sound.tap()
+        XCTAssertEqual(sound.value as? String, "off")
+
+        // The same tools as a photo.
+        XCTAssertTrue(app.buttons["compose.caption"].exists)
+        XCTAssertTrue(app.buttons["compose.draw"].exists)
+        XCTAssertTrue(app.buttons["compose.filters"].exists)
+
+        app.buttons["compose.discard"].tap()
+        XCTAssertTrue(shutter.waitForExistence(timeout: 30))
+
+        // And a tap is still a photo.
+        shutter.tap()
+        XCTAssertTrue(app.images["compose.preview"].waitForExistence(timeout: 30))
+        XCTAssertEqual(app.buttons["compose.duration"].value as? String, "5s")
+        XCTAssertFalse(app.buttons["compose.sound"].exists, "a photo has no sound to turn off")
+    }
+
+    func testARecordedClipSends() {
+        let app = launch(signedIn: true)
+        let shutter = app.buttons["camera.shutter"]
+        XCTAssertTrue(shutter.waitForExistence(timeout: 30))
+        // Aimed first, so Send goes straight to the outbox.
+        app.buttons["camera.inbox"].tap()
+        let row = app.buttons["inbox.conversation.Bo"]
+        // The first inbox load on a Simulator takes most of half a minute,
+        // on main as well, so this waits longer than the photo tests do.
+        XCTAssertTrue(row.waitForExistence(timeout: 60))
+        row.tap()
+        XCTAssertTrue(shutter.waitForExistence(timeout: 30))
+
+        shutter.press(forDuration: 1.2)
+        XCTAssertTrue(app.descendants(matching: .any)["compose.video"].waitForExistence(timeout: 30))
+        app.buttons["compose.sendTo"].tap()
+
+        // Encoded, sealed and uploaded after compose has closed, like a photo.
+        let sent = app.staticTexts["sendStatus.sent"]
+        XCTAssertTrue(sent.waitForExistence(timeout: 60))
+        XCTAssertEqual(sent.label, "Sent to Bo")
+    }
+
+    /// The stub seals a real HEVC clip to this device, so this is the whole
+    /// path: decrypt, play from memory, and close when a play-once clip ends.
+    func testOpeningAClipPlaysItAndItClosesAtTheEnd() {
+        let app = launch(signedIn: true, arguments: ["-instantUITestVideoInstant"])
+
+        XCTAssertTrue(app.buttons["camera.shutter"].waitForExistence(timeout: 30))
+        app.buttons["camera.inbox"].tap()
+        let row = app.buttons["inbox.conversation.Ana"]
+        XCTAssertTrue(row.waitForExistence(timeout: 60))
+        // The row is there from the history before the clip is: the stub
+        // encodes it for real, and a row tapped with nothing waiting opens the
+        // camera instead.
+        let waiting = expectation(
+            for: NSPredicate(format: "label CONTAINS %@", "New Instant"), evaluatedWith: row
+        )
+        wait(for: [waiting], timeout: 60)
+        row.tap()
+
+        // A player layer is no particular kind of element, so by identifier.
+        let video = app.descendants(matching: .any)["viewer.video"]
+        XCTAssertTrue(video.waitForExistence(timeout: 30))
+        // Quickly, and the tap first: the clip is five seconds long, and every
+        // query here costs a fraction of that.
+        let mute = app.buttons["viewer.mute"]
+        mute.tap()
+        XCTAssertEqual(mute.label, "Turn sound off")
+        XCTAssertTrue(app.otherElements["viewer.countdown"].exists)
+
+        // A clip that plays once closes itself at its end.
+        waitForDisappearance(video)
+    }
+
     // MARK: - Settings
 
     func testSettingsShowsAccountAndDeviceKeyDetails() {

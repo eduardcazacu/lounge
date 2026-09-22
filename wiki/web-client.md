@@ -106,7 +106,7 @@ the viewer.
 | `ComposeScreen.tsx` | Captions, drawing, filters, duration, Send To |
 | `InboxScreen.tsx` | Conversation rows, status line, press-and-hold menu |
 | `SendToSheet.tsx` | Recent/everyone, several recipients, All behind a confirmation |
-| `InstantViewer.tsx` | Full screen, countdown, report; the one-shot fetch guard |
+| `InstantViewer.tsx` | Full screen, countdown or playback, report; the one-shot fetch guard |
 | `useOutbox.ts` | Render once, seal per recipient, retry; the send pill's state |
 | `overlay.ts`, `filters.ts` | The caption and drawing geometry, and the seven looks |
 | `InstantKeySetup.tsx` | The honest disclosure panel |
@@ -128,6 +128,19 @@ of them:
   somewhere.
 - **No update notes.** `WhatsNewScreen` announces a version people install. A
   web app has no install to announce.
+
+**Video is played, never made.** The web composer is photos only; iOS records.
+A clip is handed to a `<video>` from the decrypted blob, muted until the speaker
+is tapped, with no controls — a clip is watched as it plays and then it is gone.
+Before anything is fetched the viewer asks `canPlayType` about the instant's
+`mediaType`, which carries the codec string: iOS sends HEVC, and Firefox and
+some Chromium builds cannot decode it. A browser that says no gets a notice and
+**no fetch**, and `onClose` reports the instant untouched so the inbox keeps it
+waiting for the phone. Asking after the fetch would be asking after the clip had
+been destroyed. See [gotchas.md](gotchas.md).
+
+A report on a clip attaches the frame it was paused on, drawn to a canvas,
+because the evidence endpoint takes images.
 
 **Flash and zoom are capability-gated.** Both ride on `MediaStreamTrack`
 constraints that most desktops and iOS Safari do not implement, so each control

@@ -27,7 +27,8 @@ Points at `https://api.lounge.eduardcazacu.com` by default; switch
   `UserAPI`, `ModerationAPI`), all behind `Sendable` protocols.
 - **`Core/Realtime`** — `InboxSocket`, the WebSocket inbox.
 - **`Core/Media`** — libwebp encoding, the compression ladder, the caption
-  and drawing compositor, the filters, the sensitivity check.
+  and drawing compositor, the filters, the sensitivity check, and the video
+  pipeline, player and capture scratch directory.
 - **`Core/Camera`** — capture behind a protocol, so the Simulator's
   photo-library fallback and the UI tests' fixed frame are the same seam.
 - **`Core/Store`** — `InstantStore` (the live inbox), the inbox cache,
@@ -78,11 +79,57 @@ frame captured a moment ago — which reads as the shutter having missed. The
 cover is drawn above both screens so that it outlasts the handover from one to
 the other, and the compose screen appearing is what lifts it.
 
+A clip uses no cover: the frame keeps moving until the finger lifts, and
+compose's player takes over from it.
+
 That window is visible in full, so nothing is allowed to sit in it.
 `ComposeModel.init` does no image work at all — it shows the photo exactly as it
 arrived. The display-sized copy is built on the first tap that needs one, and
 the strip's seven renders happen when the strip is first opened rather than on
 every capture.
+
+### Holding the shutter
+
+A tap is a photo and a hold is a clip, up to five seconds, with a red ring
+filling round the shutter for the time left. **One `DragGesture` decides
+both** (`CameraScreen.shutter`): touch-down starts a 0.3 s timer, a lift before
+it fires is a photo, and the timer firing is the hold. A long press competing
+with a tap would be outranked-but-waited-on, and the recording would start on
+the lift (see [gotchas.md](gotchas.md)). The limit is enforced twice: by
+`CameraModel`'s own clock, which stops at `VideoPipeline.maximumDuration`, and
+by `maxRecordedDuration` a quarter-second later as a backstop.
+
+**Nothing about the session changes when a clip starts.** The microphone is
+asked for with the camera and is on the session for as long as the camera is;
+the movie connection is set up (portrait, mirrored, unstabilised) when the
+session is built and again after a flip. Changing an input or a connection's
+processing on a running session rebuilds its pipeline, and the camera restarts
+exposure and white balance for a frame or two — which, done on the hold, was a
+flicker at the start of every clip (see [gotchas.md](gotchas.md)). The cost is
+the microphone indicator whenever the camera is open. A refused microphone
+records silent clips.
+
+**Unstabilised on purpose.** Stabilisation crops the recorded frame, so a
+stabilised clip is a tighter picture than the viewport showed.
+
+**The audio session is the camera's.** `CameraController` sets
+`.playAndRecord` with `.mixWithOthers` itself rather than letting the capture
+session take it over, which would stop the person's music the moment the
+camera opened. Nothing else sets a category: the camera keeps running under the
+inbox, and a category without recording would cut its microphone off.
+
+**The movie output must not slow the photo.** `CameraController` keeps it on
+the session only if the photo output still offers zero shutter lag beside it,
+and otherwise adds it for each recording — the one case left where a clip's
+start changes the session, and so can flicker. Nothing reports the loss of
+zero shutter lag; the photo would just go back to being of the moment after
+the press.
+
+A portrait recording is stored landscape with a transform, and a selfie
+mirrored like the photo is. The clip is a file (`RecordedClip`), because
+AVFoundation records to nothing else — the one form of an instant that sits on
+the sender's disk. `CaptureScratch` owns the directory: a clip is deleted when
+discarded or once encoded, and the directory is emptied at launch and sign-out.
 
 ## Filters
 
@@ -173,6 +220,43 @@ The drawing lies **under** the captions, on screen and in the pixels, so a
 scribble cannot make text unreadable, and it goes on after the filter, so ink
 keeps its colour.
 
+## Video
+
+**Compose is the photo's.** A clip loops in the viewport
+(`LoopingVideoView`), and the captions, drawing and gestures sit over it
+unchanged, because they were already in fractions of the frame. The speaker in
+the rail is the clip's sound for the preview and the send alike: off leaves the
+audio track out of the encode (`ComposeModel.includesSound`), so the recipient's
+device never holds sound the sender took back, and the preview plays exactly
+what will arrive. The duration
+chip offers Once and Loop instead of 1s, 5s and ∞. The filter strip is the
+clip's first frame.
+
+**The export is the preview.** `VideoPipeline.videoComposition` is one
+per-frame recipe — turned upright, the look (`PhotoFilter.apply(to: CIImage)`,
+the photo's own chains), then the drawing and captions as one transparent
+image from `OverlayCompositor.overlay` — used by compose's player and by the
+encode. The preview goes through it even with no look chosen, so a clip cannot
+preview the right way up and send sideways. Whether AVFoundation hands the
+handler upright frames is not relied on: `uprighted` compares each frame's
+shape with the upright size.
+
+**HEVC, SDR, under 3 MiB.** The encode is a reader-and-writer pass at 3 Mbps
+1080×1920 with AAC, forced to BT.709, falling to 2 Mbps and then 720p if a
+clip comes out over `byteBudget`. Five seconds is about 2 MB. The codec string
+rides in `mediaType` so the web can ask whether it can play it. See
+[decisions.md](decisions.md).
+
+**Playback is from memory.** `AVVideoPlayback` answers a made-up URL scheme out
+of the decrypted bytes through `InMemoryAssetLoader`, so the plaintext is never
+written anywhere, as a photo's never is. A clip opens muted with a speaker
+button; the recording audio session ignores the silent switch, so muted is the
+default and sound is a tap. Once closes at its end with the ring
+tracking playback; Loop stays until tapped. The sensitivity check sees the
+first and the middle frame, and a report attaches the frame it was paused on.
+The model reaches the player through `VideoPlaying`, so its rules are tested
+against `StubVideoPlayback`.
+
 ## Sending
 
 Tapping Send closes the compose screen at once. `ComposeModel.draft` hands the
@@ -206,9 +290,9 @@ not answer a streak.
 (`PendingSendStore`) before the upload starts, and deleted once the server
 accepts it. The next launch restores it before the first frame and sends it
 once signed in. Only the sealed form is ever written, never the photo, so a
-send killed before sealing finishes is lost. That window is the WebP encode:
-the key lookup runs alongside it, and the seal itself takes a millisecond or
-two. The pill's accessibility value turns from `preparing` to `saved` when the
+send killed before sealing finishes is lost. That window is the WebP encode
+— for a clip, the video encode, a second or two — the key lookup runs alongside
+it, and the seal itself takes a millisecond or two. The pill's accessibility value turns from `preparing` to `saved` when the
 window closes, which is what the relaunch UI test waits on.
 
 **Debug builds are slow to send.** libwebp comes in as a Swift package, and a
@@ -486,7 +570,11 @@ cannot support a repeatable UI test — `GET /:id/media` is destructive, so a
 second run of "open an instant" would always fail. Only the API and camera seams
 are replaced: **the stub seals a real photo to the app's own device key**, so
 the viewer under test runs the production decrypt path. Its timestamps are
-relative on purpose; a fixed future date inverted the recency ordering.
+relative on purpose; a fixed future date inverted the recency ordering. Video
+is the same story: the stand-in camera's hold writes a real clip of its frame
+(`StillClipWriter`), and `-instantUITestVideoInstant` has the stub seal a real
+HEVC clip instead of a photo. That clip is small because the Simulator encodes
+HEVC in software and the device registration waits on it.
 
 ```bash
 ios/tools/push-test.sh

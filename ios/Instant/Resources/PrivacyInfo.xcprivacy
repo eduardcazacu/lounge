@@ -24,9 +24,11 @@
 	</array>
 
 	<!-- What reaches the server, all linked to the account and used only to run
-	     the app. Instant photo contents are end-to-end encrypted and unreadable
-	     by the developer, so they are not "collected" in Apple's sense; a photo
-	     attached to a report is, which is why Photos is listed. Keep this in step
+	     the app. Instant photo and video contents, a video's sound included,
+	     are end-to-end encrypted and unreadable by the developer, so they are
+	     not "collected" in Apple's sense - which is why there is no Audio Data
+	     entry. A photo attached to a report is, and so is the one frame a video
+	     report attaches, which is why Photos is listed. Keep this in step
 	     with the App Privacy answers in ios/APP_STORE.md. -->
 	<key>NSPrivacyCollectedDataTypes</key>
 	<array>

@@ -101,6 +101,18 @@ explicit and the field names stable: renaming a field there silently breaks a
 Swift decode that nothing in the TypeScript build can see. Adding an *optional*
 field is safe; renaming or removing one is not.
 
+## The duration modes — three places
+
+`instantDurationModes` in `common/src/index.ts` (with the photo and video
+families, and the rule pairing them with `mediaType`), `InstantDurationMode` in
+`ios/Instant/Core/Networking/DTOs.swift`, and in the web client
+`DURATION_MS` in `InstantViewer.tsx` and `durationText` in `InboxScreen.tsx`.
+A mode added to `common/` alone is accepted by the server and shown by iOS as
+five seconds — the Swift decoder maps anything it does not know there, on
+purpose, because a strict one fails the whole inbox (see
+[gotchas.md](gotchas.md)). The web composer lists its own modes and offers
+photo ones only.
+
 ## Auth behaviour — two clients, same rules
 
 `frontend/src/lib/auth.ts` and `ios/Instant/Core/Networking/APIClient.swift`
@@ -128,7 +140,9 @@ A third client would have to reimplement all three. They are in
 - **The image compression ladder** exists as `frontend/src/lib/image.ts` and
   `ios/Instant/Core/Media/ImagePipeline.swift`. They need not agree exactly —
   each targets its own budget — but both must stay under the 3 MiB ciphertext
-  ceiling the send endpoint enforces.
+  ceiling the send endpoint enforces. So must the video bitrate ladder in
+  `ios/Instant/Core/Media/VideoPipeline.swift`, whose `byteBudget` is that
+  ceiling restated, less a margin.
 - **The `instant://` deep link** is built by the widget extension and parsed by
   the app, which is exactly why it lives once in `ios/Shared/DeepLink.swift`
   rather than being spelled out twice. Keep it that way.

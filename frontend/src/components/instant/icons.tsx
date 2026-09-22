@@ -213,3 +213,18 @@ export const IconPhotos = (props: IconProps) => (
     <path d="M3 16l5-4 4 3 3-2 6 4" />
   </Glyph>
 );
+
+// `speaker.slash.fill` and `speaker.wave.2.fill`, the viewer's sound button.
+export const IconSoundOff = (props: IconProps) => (
+  <Glyph {...props}>
+    <path d="M11 5 6 9H3v6h3l5 4z" fill="currentColor" />
+    <path d="m16 9 5 6M21 9l-5 6" />
+  </Glyph>
+);
+
+export const IconSoundOn = (props: IconProps) => (
+  <Glyph {...props}>
+    <path d="M11 5 6 9H3v6h3l5 4z" fill="currentColor" />
+    <path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" />
+  </Glyph>
+);

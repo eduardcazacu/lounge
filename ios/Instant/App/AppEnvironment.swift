@@ -41,6 +41,11 @@ public final class AppEnvironment {
     public let identities: DeviceIdentityProviding
     public let makeCamera: @MainActor () -> CameraControlling
     public let whatsNew: WhatsNewTracker
+    /// Whether this environment empties `CaptureScratch` at launch and
+    /// sign-out. The app's one environment does. The tests build dozens side
+    /// by side, and one of them clearing the shared directory would delete
+    /// clips out from under the others.
+    private let ownsCaptureScratch: Bool
 
     /// Set when a push arrives naming an instant, so the UI can jump to it.
     public var pendingInstantId: String?
@@ -155,8 +160,10 @@ public final class AppEnvironment {
         pendingSends: PendingSendStoring = InMemoryPendingSendStore(),
         outboxSystem: OutboxSystem = RecordingOutboxSystem(),
         whatsNew: WhatsNewTracker = WhatsNewTracker(),
+        ownsCaptureScratch: Bool = false,
         makeCamera: @escaping @MainActor () -> CameraControlling
     ) {
+        self.ownsCaptureScratch = ownsCaptureScratch
         self.config = config
         self.session = session
         self.userAPI = userAPI
@@ -174,6 +181,9 @@ public final class AppEnvironment {
             store?.noteSent(toUserId: recipientId)
             await store?.refreshHistory()
         }
+        // A clip still here was recorded by a run that ended before it was
+        // encoded. Nothing can send it now, and the app keeps no captures.
+        if ownsCaptureScratch { CaptureScratch.clear() }
         // Before the first frame, so a cold start — most often a tapped
         // notification or widget, landing on the inbox — never draws it empty.
         if let userId = session.currentUserId {
@@ -205,6 +215,7 @@ public final class AppEnvironment {
             store: store,
             pendingSends: PendingSendStore(),
             outboxSystem: SystemOutboxSystem(),
+            ownsCaptureScratch: true,
             makeCamera: { CameraController() }
         )
     }
@@ -218,6 +229,7 @@ public final class AppEnvironment {
         store.reset()
         // Nothing sealed on this account's behalf goes out after it has left.
         outbox.reset()
+        if ownsCaptureScratch { CaptureScratch.clear() }
         session.signOut()
         account = nil
         aimedAt = nil

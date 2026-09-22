@@ -80,11 +80,29 @@ export type ChatSettingsInput = z.infer<typeof chatSettingsInput>
 // keep the field names stable.
 // ---------------------------------------------------------------------------
 
-export const instantDurationModes = ["1s", "5s", "infinite"] as const;
+// A photo is shown for 1s, 5s or until closed; a video plays once or loops.
+// The two families never mix — `durationModeFitsMediaType` is what the send
+// endpoint holds them to, because a viewer decides how to show an instant from
+// the pair, and a photo told to "loop" has no answer.
+export const instantPhotoDurationModes = ["1s", "5s", "infinite"] as const;
+export const instantVideoDurationModes = ["once", "loop"] as const;
+export const instantDurationModes = [
+    ...instantPhotoDurationModes,
+    ...instantVideoDurationModes,
+] as const;
 
 export const instantDurationMode = z.enum(instantDurationModes);
 
 export type InstantDurationMode = z.infer<typeof instantDurationMode>;
+
+export function isVideoMediaType(mediaType: string): boolean {
+    return mediaType.trim().toLowerCase().startsWith("video/");
+}
+
+export function durationModeFitsMediaType(mode: InstantDurationMode, mediaType: string): boolean {
+    const videoModes: readonly string[] = instantVideoDurationModes;
+    return videoModes.includes(mode) === isVideoMediaType(mediaType);
+}
 
 // base64url with no padding, which is how every key/IV/ciphertext blob travels.
 const base64Url = z.string().regex(/^[A-Za-z0-9_-]+$/, "Expected unpadded base64url");

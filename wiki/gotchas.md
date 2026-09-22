@@ -30,6 +30,14 @@ that does not.
 code-unit ordering. The two agree for ASCII, which is a coincidence and not a
 guarantee.
 
+**A strict enum on a wire field fails the whole list.** Swift's synthesised
+`Codable` for an enum throws on a raw value it does not know, and `InboxResponse`
+decodes its instants as one array — so one instant with a new `durationMode`
+fails the decode of all of them, not just that one. That is what the builds from
+before video do with a clip. `InstantDurationMode` decodes
+by hand and maps an unknown mode to `5s`; any enum that arrives over the wire
+wants the same.
+
 ## Auth
 
 **Auth failures are 403, not 401.** Refresh keys off 403, or the 15-minute
@@ -160,6 +168,13 @@ is a later sibling and paints above it — closes only on the dim layer, Return 
 Escape, and the button both `preventDefault`s its mousedown and hands the caret
 back afterwards.
 
+**Asking whether a clip plays after fetching it is asking too late.** The
+fetch destroys it. iOS sends HEVC, which Firefox and some Chromium builds cannot
+decode, and a `<video>` that cannot decode simply shows nothing — by then the
+clip is gone on the server and was never seen. The viewer
+asks `canPlayType(instant.mediaType)` first, and a no leaves the instant
+untouched in the inbox.
+
 **`loadImageElement` revokes the object URL it loaded from.** The element keeps
 its decoded bitmap, so the image still draws — but `element.src` is a dead
 `blob:` URL by the time anybody reads it, and putting it back into an `<img>`
@@ -177,6 +192,37 @@ Any one of those wrong, and the password manager just shows no suggestion.
 The SPA rewrite in `vercel.json` leaves the file alone only because its path
 contains a dot; a rewrite that caught it would serve `index.html`. The email field is `.textContentType(.username)`, not `.emailAddress`:
 only `.username` pairs it with the password field as one login.
+
+**Changing a running capture session flickers the picture.** Adding or
+removing an input, or switching a connection's stabilisation, rebuilds the
+session's pipeline, and the camera restarts exposure and white balance for a
+frame or two. Nothing errors; the preview and the clip just blink brighter or
+darker. Done when a hold begins, it put the blink at the start of every clip.
+`CameraController` configures the microphone and the movie connection when the
+session is built, and a recording changes nothing.
+
+**Haptics are silent while the audio session records.** iOS drops them
+without an error, and with the microphone on the capture session for as long
+as the camera is open, that is all the time — the tap that says a clip has
+started was never felt. `CameraController.configureAudioSession` turns
+`setAllowHapticsAndSystemSoundsDuringRecording` on.
+
+**A recording held to its limit finishes with an error.**
+`AVCaptureMovieFileOutput` reports reaching `maxRecordedDuration` through the
+`error` argument of `didFinishRecordingTo`, with
+`AVErrorRecordingSuccessfullyFinishedKey` set to say the file is fine. Read as a
+failure, every clip that ran the full five seconds is thrown away.
+`CameraController` checks the key.
+
+**A clock that stops a recording must not be cancelled by the stop.**
+`CameraModel.endRecording` cancels the recording clock, and at the five-second
+limit it is the clock that calls it. Cancelled, the task cancels the stop it is
+awaiting, and the clip that ran to the limit is lost behind a generic error. The
+clock lets go of itself first.
+
+**An iPhone can record HLG, and a browser shows it grey.** A clip tagged as HDR
+plays washed out on the web, with no error. `VideoPipeline` renders through a
+BT.709 composition and tags the file BT.709 whatever the camera chose.
 
 **Install the `UNUserNotificationCenter` delegate at launch**, not after
 sign-in. iOS hands a notification tapped from a cold start to whatever delegate

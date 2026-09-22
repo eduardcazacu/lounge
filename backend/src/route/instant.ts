@@ -2,6 +2,7 @@ import { Hono, type Context, type Next } from "hono";
 import { sign, verify } from "hono/jwt";
 import {
   createInstantInput,
+  durationModeFitsMediaType,
   registerInstantDeviceInput,
   wsTicketInput,
   type InstantDelivery,
@@ -446,6 +447,11 @@ instantRouter.post("/", async (c) => {
     if (recipientId === userId) {
       c.status(400);
       return c.json({ msg: "Send an instant to someone else." });
+    }
+
+    if (!durationModeFitsMediaType(durationMode, mediaType)) {
+      c.status(400);
+      return c.json({ msg: "A photo is shown for 1s, 5s or until closed; a video plays once or loops." });
     }
 
     const groupId = await getUserGroupId(prisma, userId);

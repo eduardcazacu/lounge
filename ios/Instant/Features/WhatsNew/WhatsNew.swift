@@ -18,47 +18,12 @@ public struct WhatsNew: Equatable, Sendable {
     public let fixes: [Item]
 
     public static let current = WhatsNew(
-        version: "1.2",
+        version: "1.3",
         features: [
             Item(
-                symbol: "person.2.fill",
-                title: "Send to several people at once",
-                detail: "In Send To, tick as many people as you like and send the photo to all of them in one go. Each of them gets their own copy, which disappears once they've seen it."
-            ),
-            Item(
-                symbol: "person.3.fill",
-                title: "Send to everyone",
-                detail: "Tap All to send a photo to everyone who has Instant set up. It asks you first, so a slip of the thumb doesn't send it to the whole Lounge."
-            ),
-            Item(
-                symbol: "textformat",
-                title: "Write anywhere on a photo",
-                detail: "Tap anywhere on a photo you've just taken to write on it, and tap somewhere else to add more. Long text wraps onto a new line. Tap any text to change it."
-            ),
-            Item(
-                symbol: "character.textbox",
-                title: "Two styles of text",
-                detail: "Text starts on a band across the photo. While you're typing, tap the button at the top right to put it in its own box instead, which you can drag anywhere, pinch to make bigger or smaller, and turn with two fingers."
-            ),
-            Item(
-                symbol: "trash",
-                title: "Drag text away to delete it",
-                detail: "Hold a piece of text and drag it onto the bin at the top of the photo."
-            ),
-            Item(
-                symbol: "pencil",
-                title: "Draw on a photo",
-                detail: "Tap the pencil to draw with your finger, and pick a colour from the column under it. Undo takes back the last line. Tap the pencil again when you're done."
-            ),
-            Item(
-                symbol: "widget.small",
-                title: "A widget with their face on it",
-                detail: "The home screen widget now gives the whole of itself to the picture of whoever has sent you something, with their name, how many are waiting and the streak along the bottom."
-            ),
-            Item(
-                symbol: "eye.fill",
-                title: "See when they open it",
-                detail: "Your conversations now say what happened to the last photo you sent them: when it went, and when they opened it. If the day runs out with nobody looking, it says that too."
+                symbol: "video.fill",
+                title: "Send a video",
+                detail: "Hold the shutter to record up to five seconds, with sound — the ring round the button shows how long you have left. Write and draw on it like a photo, then choose whether it plays once or loops. It disappears once it's been watched, just like a photo."
             ),
         ],
         fixes: []

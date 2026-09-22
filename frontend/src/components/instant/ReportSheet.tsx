@@ -14,6 +14,7 @@ export function ReportSheet({
   reportedName,
   instantId,
   photo,
+  isVideoFrame = false,
   onClose,
   onBlocked,
 }: {
@@ -22,6 +23,9 @@ export function ReportSheet({
   instantId?: string;
   /// The reporter's own copy of the photo, if there is one on screen.
   photo?: Blob;
+  /// `photo` is one frame of a video, and the toggle says so: a reporter must
+  /// not think the moderators are getting the whole clip.
+  isVideoFrame?: boolean;
   onClose: () => void;
   onBlocked: (userId: number) => void;
 }) {
@@ -117,7 +121,7 @@ export function ReportSheet({
 
       {photo && (
         <Toggle
-          label="Include this photo"
+          label={isVideoFrame ? "Include a frame from this video" : "Include this photo"}
           checked={includesPhoto}
           onChange={setIncludesPhoto}
           id="report.includePhoto"

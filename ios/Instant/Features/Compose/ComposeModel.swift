@@ -1,4 +1,5 @@
 #if canImport(UIKit)
+import AVFoundation
 import Foundation
 import Observation
 import UIKit
@@ -13,6 +14,11 @@ public final class ComposeModel {
     /// The pen's colour for the next line. Lines already drawn keep theirs.
     public var ink: OverlayCompositor.Ink = .white
     public var duration: InstantDurationMode = .fiveSeconds
+    /// Whether a clip goes with its sound. Off means off everywhere: the
+    /// preview goes quiet, and the audio track is left out of the encode
+    /// rather than sent silenced — the recipient's device never holds sound
+    /// the sender took back.
+    public private(set) var includesSound = true
 
     /// The chosen look, applied to the photo on the way out.
     public private(set) var filter: PhotoFilter = .none
@@ -47,22 +53,56 @@ public final class ComposeModel {
     /// which is the whole point of having tapped them in the first place.
     public var recipient: InstantRecipient?
 
+    /// What the shutter produced. Everything below about "the photo" is about
+    /// `.photo`; a clip is drawn by a player, and only its first frame is ever
+    /// a picture here — for the filter strip.
+    public let capture: Capture
+    /// The photo. Empty for a clip, which has no one picture to be.
     public let image: UIImage
     /// The photo at display size, unfiltered — what every preview render starts
     /// from, so switching looks never compounds one on top of another. Built on
     /// first use rather than up front, for the same reason `preview` is not.
+    /// For a clip, its first frame, once the strip asks for it.
     private var previewBase: UIImage?
+    /// The clip's first frame being read, for the filter strip. Kept so a test
+    /// can wait for it.
+    private(set) var thumbnailWork: Task<Void, Never>?
 
     /// Big enough for the viewport on the densest phone screen, and no bigger.
     static let previewLongEdge: CGFloat = 1440
     static let thumbnailLongEdge: CGFloat = 180
 
-    public init(image: UIImage, recipient: InstantRecipient? = nil) {
-        self.image = image
+    public init(capture: Capture, recipient: InstantRecipient? = nil) {
+        self.capture = capture
         self.recipient = recipient
-        // Deliberately the photo itself, and no work at all: this initialiser
-        // runs between the shutter and the picture appearing.
-        preview = image
+        switch capture {
+        case .photo(let photo):
+            image = photo
+            // Deliberately the photo itself, and no work at all: this
+            // initialiser runs between the shutter and the picture appearing.
+            preview = photo
+        case .video:
+            image = UIImage()
+            preview = UIImage()
+            // A clip plays once and closes unless told otherwise — the
+            // nearest thing to the photo's five seconds.
+            duration = .playOnce
+        }
+    }
+
+    public convenience init(image: UIImage, recipient: InstantRecipient? = nil) {
+        self.init(capture: .photo(image), recipient: recipient)
+    }
+
+    public var clip: RecordedClip? {
+        if case .video(let clip) = capture { clip } else { nil }
+    }
+
+    public var isVideo: Bool { capture.isVideo }
+
+    /// The shape the compose screen lays the capture out at.
+    public var contentSize: CGSize {
+        clip?.size ?? preview.size
     }
 
     /// Builds the strip, and is called when it is first opened rather than from
@@ -70,6 +110,18 @@ public final class ComposeModel {
     /// every capture for a control most captures never touch.
     public func prepareThumbnails() {
         guard filterThumbnails.isEmpty else { return }
+        if let clip, previewBase == nil {
+            // A clip's strip is its first frame, which has to be read off the
+            // file before anything can be filtered.
+            guard thumbnailWork == nil else { return }
+            thumbnailWork = Task { [weak self] in
+                let frame = await Self.firstFrame(of: clip)
+                guard let self, let frame else { return }
+                previewBase = frame
+                prepareThumbnails()
+            }
+            return
+        }
         // Off the display-sized copy rather than the photo, and these are shown
         // at 58pt.
         let swatch = Self.fitted(base, longEdge: Self.thumbnailLongEdge)
@@ -79,11 +131,21 @@ public final class ComposeModel {
     }
 
     /// Switches the look. Cheap enough to be synchronous: it is one Core Image
-    /// pass over an image already cut down to the size of the screen.
+    /// pass over an image already cut down to the size of the screen. A clip's
+    /// look is applied by its player, per frame, from `filter`.
     public func select(_ filter: PhotoFilter) {
         guard filter != self.filter else { return }
         self.filter = filter
+        guard !isVideo else { return }
         preview = filter.apply(to: base)
+    }
+
+    private static func firstFrame(of clip: RecordedClip) async -> UIImage? {
+        let generator = AVAssetImageGenerator(asset: AVURLAsset(url: clip.url))
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: previewLongEdge, height: previewLongEdge)
+        guard let (frame, _) = try? await generator.image(at: .zero) else { return nil }
+        return UIImage(cgImage: frame)
     }
 
     /// The unfiltered photo at display size. A library photo carries an EXIF
@@ -202,6 +264,11 @@ public final class ComposeModel {
         _ = strokes.popLast()
     }
 
+    public func toggleSound() {
+        guard isVideo else { return }
+        includesSound.toggle()
+    }
+
     public func cycleDuration() {
         duration = duration.next
     }
@@ -211,11 +278,12 @@ public final class ComposeModel {
     /// the main actor, after this screen has already closed.
     public var draft: InstantDraft {
         InstantDraft(
-            image: image,
+            media: clip.map(InstantDraft.Media.video) ?? .photo(image),
             filter: filter,
             strokes: strokes,
             captions: captions.filter { !$0.trimmed.isEmpty },
-            duration: duration
+            duration: duration,
+            includesSound: includesSound
         )
     }
 }

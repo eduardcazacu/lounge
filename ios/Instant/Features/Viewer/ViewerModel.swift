@@ -19,7 +19,13 @@ public final class ViewerModel {
 
     public private(set) var phase: Phase = .loading
     public private(set) var image: UIImage?
-    /// 1 down to 0 for timed instants; stays at 1 for `.infinite`.
+    /// The clip, when the instant is one. Played from memory: the plaintext
+    /// never touches the disk, as a photo's never does.
+    public private(set) var video: VideoPlaying?
+    /// A clip opens silent and the speaker button turns it up.
+    public private(set) var isMuted = true
+    /// 1 down to 0 for timed instants and a clip that plays once; stays at 1
+    /// for `.infinite` and a loop.
     public private(set) var progress: Double = 1
     public private(set) var isFinished = false
 
@@ -47,23 +53,44 @@ public final class ViewerModel {
     private let device: DeviceIdentity
     private let time: TimeSource
     private let sensitivity: SensitivityChecking
+    private let makeVideoPlayer: @MainActor (Data, _ loops: Bool) -> VideoPlaying
 
     public init(
         instant: InstantDelivery,
         api: InstantAPIProtocol,
         device: DeviceIdentity,
         time: TimeSource = .live,
-        sensitivity: SensitivityChecking = SystemSensitivityChecker()
+        sensitivity: SensitivityChecking = SystemSensitivityChecker(),
+        makeVideoPlayer: @escaping @MainActor (Data, _ loops: Bool) -> VideoPlaying = {
+            AVVideoPlayback(data: $0, loops: $1)
+        }
     ) {
         self.instant = instant
         self.api = api
         self.device = device
         self.time = time
         self.sensitivity = sensitivity
+        self.makeVideoPlayer = makeVideoPlayer
+    }
+
+    /// Decided by what the bytes are, not by the duration mode: the server
+    /// holds the two together, and the media type is what a decoder cares
+    /// about.
+    public var isVideo: Bool {
+        instant.mediaType.lowercased().hasPrefix("video/")
     }
 
     public var showsCountdown: Bool {
-        instant.durationMode != .infinite && phase == .showing && !isConcealed
+        guard phase == .showing, !isConcealed else { return false }
+        switch instant.durationMode {
+        case .infinite, .loop: return false
+        case .oneSecond, .fiveSeconds, .playOnce: return true
+        }
+    }
+
+    /// "Tap anywhere to close" — for anything that will not close itself.
+    public var staysOpen: Bool {
+        instant.durationMode == .infinite || instant.durationMode == .loop
     }
 
     /// Whether the photo actually reached the screen — the same condition as the
@@ -111,6 +138,10 @@ public final class ViewerModel {
                 ),
                 device: device
             )
+            if isVideo {
+                await showVideo(plaintext)
+                return
+            }
             guard let opened = UIImage(data: plaintext) else {
                 phase = .failed("That instant could not be displayed.")
                 return
@@ -133,18 +164,78 @@ public final class ViewerModel {
         startCountdown()
     }
 
+    /// The clip's counterpart of the photo path: the same check, the same
+    /// receipt, and playback in place of the clock.
+    ///
+    /// The classifier takes pictures, so it is shown two — the first frame and
+    /// the middle one. Either flagged conceals the clip.
+    private func showVideo(_ plaintext: Data) async {
+        let player = makeVideoPlayer(plaintext, instant.durationMode == .loop)
+        video = player
+        var flagged = false
+        for fraction in [0, 0.5] {
+            if let frame = await player.frame(at: fraction), await sensitivity.isSensitive(frame) {
+                flagged = true
+                break
+            }
+        }
+        // Closed while the frames were being read.
+        guard !isFinished else { return }
+        phase = .showing
+        if flagged {
+            isConcealed = true
+            return
+        }
+        await sendReceipt()
+        startPlayback()
+    }
+
+    private func startPlayback() {
+        guard let video, !isFinished else { return }
+        video.onProgress = { [weak self] played in
+            guard let self, instant.durationMode == .playOnce else { return }
+            progress = 1 - played
+        }
+        video.onEnded = { [weak self] in
+            guard let self, instant.durationMode != .loop else { return }
+            finish()
+        }
+        // Revealed while a sheet was already up: it plays when the sheet goes.
+        guard !isPaused else { return }
+        video.play()
+    }
+
+    public func toggleMute() {
+        guard let video else { return }
+        isMuted.toggle()
+        video.isMuted = isMuted
+    }
+
+    /// What a report attaches for a clip: the frame on screen when it was
+    /// made, since the evidence endpoint takes a picture.
+    public func reportableImage() async -> UIImage? {
+        guard phase == .showing else { return nil }
+        if let video { return await video.currentFrame() }
+        return image
+    }
+
     /// "View anyway" on a concealed photo. This is the moment it is seen, so
     /// this is when the receipt goes and the clock starts.
     public func reveal() async {
         guard isConcealed, phase == .showing, !isFinished else { return }
         isConcealed = false
         await sendReceipt()
-        startCountdown()
+        if video != nil {
+            startPlayback()
+        } else {
+            startCountdown()
+        }
     }
 
     public func pause() {
         guard !isPaused, !isFinished else { return }
         isPaused = true
+        video?.pause()
         guard let countdown, let startedAt = countdownStartedAt else { return }
         countdown.cancel()
         self.countdown = nil
@@ -155,6 +246,12 @@ public final class ViewerModel {
     public func resume() {
         guard isPaused, !isFinished else { return }
         isPaused = false
+        if let video {
+            // Only a clip that was already playing comes back; one still
+            // concealed is waiting for "View anyway".
+            if !isConcealed, phase == .showing, hasSentReceipt { video.play() }
+            return
+        }
         // Only a clock that was running comes back; pausing before the photo was
         // revealed, or on an infinite instant, had nothing to hold.
         guard countdownTotal > 0 else { return }
@@ -210,6 +307,8 @@ public final class ViewerModel {
     public func finish() {
         countdown?.cancel()
         countdown = nil
+        video?.stop()
+        video = nil
         image = nil
         progress = 0
         isFinished = true

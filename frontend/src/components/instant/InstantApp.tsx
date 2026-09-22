@@ -240,8 +240,12 @@ export function InstantApp({ authExpiredRedirect }: { authExpiredRedirect: () =>
           instant={viewing}
           device={device}
           onBlocked={onBlocked}
-          onClose={(seen) => {
-            dismissInstant(viewing.id);
+          onClose={(seen, untouched) => {
+            // A clip this browser could not play was never fetched, so it is
+            // still waiting — for the phone.
+            if (!untouched) {
+              dismissInstant(viewing.id);
+            }
             // Closing an instant lands back on the inbox rather than the
             // camera, with the sender's row now offering a reply — the one
             // thing somebody who has just looked at a photo is likely to want.

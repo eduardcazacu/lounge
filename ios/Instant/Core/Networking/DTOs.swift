@@ -7,14 +7,32 @@ public enum InstantDurationMode: String, Codable, CaseIterable, Sendable {
     case oneSecond = "1s"
     case fiveSeconds = "5s"
     case infinite
+    /// A video plays through once and closes.
+    case playOnce = "once"
+    /// A video plays round until it is closed.
+    case loop
 
-    /// `InstantViewer.tsx`: {"1s": 1000, "5s": 5000, infinite: null}.
+    /// Tolerant, unlike the synthesised decoder. One instant carrying a mode
+    /// this build has never heard of would otherwise fail the decode of the
+    /// whole inbox — every row, not just that one — which is exactly what the
+    /// builds from before video do. An unknown mode reads as the default.
+    public init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = InstantDurationMode(rawValue: raw) ?? .fiveSeconds
+    }
+
+    /// `InstantViewer.tsx`: {"1s": 1000, "5s": 5000, infinite: null}. The
+    /// video modes have no clock of their own: playback is the clock.
     public var duration: Duration? {
         switch self {
         case .oneSecond: return .seconds(1)
         case .fiveSeconds: return .seconds(5)
-        case .infinite: return nil
+        case .infinite, .playOnce, .loop: return nil
         }
+    }
+
+    public var isVideoMode: Bool {
+        self == .playOnce || self == .loop
     }
 
     public var label: String {
@@ -22,14 +40,20 @@ public enum InstantDurationMode: String, Codable, CaseIterable, Sendable {
         case .oneSecond: return "1s"
         case .fiveSeconds: return "5s"
         case .infinite: return "∞"
+        case .playOnce: return "Once"
+        case .loop: return "Loop"
         }
     }
 
+    /// Cycles within its own family. The two never mix: the server refuses a
+    /// photo marked to loop, and a video has no meaning for one second.
     public var next: InstantDurationMode {
         switch self {
         case .oneSecond: return .fiveSeconds
         case .fiveSeconds: return .infinite
         case .infinite: return .oneSecond
+        case .playOnce: return .loop
+        case .loop: return .playOnce
         }
     }
 }

@@ -1,4 +1,5 @@
 #if canImport(UIKit)
+import AVFoundation
 import SwiftUI
 
 /// Full-screen, black, one photo, one countdown. Tap anywhere to close.
@@ -21,6 +22,19 @@ struct ViewerScreen: View {
                 ProgressView().tint(.white)
 
             case .showing:
+                // Not drawn at all while concealed: a video layer is
+                // composited outside SwiftUI and does not take the blur a
+                // photo does, so hiding it is the only way to hide it.
+                if let video = model.video, !model.isConcealed {
+                    PlayerLayerView(player: video.player)
+                        .ignoresSafeArea()
+                        .accessibilityElement()
+                        .accessibilityLabel("A video from \(model.instant.displayName)")
+                        .accessibilityIdentifier("viewer.video")
+                } else if model.video != nil {
+                    Color.black.ignoresSafeArea()
+                        .accessibilityIdentifier("viewer.concealedVideo")
+                }
                 if let image = model.image {
                     Image(uiImage: image)
                         .resizable()
@@ -65,6 +79,22 @@ struct ViewerScreen: View {
 
                     Spacer()
 
+                    if model.video != nil, model.phase == .showing, !model.isConcealed {
+                        Button {
+                            model.toggleMute()
+                        } label: {
+                            Image(systemName: model.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 34, height: 34)
+                                .background(.ultraThinMaterial, in: Circle())
+                                .environment(\.colorScheme, .dark)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(model.isMuted ? "Turn sound on" : "Turn sound off")
+                        .accessibilityIdentifier("viewer.mute")
+                    }
+
                     if model.showsCountdown {
                         CountdownRing(progress: model.progress)
                             .frame(width: 34, height: 34)
@@ -90,7 +120,7 @@ struct ViewerScreen: View {
                 }
                 Spacer()
 
-                if model.instant.durationMode == .infinite, model.phase == .showing {
+                if model.staysOpen, model.phase == .showing, !model.isConcealed {
                     Text("Tap anywhere to close")
                         .font(.footnote)
                         .foregroundStyle(Color(white: 0.75))
@@ -126,20 +156,26 @@ struct ViewerScreen: View {
 
     private func openReport() {
         model.pause()
-        report = ReportModel(
-            reportedUserId: model.instant.senderId,
-            reportedName: model.instant.displayName,
-            instantId: model.instant.id,
-            photo: model.isConcealed || model.phase == .showing ? model.image : nil,
-            api: environment.moderationAPI
-        )
+        Task {
+            // For a clip, the frame it was stopped on: the evidence endpoint
+            // takes a picture, and that one is what prompted the report.
+            let evidence = await model.reportableImage()
+            report = ReportModel(
+                reportedUserId: model.instant.senderId,
+                reportedName: model.instant.displayName,
+                instantId: model.instant.id,
+                photo: evidence,
+                isVideoFrame: model.isVideo,
+                api: environment.moderationAPI
+            )
+        }
     }
 
     private var sensitiveWarning: some View {
         VStack(spacing: 16) {
             Image(systemName: "eye.slash.fill")
                 .font(.system(size: 40))
-            Text("This photo may be sensitive")
+            Text(model.isVideo ? "This video may be sensitive" : "This photo may be sensitive")
                 .font(.headline)
             Text("It was hidden on this device because it may contain nudity. Nothing was sent to anyone to check it.")
                 .font(.subheadline)
@@ -174,6 +210,27 @@ struct ViewerScreen: View {
         }
         .foregroundStyle(Color(white: 0.85))
         .padding(36)
+    }
+}
+
+/// `AVPlayerLayer` has no SwiftUI equivalent. Aspect-fit, like the photo.
+struct PlayerLayerView: UIViewRepresentable {
+    let player: AVPlayer
+
+    final class LayerView: UIView {
+        override class var layerClass: AnyClass { AVPlayerLayer.self }
+        var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
+    }
+
+    func makeUIView(context: Context) -> LayerView {
+        let view = LayerView()
+        view.playerLayer.videoGravity = .resizeAspect
+        view.playerLayer.player = player
+        return view
+    }
+
+    func updateUIView(_ view: LayerView, context: Context) {
+        if view.playerLayer.player !== player { view.playerLayer.player = player }
     }
 }
 

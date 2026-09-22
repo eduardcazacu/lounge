@@ -50,6 +50,9 @@ enum InstantStyle {
     static let secondaryText = Color(white: 0.62)
     static let unread = Color.hex(0xF43F5E)
     static let flame = Color.hex(0xF59E0B)
+    /// The shutter while it records, and the ring of time left around it — red,
+    /// because every camera has taught that red means it is rolling.
+    static let recording = Color.hex(0xEF4444)
 
     /// The camera viewport and the compose preview are the same rectangle, and
     /// it is the same shape as the photo that comes out of it: 16:9, standing

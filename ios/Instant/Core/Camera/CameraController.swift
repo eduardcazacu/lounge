@@ -29,6 +29,18 @@ public protocol CameraControlling: AnyObject {
     func flip() async
     func setZoom(_ factor: CGFloat)
     func capture() async throws -> UIImage
+
+    /// True from the moment frames are going to a file until the file is
+    /// finished.
+    var isRecording: Bool { get }
+    /// Returns once the recording has actually begun, which is when the
+    /// countdown around the shutter should start.
+    func startRecording() async throws
+    /// Finishes the file and hands it over. Also answers after the recorder
+    /// stopped itself at the limit, with what it had.
+    func stopRecording() async throws -> RecordedClip
+    /// Stops and throws the file away — the app leaving mid-recording.
+    func cancelRecording()
 }
 
 public extension CameraControlling {
@@ -46,6 +58,10 @@ public enum CameraError: Error, Equatable {
     case unavailable
     case denied
     case captureFailed
+    /// The microphone's permission prompt has not been answered yet. The hold
+    /// records nothing: the prompt has the moment it was for.
+    case askedForMicrophone
+    case recordingFailed
 }
 
 @MainActor
@@ -64,6 +80,24 @@ public final class CameraController: NSObject, CameraControlling {
     private var input: AVCaptureDeviceInput?
     private var pending: CheckedContinuation<UIImage, Error>?
 
+    // MARK: Recording state
+
+    private let movieOutput = AVCaptureMovieFileOutput()
+    /// Whether the movie output stays on the session between recordings.
+    /// It does unless attaching it cost the photo output zero shutter lag, in
+    /// which case it is added for each recording and taken off again — a
+    /// slower start to a video is a better trade than a slower photo, which
+    /// is most of what the app takes.
+    private var keepsMovieOutput = false
+    private var audioInput: AVCaptureDeviceInput?
+    public private(set) var isRecording = false
+    private var recordingStarted: CheckedContinuation<Void, Error>?
+    private var recordingFinished: CheckedContinuation<URL, Error>?
+    /// The recorder can finish before anybody asks it to — at the limit, or
+    /// interrupted — and that answer waits here for `stopRecording`.
+    private var finishedEarly: Result<URL, Error>?
+    private var discardsRecording = false
+
     public override init() {
         super.init()
     }
@@ -76,9 +110,14 @@ public final class CameraController: NSObject, CameraControlling {
     public func start() async {
         guard isAvailable else { return }
         guard await AVCaptureDevice.requestAccess(for: .video) else { return }
+        // Asked for with the camera rather than on the first hold: the
+        // microphone is part of the session from the start (see
+        // `attachMicrophone`), and a hold is too late to be asking anything.
+        let hearsMicrophone = await AVCaptureDevice.requestAccess(for: .audio)
 
         let session = self.session ?? AVCaptureSession()
         self.session = session
+        Self.configureAudioSession(for: session)
 
         if input == nil {
             session.beginConfiguration()
@@ -97,8 +136,17 @@ public final class CameraController: NSObject, CameraControlling {
             }
             if session.canAddOutput(output) {
                 session.addOutput(output)
+                attachMovieOutputIfFree(to: session)
                 configureForResponsiveness()
             }
+            if hearsMicrophone { attachMicrophone(to: session) }
+            session.commitConfiguration()
+            configureMovieConnection()
+        } else if hearsMicrophone, audioInput == nil {
+            // Allowed since the session was built — in Settings, say. Added
+            // now, while nothing is recording, rather than when a hold begins.
+            session.beginConfiguration()
+            attachMicrophone(to: session)
             session.commitConfiguration()
         }
 
@@ -146,7 +194,87 @@ public final class CameraController: NSObject, CameraControlling {
         output.maxPhotoQualityPrioritization = .balanced
     }
 
+    /// Keeps the movie output attached only when the photo output still
+    /// offers zero shutter lag beside it. Nothing reports the loss: the photo
+    /// just goes back to being of the moment after the press.
+    private func attachMovieOutputIfFree(to session: AVCaptureSession) {
+        let hadZeroShutterLag = output.isZeroShutterLagSupported
+        guard session.canAddOutput(movieOutput) else { return }
+        session.addOutput(movieOutput)
+        if hadZeroShutterLag, !output.isZeroShutterLagSupported {
+            session.removeOutput(movieOutput)
+            keepsMovieOutput = false
+        } else {
+            keepsMovieOutput = true
+        }
+    }
+
+    /// The microphone is on the session for as long as the camera is, not
+    /// just while recording.
+    ///
+    /// Adding an input to a running session rebuilds its pipeline, and the
+    /// camera restarts exposure and white balance for a frame or two — a
+    /// visible flicker at exactly the moment a clip begins, which is when the
+    /// microphone used to be added. The cost is the microphone indicator
+    /// whenever the camera is open, which is what every camera app that
+    /// records sound shows.
+    private func attachMicrophone(to session: AVCaptureSession) {
+        guard audioInput == nil,
+              let microphone = AVCaptureDevice.default(for: .audio),
+              let input = try? AVCaptureDeviceInput(device: microphone),
+              session.canAddInput(input)
+        else { return }
+        session.addInput(input)
+        audioInput = input
+    }
+
+    /// Recording, and mixing with whatever else is playing. Left to itself the
+    /// capture session takes the audio session over the moment it has a
+    /// microphone, and opening the camera would stop the person's music.
+    private static func configureAudioSession(for session: AVCaptureSession) {
+        session.automaticallyConfiguresApplicationAudioSession = false
+        let audio = AVAudioSession.sharedInstance()
+        try? audio.setCategory(
+            .playAndRecord,
+            mode: .videoRecording,
+            options: [.mixWithOthers, .defaultToSpeaker, .allowBluetoothA2DP]
+        )
+        // iOS silences haptics while the audio session is recording, and with
+        // the microphone always on the session that is always — so the tap
+        // that says a clip has started would never be felt.
+        try? audio.setAllowHapticsAndSystemSoundsDuringRecording(true)
+        try? audio.setActive(true)
+    }
+
+    /// Portrait, mirrored like the preview, and unstabilised — set once, when
+    /// the connection is made, because changing a connection's processing
+    /// while frames are flowing is another thing that makes the picture jump.
+    ///
+    /// Unstabilised on purpose. Stabilisation crops the recorded frame, so a
+    /// stabilised clip is a tighter picture than the viewport showed, and the
+    /// viewport is the promise of what is sent.
+    private func configureMovieConnection() {
+        guard let connection = movieOutput.connection(with: .video) else { return }
+        // The movie output writes this as a transform on the track rather
+        // than turning the pixels; `VideoPipeline.uprighted` settles it.
+        if connection.isVideoRotationAngleSupported(90), connection.videoRotationAngle != 90 {
+            connection.videoRotationAngle = 90
+        }
+        // Mirrored like the preview, for the reason `upright(_:mirrored:)`
+        // mirrors a selfie: a caption placed on what was framed has to land on
+        // the same side of the face.
+        if connection.isVideoMirroringSupported {
+            connection.automaticallyAdjustsVideoMirroring = false
+            let mirrored = position == .front
+            if connection.isVideoMirrored != mirrored { connection.isVideoMirrored = mirrored }
+        }
+        if connection.isVideoStabilizationSupported, connection.preferredVideoStabilizationMode != .off {
+            connection.preferredVideoStabilizationMode = .off
+        }
+    }
+
     public func stop() {
+        if isRecording { cancelRecording() }
         isPreviewReady = false
         guard let session, session.isRunning else { return }
         DispatchQueue.global(qos: .userInitiated).async {
@@ -216,6 +344,9 @@ public final class CameraController: NSObject, CameraControlling {
         // across the flip would either clamp oddly or jump.
         zoomFactor = 1
         setZoom(1)
+        // The other camera faces the other way, so the clip's mirroring
+        // changes with it — here, while nothing is recording.
+        configureMovieConnection()
         await Self.settle(device)
     }
 
@@ -247,6 +378,119 @@ public final class CameraController: NSObject, CameraControlling {
             pending = continuation
             output.capturePhoto(with: settings, delegate: self)
         }
+    }
+
+    // MARK: Recording
+
+    public func startRecording() async throws {
+        guard let session, let input, !isRecording else { throw CameraError.unavailable }
+
+        // Asked for when the camera started. Undetermined here means that
+        // answer has not come back yet, and the hold that got here first
+        // records nothing rather than recording while a prompt is up.
+        if AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
+            throw CameraError.askedForMicrophone
+        }
+
+        isRecording = true
+        finishedEarly = nil
+        discardsRecording = false
+
+        // Only when attaching the movie output for good would have cost the
+        // photo its zero shutter lag. Then, and only then, the session changes
+        // as a clip starts.
+        if !keepsMovieOutput {
+            let movieOutput = movieOutput
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    session.beginConfiguration()
+                    if session.canAddOutput(movieOutput) { session.addOutput(movieOutput) }
+                    session.commitConfiguration()
+                    continuation.resume()
+                }
+            }
+        }
+        configureMovieConnection()
+
+        // A backstop a little past the limit. The model stops the recording at
+        // five seconds itself; this is for a model that never got to.
+        movieOutput.maxRecordedDuration = CMTime(
+            seconds: VideoPipeline.maximumDuration + 0.25,
+            preferredTimescale: 600
+        )
+        setTorch(isFlashOn && position == .back, on: input.device)
+
+        let url = CaptureScratch.newURL(pathExtension: "mov")
+        do {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                recordingStarted = continuation
+                movieOutput.startRecording(to: url, recordingDelegate: self)
+            }
+        } catch {
+            isRecording = false
+            await tearDownRecording()
+            CaptureScratch.remove(url)
+            throw error
+        }
+    }
+
+    public func stopRecording() async throws -> RecordedClip {
+        let url: URL
+        do {
+            if let finishedEarly {
+                self.finishedEarly = nil
+                url = try finishedEarly.get()
+            } else {
+                guard isRecording else { throw CameraError.recordingFailed }
+                url = try await withCheckedThrowingContinuation { continuation in
+                    recordingFinished = continuation
+                    movieOutput.stopRecording()
+                }
+            }
+        } catch {
+            isRecording = false
+            await tearDownRecording()
+            throw error
+        }
+        isRecording = false
+        await tearDownRecording()
+        do {
+            return try await RecordedClip.load(from: url)
+        } catch {
+            CaptureScratch.remove(url)
+            throw CameraError.recordingFailed
+        }
+    }
+
+    public func cancelRecording() {
+        guard isRecording else { return }
+        discardsRecording = true
+        movieOutput.stopRecording()
+    }
+
+    /// Torch off, and the movie output off the session if it was only on it
+    /// for this recording. The microphone stays: taking it off is the same
+    /// pipeline rebuild that adding it was.
+    private func tearDownRecording() async {
+        if let device = input?.device { setTorch(false, on: device) }
+        guard let session, !keepsMovieOutput else { return }
+        let movieOutput = movieOutput
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            DispatchQueue.global(qos: .userInitiated).async {
+                session.beginConfiguration()
+                session.removeOutput(movieOutput)
+                session.commitConfiguration()
+                continuation.resume()
+            }
+        }
+    }
+
+    private func setTorch(_ on: Bool, on device: AVCaptureDevice) {
+        guard device.hasTorch, device.isTorchModeSupported(on ? .on : .off),
+              (try? device.lockForConfiguration()) != nil
+        else { return }
+        device.torchMode = on ? .on : .off
+        device.unlockForConfiguration()
     }
 
     /// Not isolated, so the flip can look a device up from the queue it
@@ -299,6 +543,62 @@ extension CameraController: AVCapturePhotoCaptureDelegate {
     }
 }
 
+extension CameraController: AVCaptureFileOutputRecordingDelegate {
+    public nonisolated func fileOutput(
+        _ output: AVCaptureFileOutput,
+        didStartRecordingTo fileURL: URL,
+        from connections: [AVCaptureConnection]
+    ) {
+        Task { @MainActor [weak self] in
+            guard let self, let started = recordingStarted else { return }
+            recordingStarted = nil
+            started.resume()
+        }
+    }
+
+    public nonisolated func fileOutput(
+        _ output: AVCaptureFileOutput,
+        didFinishRecordingTo outputFileURL: URL,
+        from connections: [AVCaptureConnection],
+        error: Error?
+    ) {
+        // Reaching `maxRecordedDuration` arrives as an *error*, carrying a flag
+        // that says the file is fine. Read as a failure, every clip held to the
+        // limit would be thrown away.
+        let succeeded = error == nil
+            || ((error as NSError?)?.userInfo[AVErrorRecordingSuccessfullyFinishedKey] as? Bool ?? false)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let result: Result<URL, Error> = succeeded
+                ? .success(outputFileURL)
+                : .failure(error ?? CameraError.recordingFailed)
+
+            if let started = recordingStarted {
+                // Finished without ever starting.
+                recordingStarted = nil
+                started.resume(throwing: CameraError.recordingFailed)
+                CaptureScratch.remove(outputFileURL)
+                return
+            }
+            if discardsRecording {
+                discardsRecording = false
+                isRecording = false
+                CaptureScratch.remove(outputFileURL)
+                recordingFinished?.resume(throwing: CameraError.recordingFailed)
+                recordingFinished = nil
+                await tearDownRecording()
+                return
+            }
+            if let finished = recordingFinished {
+                recordingFinished = nil
+                finished.resume(with: result)
+            } else {
+                finishedEarly = result
+            }
+        }
+    }
+}
+
 /// Stands in for the camera where there is not one: the Simulator, and UI tests.
 @MainActor
 public final class StubCameraController: CameraControlling {
@@ -345,5 +645,27 @@ public final class StubCameraController: CameraControlling {
         guard isAvailable else { throw CameraError.unavailable }
         return frame
     }
+
+    public private(set) var isRecording = false
+    /// How long the clip `stopRecording` writes is. Short, because it is a
+    /// real encode.
+    public var clipDuration: Double = 1
+
+    public func startRecording() async throws {
+        guard isAvailable, !isRecording else { throw CameraError.unavailable }
+        isRecording = true
+    }
+
+    /// A real file, of the fixed frame — so compose, the pipeline and the
+    /// viewer under test are handed the same kind of thing a camera makes.
+    public func stopRecording() async throws -> RecordedClip {
+        guard isRecording else { throw CameraError.recordingFailed }
+        isRecording = false
+        let url = CaptureScratch.newURL(pathExtension: "mov")
+        try await StillClipWriter.write(frame, duration: clipDuration, to: url)
+        return try await RecordedClip.load(from: url)
+    }
+
+    public func cancelRecording() { isRecording = false }
 }
 #endif
