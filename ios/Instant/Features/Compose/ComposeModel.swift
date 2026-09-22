@@ -12,13 +12,27 @@ public final class ComposeModel {
     /// The drawing, oldest line first. Undo takes from the end.
     public private(set) var strokes: [OverlayCompositor.Stroke] = []
     /// The pen's colour for the next line. Lines already drawn keep theirs.
-    public var ink: OverlayCompositor.Ink = .white
-    public var duration: InstantDurationMode = .fiveSeconds
+    public var ink: OverlayCompositor.Ink = .white {
+        didSet { preferences.ink = ink }
+    }
+    public var duration: InstantDurationMode = .fiveSeconds {
+        didSet {
+            if duration.isVideoMode {
+                preferences.videoDuration = duration
+            } else {
+                preferences.photoDuration = duration
+            }
+        }
+    }
     /// Whether a clip goes with its sound. Off means off everywhere: the
     /// preview goes quiet, and the audio track is left out of the encode
     /// rather than sent silenced — the recipient's device never holds sound
     /// the sender took back.
     public private(set) var includesSound = true
+
+    /// Where every choice above starts from, and where each one is written
+    /// back to as it is made.
+    private let preferences: Preferences
 
     /// The chosen look, applied to the photo on the way out.
     public private(set) var filter: PhotoFilter = .none
@@ -72,26 +86,36 @@ public final class ComposeModel {
     static let previewLongEdge: CGFloat = 1440
     static let thumbnailLongEdge: CGFloat = 180
 
-    public init(capture: Capture, recipient: InstantRecipient? = nil) {
+    public init(
+        capture: Capture,
+        recipient: InstantRecipient? = nil,
+        preferences: Preferences = .inMemory()
+    ) {
         self.capture = capture
         self.recipient = recipient
+        self.preferences = preferences
+        ink = preferences.ink
         switch capture {
         case .photo(let photo):
             image = photo
             // Deliberately the photo itself, and no work at all: this
             // initialiser runs between the shutter and the picture appearing.
             preview = photo
+            duration = preferences.photoDuration
         case .video:
             image = UIImage()
             preview = UIImage()
-            // A clip plays once and closes unless told otherwise — the
-            // nearest thing to the photo's five seconds.
-            duration = .playOnce
+            duration = preferences.videoDuration
+            includesSound = preferences.sendsSound
         }
     }
 
-    public convenience init(image: UIImage, recipient: InstantRecipient? = nil) {
-        self.init(capture: .photo(image), recipient: recipient)
+    public convenience init(
+        image: UIImage,
+        recipient: InstantRecipient? = nil,
+        preferences: Preferences = .inMemory()
+    ) {
+        self.init(capture: .photo(image), recipient: recipient, preferences: preferences)
     }
 
     public var clip: RecordedClip? {
@@ -267,6 +291,7 @@ public final class ComposeModel {
     public func toggleSound() {
         guard isVideo else { return }
         includesSound.toggle()
+        preferences.sendsSound = includesSound
     }
 
     public func cycleDuration() {

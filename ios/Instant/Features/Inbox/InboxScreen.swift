@@ -385,7 +385,12 @@ struct InboxScreen: View {
 
     private func open(_ instant: InstantDelivery) {
         guard let device = store.device else { return }
-        viewing = ViewerModel(instant: instant, api: environment.instantAPI, device: device)
+        viewing = ViewerModel(
+            instant: instant,
+            api: environment.instantAPI,
+            device: device,
+            preferences: environment.preferences
+        )
     }
 }
 

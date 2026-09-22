@@ -9,8 +9,9 @@
 	<array/>
 
 	<!-- Required-reason APIs. UserDefaults is the only one: PeerFingerprintStore
-	     remembers each contact's key fingerprint so a key change can be flagged.
-	     CA92.1 — read and written by this app only. -->
+	     remembers each contact's key fingerprint so a key change can be flagged,
+	     WhatsNewTracker which update notes were shown, and Preferences the
+	     compose and viewer choices. CA92.1 — read and written by this app only. -->
 	<key>NSPrivacyAccessedAPITypes</key>
 	<array>
 		<dict>

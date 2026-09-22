@@ -164,7 +164,11 @@ struct ComposeScreen: View {
         .sensoryFeedback(.selection, trigger: isOverTrash)
         .task {
             if model == nil {
-                model = ComposeModel(capture: capture, recipient: environment.aimedAt)
+                model = ComposeModel(
+                    capture: capture,
+                    recipient: environment.aimedAt,
+                    preferences: environment.preferences
+                )
             }
         }
         .sheet(isPresented: $showsRecipients) {
