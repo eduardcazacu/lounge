@@ -10,11 +10,37 @@ import UserNotifications
 /// tapped: the filter, the drawing, the captions and the encryption all happen
 /// afterwards, off the main actor.
 public struct InstantDraft: Sendable {
-    public let image: UIImage
+    public enum Media: Sendable {
+        case photo(UIImage)
+        /// Owned by the outbox from the moment the draft is handed over: the
+        /// file is deleted once it has been encoded, or when the send is
+        /// abandoned before it was.
+        case video(RecordedClip)
+    }
+
+    public let media: Media
     public let filter: PhotoFilter
     public let strokes: [OverlayCompositor.Stroke]
     public let captions: [OverlayCompositor.Caption]
     public let duration: InstantDurationMode
+    /// A clip's sound. Ignored for a photo.
+    public let includesSound: Bool
+
+    public init(
+        media: Media,
+        filter: PhotoFilter,
+        strokes: [OverlayCompositor.Stroke] = [],
+        captions: [OverlayCompositor.Caption],
+        duration: InstantDurationMode,
+        includesSound: Bool = true
+    ) {
+        self.media = media
+        self.filter = filter
+        self.strokes = strokes
+        self.captions = captions
+        self.duration = duration
+        self.includesSound = includesSound
+    }
 
     public init(
         image: UIImage,
@@ -23,12 +49,18 @@ public struct InstantDraft: Sendable {
         captions: [OverlayCompositor.Caption],
         duration: InstantDurationMode
     ) {
-        self.image = image
-        self.filter = filter
-        self.strokes = strokes
-        self.captions = captions
-        self.duration = duration
+        self.init(media: .photo(image), filter: filter, strokes: strokes, captions: captions, duration: duration)
     }
+
+    var clip: RecordedClip? {
+        if case .video(let clip) = media { clip } else { nil }
+    }
+}
+
+/// A draft once it is pixels: the encoded bytes and what they are.
+public struct RenderedMedia: Sendable {
+    public let data: Data
+    public let mediaType: String
 }
 
 /// An instant that has been sealed and not yet accepted by the server — the
@@ -50,14 +82,19 @@ public struct PendingSend: Codable, Equatable, Sendable {
     public let recipientId: Int
     public let recipientName: String
     public let duration: InstantDurationMode
+    /// What the sealed bytes are. Optional on disk: a send sealed by a build
+    /// from before video carries no such key, and it was a photo.
+    public let mediaType: String
     public let mediaIv: String
     public let ephemeralPubKey: String
     public let envelopes: [Envelope]
     /// Not encoded with the rest; the store keeps it in a file of its own.
     public var ciphertext: Data
 
+    public static let photoMediaType = "image/webp"
+
     enum CodingKeys: String, CodingKey {
-        case id, senderUserId, recipientId, recipientName, duration
+        case id, senderUserId, recipientId, recipientName, duration, mediaType
         case mediaIv, ephemeralPubKey, envelopes
     }
 
@@ -66,6 +103,7 @@ public struct PendingSend: Codable, Equatable, Sendable {
         senderUserId: Int,
         recipient: InstantRecipient,
         duration: InstantDurationMode,
+        mediaType: String = PendingSend.photoMediaType,
         sealed: InstantCrypto.SealedInstant
     ) {
         self.id = id
@@ -73,6 +111,7 @@ public struct PendingSend: Codable, Equatable, Sendable {
         recipientId = recipient.userId
         recipientName = recipient.name
         self.duration = duration
+        self.mediaType = mediaType
         mediaIv = sealed.mediaIv
         ephemeralPubKey = sealed.ephemeralPubKey
         envelopes = sealed.envelopes.map {
@@ -88,6 +127,7 @@ public struct PendingSend: Codable, Equatable, Sendable {
         recipientId = try container.decode(Int.self, forKey: .recipientId)
         recipientName = try container.decode(String.self, forKey: .recipientName)
         duration = try container.decode(InstantDurationMode.self, forKey: .duration)
+        mediaType = try container.decodeIfPresent(String.self, forKey: .mediaType) ?? Self.photoMediaType
         mediaIv = try container.decode(String.self, forKey: .mediaIv)
         ephemeralPubKey = try container.decode(String.self, forKey: .ephemeralPubKey)
         envelopes = try container.decode([Envelope].self, forKey: .envelopes)
@@ -101,6 +141,7 @@ public struct PendingSend: Codable, Equatable, Sendable {
         try container.encode(recipientId, forKey: .recipientId)
         try container.encode(recipientName, forKey: .recipientName)
         try container.encode(duration, forKey: .duration)
+        try container.encode(mediaType, forKey: .mediaType)
         try container.encode(mediaIv, forKey: .mediaIv)
         try container.encode(ephemeralPubKey, forKey: .ephemeralPubKey)
         try container.encode(envelopes, forKey: .envelopes)
@@ -348,7 +389,7 @@ public final class Outbox {
 
     private var drafts: [UUID: InstantDraft] = [:]
     /// The encoded photo, shared by every send made from the same draft.
-    private var renders: [UUID: Task<Data, Error>] = [:]
+    private var renders: [UUID: Task<RenderedMedia, Error>] = [:]
     private var sealed: [UUID: PendingSend] = [:]
     private var userId: Int?
     private var isInBackground = false
@@ -387,7 +428,7 @@ public final class Outbox {
         guard !recipients.isEmpty else { return }
         userId = senderUserId
         let render = Task.detached(priority: .userInitiated) {
-            try Self.render(draft)
+            try await Self.render(draft)
         }
         for recipient in recipients {
             let id = UUID()
@@ -431,7 +472,7 @@ public final class Outbox {
                 ciphertext: pending.ciphertext,
                 recipientId: pending.recipientId,
                 durationMode: pending.duration,
-                mediaType: "image/webp",
+                mediaType: pending.mediaType,
                 mediaIv: pending.mediaIv,
                 ephemeralPubKey: pending.ephemeralPubKey,
                 envelopes: pending.sealedEnvelopes
@@ -466,7 +507,7 @@ public final class Outbox {
         let devices = try await lookup.theirs
         guard !devices.isEmpty else { throw InstantCrypto.CryptoError.noRecipientDevices }
         let sealedInstant = try InstantCrypto.seal(
-            media: encoded,
+            media: encoded.data,
             senderUserId: senderUserId,
             devices: devices.map {
                 InstantCrypto.RecipientDeviceKey(id: $0.id, deviceId: $0.deviceId, publicKey: $0.publicKey)
@@ -478,6 +519,7 @@ public final class Outbox {
             senderUserId: senderUserId,
             recipient: recipient,
             duration: draft.duration,
+            mediaType: encoded.mediaType,
             sealed: sealedInstant
         )
         // Still wanted? A sign-out while sealing must not leave it on disk.
@@ -502,13 +544,31 @@ public final class Outbox {
     /// rather than sent as fields. The server only ever holds ciphertext, so it
     /// could not read a caption, or apply the filter, even if the design wanted
     /// it to.
-    nonisolated static func render(_ draft: InstantDraft) throws -> Data {
-        let flattened = OverlayCompositor.composite(
-            image: draft.filter.apply(to: draft.image),
-            strokes: draft.strokes,
-            captions: draft.captions
-        )
-        return try ImagePipeline.encode(flattened)
+    ///
+    /// A clip gets the same three, per frame, and its file is deleted as soon
+    /// as it has been read — succeed or fail. Every send made from the draft
+    /// shares this one render, so nothing needs the clip afterwards, and a
+    /// retry reuses the encoded bytes.
+    nonisolated static func render(_ draft: InstantDraft) async throws -> RenderedMedia {
+        switch draft.media {
+        case .photo(let image):
+            let flattened = OverlayCompositor.composite(
+                image: draft.filter.apply(to: image),
+                strokes: draft.strokes,
+                captions: draft.captions
+            )
+            return RenderedMedia(data: try ImagePipeline.encode(flattened), mediaType: PendingSend.photoMediaType)
+        case .video(let clip):
+            defer { CaptureScratch.remove(clip.url) }
+            let data = try await VideoPipeline.encode(
+                clip,
+                filter: draft.filter,
+                strokes: draft.strokes,
+                captions: draft.captions,
+                includesSound: draft.includesSound
+            )
+            return RenderedMedia(data: data, mediaType: VideoPipeline.mediaType)
+        }
     }
 
     private func succeeded(_ id: UUID, recipientId: Int) {
@@ -540,6 +600,8 @@ public final class Outbox {
             error.message
         case InstantCrypto.CryptoError.noRecipientDevices:
             "They haven't set up Instant yet."
+        case VideoPipeline.PipelineError.tooLarge:
+            "That video is too big to send."
         default:
             "That instant could not be sent."
         }

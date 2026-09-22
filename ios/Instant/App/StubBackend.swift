@@ -84,7 +84,31 @@ final class StubAPIClient: APIClientProtocol, @unchecked Sendable {
         if request.method == "POST", request.path == "api/v1/instant" {
             try await sendBehaviour()
         }
+        if request.method == "POST", request.path == "api/v1/instant/keys", LaunchOptions.servesVideoInstant {
+            // Encoded out here, because the encode is asynchronous and the
+            // response is built under a lock.
+            try await prepareVideo()
+        }
         return try state.withLock { try respond(to: request, state: &$0) }
+    }
+
+    private let preparedVideo = OSAllocatedUnfairLock<Data?>(initialState: nil)
+
+    private func prepareVideo() async throws {
+        guard preparedVideo.withLock({ $0 }) == nil else { return }
+        let url = CaptureScratch.newURL(pathExtension: "mov")
+        defer { CaptureScratch.remove(url) }
+        // The full five seconds, so a UI test can look at the viewer before a
+        // clip that plays once closes itself — and small, because the
+        // Simulator encodes HEVC in software and the registration waits on it.
+        let frame = UIGraphicsImageRenderer(size: CGSize(width: 360, height: 640)).image { context in
+            UIColor.systemIndigo.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 360, height: 640))
+        }
+        try await StillClipWriter.write(frame, duration: VideoPipeline.maximumDuration, to: url)
+        let clip = try await RecordedClip.load(from: url)
+        let encoded = try await VideoPipeline.encode(clip, filter: .none, captions: [])
+        preparedVideo.withLock { $0 = encoded }
     }
 
     private let sendAttempts = OSAllocatedUnfairLock(initialState: 0)
@@ -331,7 +355,8 @@ final class StubAPIClient: APIClientProtocol, @unchecked Sendable {
     /// viewer under test runs the production decrypt path rather than a bypass.
     private func sealPendingInstant(for device: InstantDeviceKeyDTO, state: inout State) throws {
         guard state.sealed == nil else { return }
-        let media = try WebPEncoder.encode(StubBackend.photo(), quality: 0.8)
+        let video = preparedVideo.withLock { $0 }
+        let media = try video ?? WebPEncoder.encode(StubBackend.photo(), quality: 0.8)
         let result = try InstantCrypto.seal(
             media: media,
             senderUserId: StubBackend.senderId,
@@ -347,11 +372,11 @@ final class StubAPIClient: APIClientProtocol, @unchecked Sendable {
                 senderName: "Ana",
                 senderThemeKey: "rose",
                 senderProfilePictureUrl: nil,
-                mediaType: "image/webp",
+                mediaType: video == nil ? "image/webp" : VideoPipeline.mediaType,
                 mediaIv: result.mediaIv,
                 ephemeralPubKey: result.ephemeralPubKey,
                 byteSize: result.ciphertext.count,
-                durationMode: .fiveSeconds,
+                durationMode: video == nil ? .fiveSeconds : .playOnce,
                 createdAt: StubBackend.receivedAt,
                 expiresAt: StubBackend.expiresAt,
                 envelope: InstantKeyEnvelope(

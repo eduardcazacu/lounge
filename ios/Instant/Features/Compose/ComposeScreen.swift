@@ -6,8 +6,11 @@ import SwiftUI
 /// the Snapchat arrangement.
 struct ComposeScreen: View {
     @Environment(AppEnvironment.self) private var environment
-    let image: UIImage
+    let capture: Capture
+    /// The cross: the capture is thrown away.
     let onDiscard: () -> Void
+    /// Sent: the outbox has the capture now, and is what cleans up after it.
+    let onSent: () -> Void
 
     @State private var model: ComposeModel?
     @State private var showsRecipients = false
@@ -58,17 +61,25 @@ struct ComposeScreen: View {
                 // different window from the one it was taken through is how the
                 // sender ends up surprised by what they sent.
                 GeometryReader { proxy in
-                    let frame = Self.fittedRect(image: model.preview, in: proxy.size)
+                    let frame = Self.fittedRect(size: model.contentSize, in: proxy.size)
 
                     ZStack(alignment: .topLeading) {
                         // The filtered copy, not the original: a look chosen
                         // against a picture that is not the one being sent is
                         // not a choice at all.
-                        Image(uiImage: model.preview)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: proxy.size.width, height: proxy.size.height)
-                            .accessibilityIdentifier("compose.preview")
+                        if let clip = model.clip {
+                            LoopingVideoView(url: clip.url, filter: model.filter, isMuted: !model.includesSound)
+                                .frame(width: proxy.size.width, height: proxy.size.height)
+                                .accessibilityElement()
+                                .accessibilityLabel("Your video")
+                                .accessibilityIdentifier("compose.video")
+                        } else {
+                            Image(uiImage: model.preview)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: proxy.size.width, height: proxy.size.height)
+                                .accessibilityIdentifier("compose.preview")
+                        }
 
                         DrawingLayer(model: model, frame: frame)
 
@@ -153,12 +164,12 @@ struct ComposeScreen: View {
         .sensoryFeedback(.selection, trigger: isOverTrash)
         .task {
             if model == nil {
-                model = ComposeModel(image: image, recipient: environment.aimedAt)
+                model = ComposeModel(capture: capture, recipient: environment.aimedAt)
             }
         }
         .sheet(isPresented: $showsRecipients) {
             if let model {
-                SendToScreen(model: model, onSent: onDiscard)
+                SendToScreen(model: model, onSent: onSent)
             }
         }
     }
@@ -216,17 +227,33 @@ struct ComposeScreen: View {
         .accessibilityLabel("Filters")
         .accessibilityValue(model.filter.name)
 
+        // A clip's sound, for the preview and for what is sent alike: off is
+        // not a volume, it is the audio left out of the file.
+        if model.isVideo {
+            CircleIconButton(
+                systemName: model.includesSound ? "speaker.wave.2.fill" : "speaker.slash.fill"
+            ) {
+                model.toggleSound()
+            }
+            .accessibilityIdentifier("compose.sound")
+            .accessibilityLabel(model.includesSound ? "Send without sound" : "Send with sound")
+            .accessibilityValue(model.includesSound ? "on" : "off")
+        }
+
         Button {
             model.cycleDuration()
         } label: {
+            // "Once" and "Loop" are words, not a figure, and get a size that
+            // fits them in the same circle.
             Text(model.duration.label)
-                .font(.system(size: 17, weight: .bold, design: .rounded))
+                .font(.system(size: model.isVideo ? 12 : 17, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
                 .frame(width: 44, height: 44)
                 .background(Circle().fill(Color.black.opacity(0.35)))
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("compose.duration")
+        .accessibilityLabel(model.isVideo ? "Playback" : "Duration")
         .accessibilityValue(model.duration.rawValue)
     }
 
@@ -328,7 +355,7 @@ struct ComposeScreen: View {
     /// back at once. The outbox reports how it went.
     private func send(_ model: ComposeModel, to recipient: InstantRecipient) {
         environment.send(model.draft, to: [recipient])
-        onDiscard()
+        onSent()
     }
 
     // MARK: - Drawing
@@ -619,12 +646,18 @@ struct ComposeScreen: View {
 
     /// Where a `.scaledToFit` image actually lands inside its container.
     static func fittedRect(image: UIImage, in container: CGSize) -> CGRect {
-        guard image.size.width > 0, image.size.height > 0,
+        fittedRect(size: image.size, in: container)
+    }
+
+    /// The same for anything of `content`'s shape — a clip, which a player
+    /// lays out aspect-fit exactly as the image is.
+    static func fittedRect(size content: CGSize, in container: CGSize) -> CGRect {
+        guard content.width > 0, content.height > 0,
               container.width > 0, container.height > 0
         else { return CGRect(origin: .zero, size: container) }
 
-        let scale = min(container.width / image.size.width, container.height / image.size.height)
-        let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let scale = min(container.width / content.width, container.height / content.height)
+        let size = CGSize(width: content.width * scale, height: content.height * scale)
         return CGRect(
             x: (container.width - size.width) / 2,
             y: (container.height - size.height) / 2,

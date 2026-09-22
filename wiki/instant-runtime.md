@@ -1,6 +1,6 @@
 # Instant at runtime
 
-How a photo gets delivered, read once, and forgotten. The encryption contract is
+How a photo or a clip gets delivered, read once, and forgotten. The encryption contract is
 in [instant-protocol.md](instant-protocol.md).
 
 ## Transport: one Durable Object per person
@@ -51,6 +51,12 @@ plus a JSON `payload` validated by `createInstantInput` from `common/`. It names
 exactly one recipient. A photo sent to several people is several of these
 requests, each sealed separately by the client; see
 [decisions.md](decisions.md).
+
+`durationMode` and `mediaType` travel as a pair, and the pair is checked before
+anything else is: a `video/*` instant plays `once` or on a `loop`, anything else
+is shown for `1s`, `5s` or until closed (`durationModeFitsMediaType` in
+`common/src/index.ts`). A viewer decides how to show an instant from the two
+together, and a photo told to loop has no answer.
 
 The checks, in order: recipient is in the same group, approved and verified;
 no block exists in either direction; and **every envelope targets a distinct

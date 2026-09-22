@@ -255,14 +255,46 @@ public enum OverlayCompositor {
 
         return UIGraphicsImageRenderer(size: size, format: format).image { context in
             base.draw(in: CGRect(origin: .zero, size: size))
-            // Under the captions, as on the compose screen, so a scribble
-            // never makes the text unreadable.
-            draw(lines, in: context.cgContext, size: size)
-            // In order, so a later caption lands on top — as it does on the
-            // compose screen.
-            for caption in drawn {
-                draw(caption, in: context.cgContext, size: size)
-            }
+            drawOverlay(lines, drawn, in: context.cgContext, size: size)
+        }
+    }
+
+    /// The drawing and the captions alone, on a transparent canvas of `size`
+    /// — what a video carries over every frame. The same draw calls as
+    /// `composite`, so a caption on a clip lands exactly where it would on a
+    /// photo of the same shape. Nil when there is nothing to draw, so a plain
+    /// clip is not composited against an empty layer thirty times a second.
+    public static func overlay(
+        size: CGSize,
+        strokes: [Stroke] = [],
+        captions: [Caption]
+    ) -> UIImage? {
+        let drawn = captions.filter { !$0.trimmed.isEmpty }
+        let lines = strokes.filter { !$0.points.isEmpty }
+        guard !drawn.isEmpty || !lines.isEmpty, size.width > 0, size.height > 0 else { return nil }
+
+        let format = UIGraphicsImageRendererFormat.preferred()
+        format.scale = 1
+        format.opaque = false
+
+        return UIGraphicsImageRenderer(size: size, format: format).image { context in
+            drawOverlay(lines, drawn, in: context.cgContext, size: size)
+        }
+    }
+
+    private static func drawOverlay(
+        _ lines: [Stroke],
+        _ captions: [Caption],
+        in context: CGContext,
+        size: CGSize
+    ) {
+        // Under the captions, as on the compose screen, so a scribble never
+        // makes the text unreadable.
+        draw(lines, in: context, size: size)
+        // In order, so a later caption lands on top — as it does on the
+        // compose screen.
+        for caption in captions {
+            draw(caption, in: context, size: size)
         }
     }
 

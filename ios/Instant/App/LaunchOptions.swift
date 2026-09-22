@@ -71,6 +71,15 @@ public enum LaunchOptions {
         return store
     }
 
+    /// The instant waiting in the stubbed inbox is a clip rather than a photo:
+    /// a real one, encoded by `VideoPipeline` and sealed like any other, so the
+    /// viewer under test decrypts and plays what a phone would send.
+    public static let videoInstantFlag = "-instantUITestVideoInstant"
+
+    static var servesVideoInstant: Bool {
+        ProcessInfo.processInfo.arguments.contains(videoInstantFlag)
+    }
+
     /// Shows the update notes. Every other stubbed launch has already seen
     /// them, so a sheet never lands on top of a test that is not about it.
     public static let whatsNewFlag = "-instantUITestWhatsNew"
@@ -129,6 +138,7 @@ public enum LaunchOptions {
             store: store,
             pendingSends: stubOutboxStore(),
             whatsNew: stubWhatsNew(),
+            ownsCaptureScratch: true,
             makeCamera: { StubCameraController(frame: StubBackend.cameraFrame()) }
         )
     }

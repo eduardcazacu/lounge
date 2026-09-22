@@ -506,7 +506,7 @@ rejected: caching the history but not the instants. That shows the rows but
 not what is waiting in them, and what is waiting is what the tap was for.
 
 **Because** the cache holds nothing new. The envelopes are sealed to this
-device's Secure Enclave key, the photos are never on disk, and names and
+device's Secure Enclave key, no received photo or clip is ever on disk, and names and
 pictures are already in the widget snapshot. It is written with
 `completeFileProtectionUntilFirstUserAuthentication`, cleared on sign-out, and
 ignored if it belongs to a different account.
@@ -529,14 +529,16 @@ once it is sealed, and survives a force quit until the server accepts it.
 **Rejected** keeping the compose screen up until the upload finishes, which
 took seconds. Also rejected: writing the rendered photo to disk so that even the
 sealing window survives a kill, because the app never keeps a photo and a
-sealed one opens only on the recipient's devices. A background `URLSession`
+sealed one opens only on the recipient's devices. A recorded clip is the one
+exception, and only because AVFoundation records to nothing but a file: it sits
+in `CaptureScratch` until it has been encoded, and is not kept past that. A background `URLSession`
 upload was rejected too. It would need its own path around `APIClient`'s
 token refresh, and background time covers the ordinary case of switching
 apps.
 
 **Cost paid** a send killed before it is sealed is lost without a trace. That
-is the length of the WebP encode: about 0.2 s in a Release build, several
-seconds in a Debug one. A send killed between the server storing it
+is the length of the encode: about 0.2 s for a photo in a Release build,
+several seconds in a Debug one, and a second or two for a clip. A send killed between the server storing it
 and the app hearing so goes twice (see [gotchas.md](gotchas.md)). A sealed send
 restored after the recipient's devices changed can be rejected, and only a
 retry with the photo still in memory can seal it again.
@@ -586,3 +588,87 @@ web client still sends to one person at a time; it is a harness.
 
 **Would reopen if** the Lounge grew enough that sending to everyone meant
 uploads the phone could not finish in its background time.
+
+---
+
+## Video is HEVC
+
+**Chosen** HEVC in an MP4, 1080×1920 at about 3 Mbps, with the codec string in
+`mediaType` (`VideoPipeline.mediaType`).
+
+**Rejected** H.264, which every browser plays.
+
+**Because** HEVC is about 40% smaller at the same quality, and the send
+endpoint's 3 MiB ceiling is a ceiling. Five seconds of HEVC at a bitrate that
+looks like video is about 2 MB; H.264 at the same quality would crowd the limit
+and need a lower bitrate to fit. The phone is the real client, and Safari and
+most Chrome builds decode HEVC.
+
+**Cost paid** Firefox, and some Linux and Android browsers, cannot play a clip.
+The web viewer finds out with `canPlayType` *before* the one-shot fetch and
+leaves the clip waiting for the phone, since asking after would be asking about
+something already destroyed.
+
+**Would reopen if** the people using the web client are mostly on browsers
+without HEVC — then H.264, or both, with the sender choosing by who is
+receiving.
+
+---
+
+## Video has sound, and the microphone is on while the camera is
+
+**Chosen** clips record with sound, and the microphone input is part of the
+capture session from the moment the camera starts. Permission is asked for with
+the camera's, and a refusal records silent clips.
+
+**Rejected** adding the microphone when a hold begins and removing it after,
+which keeps the indicator off while framing. Adding an input rebuilds the
+running session's pipeline, and the camera re-meters: the first frame or two
+of every clip flickered. Also rejected: a separate audio-only session feeding
+an `AVAssetWriter` beside a video data output, which keeps the indicator off
+without touching the camera's session, at the price of rewriting recording and
+syncing the two by timestamp. Also rejected: silent video, which feels less like
+a message than a moving photo.
+
+**Cost paid** the microphone indicator is lit whenever the camera screen is
+open, which is the home screen. Every camera app that records sound does the
+same.
+
+**Would reopen if** the indicator draws complaints — then the separate audio
+session, not a return to attaching on the hold.
+
+---
+
+## A received clip plays from memory
+
+**Chosen** `AVVideoPlayback` hands the player a made-up URL scheme and serves
+it from the decrypted bytes through an `AVAssetResourceLoaderDelegate`
+(`InMemoryAssetLoader`).
+
+**Rejected** writing the plaintext to a temporary file, which is all
+`AVPlayer` asks for.
+
+**Because** no received photo is ever on disk, and the disk cache of the inbox
+is justified on exactly that ground. A temporary file of a decrypted clip
+would survive a crash mid-view, where nothing would ever delete it.
+
+---
+
+## Builds from before video were left to break
+
+**Chosen** shipping the `once` and `loop` duration modes without gating them
+on what the recipient's app understands.
+
+**Rejected** a capability flag on device registration, which senders would
+check before offering video.
+
+**Because** the builds before video decode `InstantDurationMode` strictly, so a
+single clip fails the decode of their entire inbox — but the people on them are
+a dozen, on builds the maintainer ships. A flag would have been a field on
+`registerInstantDeviceInput` and `DTOs.swift` and a rule in the send path, kept
+for good, to cover a gap that closes the day everybody updates. The Swift
+decoder maps an unknown mode to `5s`, so a mode added after this one cannot do
+it again.
+
+**Would reopen if** Instant ever had users who do not update promptly.
+

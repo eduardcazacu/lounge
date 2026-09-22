@@ -236,6 +236,7 @@ final class FakeInstantAPI: InstantAPIProtocol, @unchecked Sendable {
         var sentPayloads: [(Data, Int, InstantDurationMode, [InstantCrypto.SealedEnvelope])] = []
         /// The two fields `sentPayloads` leaves out, which opening one needs.
         var sentHeaders: [(mediaIv: String, ephemeralPubKey: String)] = []
+        var sentMediaTypes: [String] = []
         /// Awaited before `send` answers, so a test can hold an upload open.
         var sendGate: (@Sendable () async -> Void)?
         var sendDelivered = true
@@ -259,6 +260,7 @@ final class FakeInstantAPI: InstantAPIProtocol, @unchecked Sendable {
     var undecryptableIds: [String] { storage.withLock { $0.undecryptableIds } }
     var sentPayloads: [(Data, Int, InstantDurationMode, [InstantCrypto.SealedEnvelope])] { storage.withLock { $0.sentPayloads } }
     var sentHeaders: [(mediaIv: String, ephemeralPubKey: String)] { storage.withLock { $0.sentHeaders } }
+    var sentMediaTypes: [String] { storage.withLock { $0.sentMediaTypes } }
     var sendGate: (@Sendable () async -> Void)? { get { storage.withLock { $0.sendGate } } set { storage.withLock { $0.sendGate = newValue } } }
     var sendDelivered: Bool { get { storage.withLock { $0.sendDelivered } } set { storage.withLock { $0.sendDelivered = newValue } } }
     var sendError: Error? { get { storage.withLock { $0.sendError } } set { storage.withLock { $0.sendError = newValue } } }
@@ -319,6 +321,7 @@ final class FakeInstantAPI: InstantAPIProtocol, @unchecked Sendable {
             if let sendError = state.sendError { throw sendError }
             state.sentPayloads.append((ciphertext, recipientId, durationMode, envelopes))
             state.sentHeaders.append((mediaIv, ephemeralPubKey))
+            state.sentMediaTypes.append(mediaType)
             return state.sendDelivered
         }
     }

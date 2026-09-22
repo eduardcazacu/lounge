@@ -1,7 +1,7 @@
 # The Instant protocol
 
-An expiring photo, sealed so that only the recipient's own devices can open it.
-This page is the contract and the threat model. Delivery, expiry and streaks are
+An expiring photo or clip, sealed so that only the recipient's own devices can
+open it. This page is the contract and the threat model. Delivery, expiry and streaks are
 in [instant-runtime.md](instant-runtime.md).
 
 **Read [gotchas.md](gotchas.md) alongside this one before touching any of it.**
@@ -31,6 +31,10 @@ Summarised, so you know whether you need to open it:
   another.
 - Everything on the wire is **unpadded base64url**. The server rejects padding
   with a 400.
+- **The contract does not care what the bytes are.** A photo is WebP and a clip
+  is an HEVC MP4; both are sealed by the same call to the same keys, and
+  `mediaType` — plaintext metadata — is the only thing that says which. Video
+  added nothing to the crypto and must not.
 
 ## Why P-256
 
@@ -128,8 +132,9 @@ of Cloudflare and Postgres together still yields no plaintext photos.
    which is exactly why the signed native app is the real endpoint. The web
    client states this to the user in
    `frontend/src/components/instant/InstantKeySetup.tsx`.
-3. **Metadata.** Who sent to whom, when, byte size and duration mode are all
-   plaintext. Encryption does not touch any of it, and
+3. **Metadata.** Who sent to whom, when, byte size, media type and duration
+   mode are all plaintext — so whether an instant is a photo or a video, and
+   roughly how long a video is, is visible to the server. Encryption does not touch any of it, and
    `GET /api/v1/instant/conversations` is built entirely out of it.
 
 There is one deliberate hole in the plaintext guarantee, and it is opt-in: a

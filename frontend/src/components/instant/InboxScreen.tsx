@@ -380,7 +380,16 @@ function Status({ row, now }: { row: InstantRow; now: Date }) {
 }
 
 function durationText(mode: string): string {
-  return mode === "infinite" ? "Open until you close it" : `Visible for ${mode}`;
+  switch (mode) {
+    case "infinite":
+      return "Open until you close it";
+    case "once":
+      return "Video · plays once";
+    case "loop":
+      return "Video · loops";
+    default:
+      return `Visible for ${mode}`;
+  }
 }
 
 function MenuItem({

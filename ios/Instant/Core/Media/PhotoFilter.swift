@@ -60,6 +60,14 @@ public enum PhotoFilter: String, CaseIterable, Identifiable, Sendable {
         return UIImage(cgImage: rendered, scale: upright.scale, orientation: .up)
     }
 
+    /// The same look on a Core Image frame, which is how a video gets it: the
+    /// compose screen's player and the export both run this per frame, so a
+    /// clip's look is the photo's chain and not a second definition of it.
+    public func apply(to input: CIImage) -> CIImage {
+        guard self != .none else { return input }
+        return recipe(input)?.cropped(to: input.extent) ?? input
+    }
+
     private func recipe(_ input: CIImage) -> CIImage? {
         switch self {
         case .none:

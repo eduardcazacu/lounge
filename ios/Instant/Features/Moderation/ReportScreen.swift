@@ -53,7 +53,7 @@ struct ReportScreen: View {
 
                     Section {
                         if model.canAttachPhoto {
-                            Toggle("Include this photo", isOn: $model.includesPhoto)
+                            Toggle(model.attachLabel, isOn: $model.includesPhoto)
                                 .tint(.green)
                                 .accessibilityIdentifier("report.includePhoto")
                         }

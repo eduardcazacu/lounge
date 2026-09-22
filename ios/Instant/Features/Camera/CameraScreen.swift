@@ -18,6 +18,10 @@ struct CameraScreen: View {
     /// tap, which is the moment the photo is of, and comes down when there is a
     /// photo to look at.
     @State private var shutterOpacity: Double = 0
+    /// The shutter is down and has not yet been held long enough to record.
+    @State private var holdTimer: Task<Void, Never>?
+    /// The shutter was held long enough; lifting it ends the recording.
+    @State private var isHolding = false
 
     var body: some View {
         ZStack {
@@ -25,7 +29,11 @@ struct CameraScreen: View {
 
             if let model {
                 if let captured = model.captured, model.stage == .composing {
-                    ComposeScreen(image: captured) { model.discard() }
+                    ComposeScreen(
+                        capture: captured,
+                        onDiscard: { model.discard() },
+                        onSent: { model.finishSending() }
+                    )
                         .transition(.opacity)
                         // The pinned account button is drawn over this screen,
                         // and lands on the discard cross. It steps aside for as
@@ -56,6 +64,9 @@ struct CameraScreen: View {
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .background:
+                holdTimer?.cancel()
+                holdTimer = nil
+                isHolding = false
                 model?.stop()
                 // A capture interrupted by the app leaving cannot be allowed to
                 // leave the frame black on the way back.
@@ -85,8 +96,13 @@ struct CameraScreen: View {
 
             ViewportOverlay {
                 VStack {
+                    // Out of the way while recording: the frame is the whole
+                    // point for those five seconds, and a flip or a flash
+                    // mid-clip is not something the recorder can take.
                     toolRail(model)
-                    if let recipient = environment.aimedAt {
+                        .opacity(model.isRecording ? 0 : 1)
+                        .allowsHitTesting(!model.isRecording)
+                    if let recipient = environment.aimedAt, !model.isRecording {
                         aimChip(recipient)
                             .padding(.top, 12)
                             .transition(.move(edge: .top).combined(with: .opacity))
@@ -101,6 +117,7 @@ struct CameraScreen: View {
                 }
                 .animation(.easeOut(duration: 0.15), value: model.isZooming)
                 .animation(.easeOut(duration: 0.2), value: environment.aimedAt)
+                .animation(.easeOut(duration: 0.2), value: model.isRecording)
             }
         }
     }
@@ -260,14 +277,7 @@ struct CameraScreen: View {
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("camera.shutter")
             } else {
-                Button {
-                    Task { await capture(model) }
-                } label: {
-                    ShutterButton(enabled: !model.isCapturing)
-                }
-                .buttonStyle(.plain)
-                .disabled(model.isCapturing)
-                .accessibilityIdentifier("camera.shutter")
+                shutter(model)
             }
 
             Spacer()
@@ -277,6 +287,71 @@ struct CameraScreen: View {
             Color.clear.frame(width: 48, height: 48)
         }
     }
+
+    /// A tap takes a photo; a hold records, for as long as the finger stays
+    /// down or five seconds, whichever is shorter.
+    ///
+    /// One gesture decides both, rather than a tap and a long press competing:
+    /// a gesture that outranks a tap still waits on it, and the recording would
+    /// start when the finger lifted (see `wiki/gotchas.md`). Down starts a short
+    /// timer; lifting before it fires is a photo, and the timer firing is the
+    /// hold.
+    private func shutter(_ model: CameraModel) -> some View {
+        ShutterButton(
+            enabled: !model.isCapturing || model.isRecording,
+            isRecording: model.isRecording,
+            progress: model.recordingProgress
+        )
+        .contentShape(Circle())
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    guard holdTimer == nil, !isHolding, !model.isCapturing else { return }
+                    holdTimer = Task { @MainActor in
+                        try? await Task.sleep(for: Self.holdThreshold)
+                        guard !Task.isCancelled else { return }
+                        holdTimer = nil
+                        isHolding = true
+                        await model.beginRecording()
+                    }
+                }
+                .onEnded { _ in
+                    if let timer = holdTimer {
+                        // Lifted before it became a hold: a photo.
+                        timer.cancel()
+                        holdTimer = nil
+                        Task { await capture(model) }
+                    } else if isHolding {
+                        isHolding = false
+                        Task { await model.endRecording() }
+                    }
+                }
+        )
+        // When the recorder has actually started, not when the hold was
+        // recognised: the tap is the signal that what follows is on the clip.
+        .sensoryFeedback(.impact(weight: .medium), trigger: model.isRecording) { _, recording in recording }
+        .accessibilityElement()
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel(model.isRecording ? "Stop recording" : "Take photo")
+        .accessibilityValue(model.isRecording ? "recording" : "")
+        .accessibilityIdentifier("camera.shutter")
+        // A tap for a photo, and an action of its own for a video, since a
+        // hold of a particular length is not something VoiceOver can do.
+        .accessibilityAction {
+            if model.isRecording {
+                Task { await model.endRecording() }
+            } else {
+                Task { await capture(model) }
+            }
+        }
+        .accessibilityAction(named: "Record video") {
+            Task { await model.beginRecording() }
+        }
+    }
+
+    /// Long enough that a quick press is never read as a hold, short enough
+    /// that a deliberate one does not feel ignored.
+    static let holdThreshold: Duration = .milliseconds(300)
 
     /// Black over the frame, from the press until there is a photo to look at.
     ///
@@ -342,16 +417,30 @@ struct CameraScreen: View {
 
 struct ShutterButton: View {
     let enabled: Bool
+    var isRecording = false
+    /// 0 to 1 through the five seconds a clip may run.
+    var progress: Double = 0
 
     var body: some View {
         ZStack {
             Circle()
                 .strokeBorder(Color.white.opacity(enabled ? 1 : 0.4), lineWidth: 5)
                 .frame(width: 78, height: 78)
+            // The time left, as the ring filling clockwise from the top: a
+            // clip that stops itself has to show that it is going to.
             Circle()
-                .fill(Color.white.opacity(enabled ? 0.15 : 0.05))
-                .frame(width: 62, height: 62)
+                .inset(by: 2.5)
+                .trim(from: 0, to: max(0, min(1, progress)))
+                .stroke(InstantStyle.recording, style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .frame(width: 78, height: 78)
+                .opacity(isRecording ? 1 : 0)
+            Circle()
+                .fill(isRecording ? InstantStyle.recording : Color.white.opacity(enabled ? 0.15 : 0.05))
+                .frame(width: isRecording ? 30 : 62, height: isRecording ? 30 : 62)
         }
+        .scaleEffect(isRecording ? 1.18 : 1)
+        .animation(.easeOut(duration: 0.18), value: isRecording)
     }
 }
 

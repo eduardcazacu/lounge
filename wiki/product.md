@@ -6,8 +6,8 @@ became, and out of nostalgia for what it was before that — a place where you
 posted something because a handful of people would enjoy it, not because a
 ranking system might.
 
-Instant is the second half of it: expiring, end-to-end encrypted photos sent to
-people by name, with a native iPhone app.
+Instant is the second half of it: expiring, end-to-end encrypted photos and
+five-second videos sent to people by name, with a native iPhone app.
 
 ## Who it is for
 
@@ -27,8 +27,9 @@ their own.
 
 - **Posts** — markdown, one image each, comments, likes, @-mentions.
 - **Chat** — a single room with a retention window, default 24 hours.
-- **Instant** — a photo, optionally captioned or drawn on, sealed to the recipient's
-  devices, viewable once and then gone. Streaks count consecutive days two
+- **Instant** — a photo or a clip of up to five seconds, optionally captioned or
+  drawn on, sealed to the recipient's devices, viewable once and then gone. Only
+  the iPhone app records video; the web plays it. Streaks count consecutive days two
   people send to each other.
 - **Themes** — each person picks a palette that follows them around the app, so
   you can tell whose post you are looking at before reading the name.
