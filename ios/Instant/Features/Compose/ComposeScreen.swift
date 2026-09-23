@@ -133,7 +133,10 @@ struct ComposeScreen: View {
                         } else {
                             HStack(alignment: .top) {
                                 if editingID == nil && !isDrawing {
-                                    CircleIconButton(systemName: "xmark") { onDiscard() }
+                                    CircleIconButton(systemName: "xmark") {
+                                        model.close(sent: false)
+                                        onDiscard()
+                                    }
                                         .accessibilityIdentifier("compose.discard")
                                 }
                                 Spacer()
@@ -173,7 +176,10 @@ struct ComposeScreen: View {
         }
         .sheet(isPresented: $showsRecipients) {
             if let model {
-                SendToScreen(model: model, onSent: onSent)
+                SendToScreen(model: model, onSent: {
+                    model.close(sent: true)
+                    onSent()
+                })
             }
         }
     }
@@ -231,9 +237,13 @@ struct ComposeScreen: View {
         .accessibilityLabel("Filters")
         .accessibilityValue(model.filter.name)
 
+        if model.canMakeParallax {
+            parallaxButton(model)
+        }
+
         // A clip's sound, for the preview and for what is sent alike: off is
         // not a volume, it is the audio left out of the file.
-        if model.isVideo {
+        if model.hasSound {
             CircleIconButton(
                 systemName: model.includesSound ? "speaker.wave.2.fill" : "speaker.slash.fill"
             ) {
@@ -259,6 +269,32 @@ struct ComposeScreen: View {
         .accessibilityIdentifier("compose.duration")
         .accessibilityLabel(model.isVideo ? "Playback" : "Duration")
         .accessibilityValue(model.duration.rawValue)
+    }
+
+    /// Turns the photo into its 3D clip and back. The first tap estimates the
+    /// depth and renders the views, a second or two with a spinner in the
+    /// button; after that it is instant either way.
+    private func parallaxButton(_ model: ComposeModel) -> some View {
+        Button {
+            model.toggleParallax()
+        } label: {
+            ZStack {
+                Circle().fill(model.isParallax ? Color.white : Color.black.opacity(0.35))
+                if model.isRenderingParallax {
+                    ProgressView().tint(.white)
+                } else {
+                    Text("3D")
+                        .font(.system(size: 15, weight: .heavy, design: .rounded))
+                        .foregroundStyle(model.isParallax ? .black : .white)
+                }
+            }
+            .frame(width: 44, height: 44)
+        }
+        .buttonStyle(.plain)
+        .disabled(model.isRenderingParallax)
+        .accessibilityIdentifier("compose.parallax")
+        .accessibilityLabel("3D")
+        .accessibilityValue(model.isRenderingParallax ? "rendering" : model.isParallax ? "on" : "off")
     }
 
     /// The looks, as thumbnails of this photo rather than swatches — the only
@@ -322,6 +358,7 @@ struct ComposeScreen: View {
             // out of a wrong recipient would be discarding the photo.
             if model.recipient != nil {
                 CircleIconButton(systemName: "person.2.fill") { showsRecipients = true }
+                    .disabled(model.isRenderingParallax)
                     .accessibilityIdentifier("compose.changeRecipient")
                     .accessibilityLabel("Send to somebody else")
                     .padding(.trailing, 10)
@@ -349,6 +386,10 @@ struct ComposeScreen: View {
                 .background(Capsule().fill(Color.white))
             }
             .buttonStyle(.plain)
+            // Until the 3D clip exists there is nothing to send that matches
+            // what the button promised.
+            .disabled(model.isRenderingParallax)
+            .opacity(model.isRenderingParallax ? 0.5 : 1)
             .accessibilityIdentifier("compose.sendTo")
         }
     }
@@ -359,6 +400,7 @@ struct ComposeScreen: View {
     /// back at once. The outbox reports how it went.
     private func send(_ model: ComposeModel, to recipient: InstantRecipient) {
         environment.send(model.draft, to: [recipient])
+        model.close(sent: true)
         onSent()
     }
 

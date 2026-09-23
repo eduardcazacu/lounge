@@ -201,6 +201,21 @@ darker. Done when a hold begins, it put the blink at the start of every clip.
 `CameraController` configures the microphone and the movie connection when the
 session is built, and a recording changes nothing.
 
+**Depth delivery takes the camera's zoom away.** With
+`isDepthDataDeliveryEnabled` on a photo output, a virtual back camera only
+delivers depth inside `supportedVideoZoomRangesForDepthDataDelivery`, and a
+pinch outside it makes the device reconfigure to drop depth — the preview
+stalls and then jumps to the new zoom when the fingers lift. TrueDepth on the
+front simply stops zooming. Nothing errors. This is why 3D estimates its
+depth instead.
+
+**Core ML on the Simulator's GPU can answer with zeros.** Depth Anything run
+with `computeUnits = .all` on the Simulator returns a map of all zeros, with
+no error, and the same model is fine on the Mac's own Core ML. A flat map is a
+3D clip in which nothing moves. `DepthEstimator` runs CPU-only on the
+Simulator, and its test fails on a flat map, since every other check passes
+one.
+
 **Haptics are silent while the audio session records.** iOS drops them
 without an error, and with the microphone on the capture session for as long
 as the camera is open, that is all the time — the tap that says a clip has

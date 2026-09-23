@@ -11,7 +11,8 @@ Enclave. See [product.md](product.md).
 iPhone only (`TARGETED_DEVICE_FAMILY = 1`) — the camera and the pager are
 phone-shaped, and a portrait-only app declaring iPad support fails App Store
 validation. iPads still run it in compatibility mode. Deployment target iOS
-18.0, Swift 6. Sole SPM dependency is libwebp.
+18.0, Swift 6. Sole SPM dependency is libwebp; the one bundled model is Depth
+Anything V2 Small, for 3D.
 
 Points at `https://api.lounge.eduardcazacu.com` by default; switch
 `AppEnvironment.live()` to `.localWorker` to run against `npm run dev:worker`.
@@ -257,6 +258,85 @@ tracking playback; Loop stays until tapped. The sensitivity check sees the
 first and the middle frame, and a report attaches the frame it was paused on.
 The model reaches the player through `VideoPlaying`, so its rules are tested
 against `StubVideoPlayback`.
+
+## 3D
+
+Every photo has a **3D** button in the rail. It renders a Nishika-style
+wiggle: four viewpoints a little apart, played 1-2-3-4-3-2 at a tenth of a
+second each, eight cycles to 4.8 s (`ParallaxRenderer`).
+
+**Depth is estimated, not measured.** `DepthEstimator` runs Depth Anything V2
+Small, Apple's Core ML conversion, on the photo after it is taken. The camera
+could measure depth, but a capture device delivering it restricts its own
+zoom — see [decisions.md](decisions.md). The model's input is a fixed
+landscape 518×392, so a portrait photo is letterboxed into it upright rather
+than stretched or turned, and only its part of the answer is read back. The
+model loads on the first 3D tap, not at launch. It is Apache-2.0, and ships
+with its licence and attribution beside it in `Instant/Resources`.
+
+**The subject stands still.** Each view moves a pixel sideways by how far its
+disparity is from the subject's, not by its disparity, so the subject lines
+up in every frame and the rest swings around it — the background one way,
+anything nearer the other. The subject is guessed as the near side of the
+middle of the frame (`keyDisparity`), which is where a selfie's face is.
+
+**Edges are steps.** An estimated map's edges are ramps, and a pixel on a
+ramp moves by an amount between the subject's and the wall's, so straight
+lines in the background bent as they approached the subject. After the map is
+upsampled along the photo's own edges (`CIEdgePreserveUpsampleFilter`),
+`stepped` snaps every pixel within reach of a real depth edge to its near or
+far side, and leaves gentle slopes — a floor, a wall going away — alone. The
+cut sits a little towards far, so the outer ring of hair goes with the head.
+Each pixel is then sampled at its exact fractional source position, since a
+slope's gradual move rounded to whole pixels is a staircase down every
+vertical edge.
+
+**The nearer a layer stands, the more it is enlarged.** As Apple's spatial
+scenes do, near layers are drawn a little larger in every view
+(`growingLayers`, `enlarged`), so a layer already covers most of the band
+beside it that the moving viewpoint uncovers, and less has to be invented.
+The picture is split into layers at its real depth edges, and each grows by
+how far it stands in front of whatever its outline has behind it: a head
+against a far wall grows by most of `maxGrowth`, a hand held up to that face
+by little, and the background not at all. The band a viewpoint uncovers is
+itself as wide as that jump, so the growth is the size of the problem it
+solves.
+
+Each layer grows about its own middle, never about one shared centre: grown
+about the subject's, a hand off to one side would also be pushed outwards and
+uncover a strip along its inner side. Two layers that meet smoothly and both
+grow are merged and grow as one, or a face split in two by its own relief
+would open a seam down the nose. A surface fading into the distance — a floor
+running from under the subject to the back wall — is outlined nowhere, so its
+jump is nothing and it keeps its size, as does the background: its lines stay
+straight and the right length.
+
+**Gaps are filled from behind.** Moving the viewpoint uncovers slivers beside
+every near edge. Each is filled with a copy of the background next to it,
+taken from whichever side of the gap is farther away: filling from the
+subject would smear it into the wall.
+
+**The wall right beside the subject is not moved at all.** The pixels on an
+outline are part subject, part wall, and the estimate can miss the true
+outline by a few. Any of them given the wall's depth slid away with the wall
+carrying the subject's colour — a faint copy of the outline floating a few
+pixels off the subject. So background within `edgeBand` of anything nearer
+is dropped from every view (`besideNearer`) and filled like any other gap,
+from clean background farther out. The strip a view uncovers at the frame's
+own edge is filled the same way. The views are deliberately *not* scaled up to
+hide that strip: scaling enlarges the whole picture, background and all.
+
+**Once rendered, it is a clip.** The result is a silent `.mov` in
+`CaptureScratch`, and compose treats it as it treats a recording: the player,
+filters per frame, captions and drawing, Once and Loop, and the same encode
+and seal. Nothing on the wire changes. The duration switches family with the
+button and each family is remembered on its own, so a Loop never becomes a
+photo's duration. The render is kept, so turning 3D off and on again is free;
+a render nobody sent is deleted when compose closes.
+
+**The loop has no seam.** The clip ends on view 2 rather than 1, so looping
+back to view 1 is an ordinary step, and the file ends exactly on its last
+frame. Sent as Once, it still wiggles eight times before it closes.
 
 ## Sending
 

@@ -690,3 +690,36 @@ it again.
 
 **Would reopen if** Instant ever had users who do not update promptly.
 
+---
+
+## 3D is rendered on the sender, as a clip, from estimated depth
+
+**Chosen** the 3D button estimates the photo's depth on the phone with Depth
+Anything V2 Small (Apple's Core ML conversion, 8-bit palettized, 24 MB,
+Apache-2.0), renders four viewpoints from it, and writes them out as a silent
+clip, 1-2-3-4-3-2 eight times over (`DepthEstimator`, `ParallaxRenderer`).
+From there on it is a clip: the same encode, seal, wire format and viewer.
+
+**Rejected** the depth the camera measures (TrueDepth, dual cameras). It was
+built twice and taken out both times. On every photo, a device delivering
+depth restricts its own zoom, so the back camera's pinch stalled and jumped
+and the front camera's did nothing (see [gotchas.md](gotchas.md)). As a camera
+mode chosen before the shot, zoom worked outside it, but 3D could never be
+decided after the photo, and the mode took the camera's zoom and its movie
+output away while on. Also rejected: Apple's own photo-to-3D generator,
+`ImagePresentationComponent.Spatial3DImage`, which is visionOS only; and
+sending the photo with its depth to be wiggled on the recipient's screen — a
+new media type and a contract on three sides and the web, for something the
+sender has to see before sending anyway.
+
+**Because** estimating after the shot leaves the camera exactly as it was —
+zoom, zero shutter lag, shutter speed — and gives every photo 3D, including
+zoomed ones, library ones and those from a phone with one lens. A clip needs
+nothing new anywhere past the compose screen.
+
+**Cost paid** 24 MB of app, and the first 3D tap loading the model. The
+parallax is a guess twice over: at the depth, and at what was behind the
+subject, which is copied from the background beside it.
+
+**Would reopen if** iOS gets a public depth-estimation or spatial-scene API,
+or camera depth stops restricting zoom.

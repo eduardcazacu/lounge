@@ -215,7 +215,7 @@ public enum StillClipWriter {
         return buffers
     }
 
-    private static func pixelBuffer(_ image: CGImage, width: Int, height: Int) -> CVPixelBuffer? {
+    static func pixelBuffer(_ image: CGImage, width: Int, height: Int) -> CVPixelBuffer? {
         var buffer: CVPixelBuffer?
         CVPixelBufferCreate(kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA, [
             kCVPixelBufferCGImageCompatibilityKey: true,

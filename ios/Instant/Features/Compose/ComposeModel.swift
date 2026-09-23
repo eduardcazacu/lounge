@@ -73,6 +73,23 @@ public final class ComposeModel {
     public let capture: Capture
     /// The photo. Empty for a clip, which has no one picture to be.
     public let image: UIImage
+
+    // MARK: 3D
+
+    /// Estimates the photo's depth and renders the clip. A seam so the model
+    /// tests do not run the network.
+    private let makeParallax: @Sendable (UIImage) async throws -> RecordedClip
+    /// Whether the photo is being shown, and will be sent, as its 3D clip.
+    public private(set) var isParallax = false
+    /// The 3D clip, made on the first tap and kept, so turning 3D off and on
+    /// again does not render it twice.
+    public private(set) var parallaxClip: RecordedClip?
+    public private(set) var isRenderingParallax = false
+    /// The render in flight, kept so a test can wait for it.
+    private(set) var parallaxWork: Task<Void, Never>?
+    /// The screen has closed. A render that finishes after that deletes what
+    /// it made, because nothing else will.
+    private var isClosed = false
     /// The photo at display size, unfiltered — what every preview render starts
     /// from, so switching looks never compounds one on top of another. Built on
     /// first use rather than up front, for the same reason `preview` is not.
@@ -89,11 +106,13 @@ public final class ComposeModel {
     public init(
         capture: Capture,
         recipient: InstantRecipient? = nil,
-        preferences: Preferences = .inMemory()
+        preferences: Preferences = .inMemory(),
+        makeParallax: @escaping @Sendable (UIImage) async throws -> RecordedClip = ComposeModel.parallax
     ) {
         self.capture = capture
         self.recipient = recipient
         self.preferences = preferences
+        self.makeParallax = makeParallax
         ink = preferences.ink
         switch capture {
         case .photo(let photo):
@@ -118,11 +137,27 @@ public final class ComposeModel {
         self.init(capture: .photo(image), recipient: recipient, preferences: preferences)
     }
 
+    /// What the player shows: the recorded clip, or the 3D one while it is on.
     public var clip: RecordedClip? {
-        if case .video(let clip) = capture { clip } else { nil }
+        if case .video(let clip) = capture { return clip }
+        return isParallax ? parallaxClip : nil
     }
 
-    public var isVideo: Bool { capture.isVideo }
+    /// True for a 3D photo too — from here on it is a clip in every respect
+    /// but sound.
+    public var isVideo: Bool { clip != nil }
+
+    /// Only a recording has sound. A 3D clip is four stills.
+    public var hasSound: Bool { capture.isVideo }
+
+    /// Any photo. A recording already moves.
+    public var canMakeParallax: Bool { !capture.isVideo }
+
+    /// The real thing: the depth estimated from the photo, then the four views.
+    public static let parallax: @Sendable (UIImage) async throws -> RecordedClip = { photo in
+        let depth = try await DepthEstimator.shared.estimate(photo)
+        return try await ParallaxRenderer.makeClip(photo: photo, depth: depth)
+    }
 
     /// The shape the compose screen lays the capture out at.
     public var contentSize: CGSize {
@@ -134,7 +169,8 @@ public final class ComposeModel {
     /// every capture for a control most captures never touch.
     public func prepareThumbnails() {
         guard filterThumbnails.isEmpty else { return }
-        if let clip, previewBase == nil {
+        // A recording's, not a 3D clip's: a 3D photo's strip is the photo.
+        if case .video(let clip) = capture, previewBase == nil {
             // A clip's strip is its first frame, which has to be read off the
             // file before anything can be filtered.
             guard thumbnailWork == nil else { return }
@@ -160,7 +196,9 @@ public final class ComposeModel {
     public func select(_ filter: PhotoFilter) {
         guard filter != self.filter else { return }
         self.filter = filter
-        guard !isVideo else { return }
+        // Kept up to date under a 3D clip as well, so that turning 3D off
+        // shows the photo in the look that was chosen.
+        guard !capture.isVideo else { return }
         preview = filter.apply(to: base)
     }
 
@@ -289,13 +327,65 @@ public final class ComposeModel {
     }
 
     public func toggleSound() {
-        guard isVideo else { return }
+        guard hasSound else { return }
         includesSound.toggle()
         preferences.sendsSound = includesSound
     }
 
     public func cycleDuration() {
         duration = duration.next
+    }
+
+    // MARK: - 3D
+
+    /// Shows the photo as its 3D clip, rendering it the first time; or goes
+    /// back to the photo, keeping the clip for next time.
+    ///
+    /// The duration changes family with it. A 3D photo is sent as a clip, so
+    /// it plays Once or Loops like one — and each family is remembered on its
+    /// own, so a Loop never leaks into the next photo's seconds.
+    public func toggleParallax() {
+        guard canMakeParallax, !isRenderingParallax else { return }
+        if isParallax {
+            isParallax = false
+            duration = preferences.photoDuration
+            return
+        }
+        if parallaxClip != nil {
+            showParallax()
+            return
+        }
+        isRenderingParallax = true
+        let photo = image
+        let makeParallax = makeParallax
+        parallaxWork = Task { [weak self] in
+            let made = try? await makeParallax(photo)
+            guard let self, !isClosed else {
+                if let made { CaptureScratch.remove(made.url) }
+                return
+            }
+            isRenderingParallax = false
+            // A render that failed leaves the photo as it was. There is
+            // nothing the sender could do differently on a second try.
+            guard let made else { return }
+            parallaxClip = made
+            showParallax()
+        }
+    }
+
+    private func showParallax() {
+        isParallax = true
+        duration = preferences.videoDuration
+    }
+
+    /// The screen is closing. A 3D clip that is not what was sent is deleted
+    /// here; one that was sent belongs to the outbox now, which deletes it
+    /// once it is encoded.
+    public func close(sent: Bool) {
+        isClosed = true
+        guard let parallaxClip, !(sent && isParallax) else { return }
+        CaptureScratch.remove(parallaxClip.url)
+        self.parallaxClip = nil
     }
 
     /// What `Outbox` sends: the original photo and every choice made about it,
@@ -308,7 +398,7 @@ public final class ComposeModel {
             strokes: strokes,
             captions: captions.filter { !$0.trimmed.isEmpty },
             duration: duration,
-            includesSound: includesSound
+            includesSound: hasSound && includesSound
         )
     }
 }
