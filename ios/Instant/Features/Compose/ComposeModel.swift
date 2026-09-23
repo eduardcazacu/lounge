@@ -33,6 +33,20 @@ public final class ComposeModel {
     /// Where every choice above starts from, and where each one is written
     /// back to as it is made.
     private let preferences: Preferences
+    /// Where a copy goes when the person asks to keep one.
+    private let photos: any PhotoLibraryWriting
+
+    /// Keeping a copy: nothing, in flight, kept, or why not.
+    public enum SaveState: Equatable {
+        case idle
+        case saving
+        case saved
+        case failed(String)
+    }
+
+    public private(set) var saveState: SaveState = .idle
+    /// The save in flight, kept so a test can wait for it.
+    private(set) var saveWork: Task<Void, Never>?
 
     /// The chosen look, applied to the photo on the way out.
     public private(set) var filter: PhotoFilter = .none
@@ -107,11 +121,13 @@ public final class ComposeModel {
         capture: Capture,
         recipient: InstantRecipient? = nil,
         preferences: Preferences = .inMemory(),
+        photos: any PhotoLibraryWriting = SystemPhotoLibrary(),
         makeParallax: @escaping @Sendable (UIImage) async throws -> RecordedClip = ComposeModel.parallax
     ) {
         self.capture = capture
         self.recipient = recipient
         self.preferences = preferences
+        self.photos = photos
         self.makeParallax = makeParallax
         ink = preferences.ink
         switch capture {
@@ -200,6 +216,7 @@ public final class ComposeModel {
     public func select(_ filter: PhotoFilter) {
         guard filter != self.filter else { return }
         self.filter = filter
+        changed()
         // Kept up to date under a 3D clip as well, so that turning 3D off
         // shows the photo in the look that was chosen.
         guard !capture.isVideo else { return }
@@ -256,6 +273,7 @@ public final class ComposeModel {
     public func addCaption(at placement: OverlayCompositor.Placement) -> UUID {
         let caption = OverlayCompositor.Caption(placement: placement)
         captions.append(caption)
+        changed()
         return caption.id
     }
 
@@ -287,6 +305,7 @@ public final class ComposeModel {
 
     public func removeCaption(_ id: UUID) {
         captions.removeAll { $0.id == id }
+        changed()
     }
 
     public func rotate(_ id: UUID, to radians: Double) {
@@ -308,6 +327,7 @@ public final class ComposeModel {
     private func update(_ id: UUID, _ change: (inout OverlayCompositor.Caption) -> Void) {
         guard let index = captions.firstIndex(where: { $0.id == id }) else { return }
         change(&captions[index])
+        changed()
     }
 
     // MARK: - Drawing
@@ -316,6 +336,7 @@ public final class ComposeModel {
     /// Points are fractions of the photo.
     public func beginStroke(at point: CGPoint) {
         strokes.append(OverlayCompositor.Stroke(ink: ink, points: [point]))
+        changed()
     }
 
     /// Continues the line being drawn, which is always the newest.
@@ -328,11 +349,62 @@ public final class ComposeModel {
     /// what the finger drew in one go, and that is the thing that went wrong.
     public func undoStroke() {
         _ = strokes.popLast()
+        changed()
+    }
+
+    // MARK: - Keeping a copy
+
+    /// Puts the capture in the person's own library, composed exactly as it
+    /// would be sent: the look, the drawing and the captions in the pixels,
+    /// and a 3D photo as its clip. Nothing here touches the send — the
+    /// recording stays where it is, and the draft is unchanged.
+    public func save() {
+        guard saveState != .saving else { return }
+        saveState = .saving
+        let draft = draft
+        let photos = photos
+        saveWork = Task { [weak self] in
+            do {
+                let media: SavedMedia
+                if draft.clip != nil {
+                    media = .video(try await draft.composedVideo())
+                } else if let image = draft.composedPhoto {
+                    media = .photo(image)
+                } else {
+                    throw PhotoLibraryError.failed
+                }
+                try await photos.save(media)
+                self?.saveState = .saved
+            } catch {
+                self?.saveState = .failed(
+                    (error as? PhotoLibraryError) == .refused
+                        ? "Instant needs permission to add to your photos."
+                        : "Could not save that."
+                )
+            }
+        }
+    }
+
+    /// What the save button says it is doing, for VoiceOver.
+    public var saveValue: String {
+        switch saveState {
+        case .idle: "not saved"
+        case .saving: "saving"
+        case .saved: "saved"
+        case .failed(let why): why
+        }
+    }
+
+    /// A saved copy is of the picture as it was: change it afterwards and the
+    /// tick has nothing to do with what is on screen now.
+    private func changed() {
+        if saveState != .saving { saveState = .idle }
     }
 
     public func toggleSound() {
         guard hasSound else { return }
         includesSound.toggle()
+        changed()
         preferences.sendsSound = includesSound
     }
 
@@ -353,6 +425,7 @@ public final class ComposeModel {
         if isParallax {
             isParallax = false
             duration = preferences.photoDuration
+            changed()
             return
         }
         if parallaxClip != nil {
@@ -379,6 +452,7 @@ public final class ComposeModel {
 
     private func showParallax() {
         isParallax = true
+        changed()
         duration = preferences.videoDuration
     }
 

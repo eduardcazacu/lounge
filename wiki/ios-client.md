@@ -416,6 +416,31 @@ a render nobody sent is deleted when compose closes.
 back to view 1 is an ordinary step, and the file ends exactly on its last
 frame. Sent as Once, it still wiggles eight times before it closes.
 
+## Keeping a copy
+
+The arrow in the rail puts the capture in the person's own photo library,
+composed exactly as it would be sent: the look, the drawing and the captions
+already in the pixels, and a 3D photo as its clip
+(`ComposeModel.save`, `PhotoLibrary.swift`). A photo goes over as a `UIImage`
+for Photos to store at full size, rather than as the WebP the wire gets, which
+is squeezed to a quarter of a megabyte for a screen it will be looked at on
+once. A clip goes over as the file that would be sent.
+
+**The send and the save render the same pixels**, from `InstantDraft`'s
+`composedPhoto` and `composedVideo`. The save leaves the recording where it
+is: the outbox owns that file and deletes it once a send has encoded it, and
+a save must not take it out from under a send that has not happened yet.
+
+**Add-only permission**, asked for on the first save
+(`NSPhotoLibraryAddUsageDescription`). It is all saving needs, and unlike the
+library the picker reads, it grants no sight of a single photo the person has
+not handed over.
+
+The button shows a tick once the copy is there, and takes it back the moment
+anything changes the picture — a tick that outlived the photo it was about
+would be a lie. There is no such button in the viewer: an instant you were
+sent expires, and that is the whole promise.
+
 ## Sending
 
 Tapping Send closes the compose screen at once. `ComposeModel.draft` hands the

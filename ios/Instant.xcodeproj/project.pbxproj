@@ -455,6 +455,7 @@
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Instant needs the camera to take the photos and videos you send.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Instant needs the microphone to record sound with the videos you send.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Instant saves a copy of a photo or video to your library when you ask it to.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Instant needs your photo library so you can send a picture you already have.";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UIStatusBarStyle = UIStatusBarStyleLightContent;
@@ -674,6 +675,7 @@
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Instant needs the camera to take the photos and videos you send.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Instant needs the microphone to record sound with the videos you send.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Instant saves a copy of a photo or video to your library when you ask it to.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Instant needs your photo library so you can send a picture you already have.";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UIStatusBarStyle = UIStatusBarStyleLightContent;

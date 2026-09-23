@@ -43,6 +43,13 @@ final class InstantUITests: XCTestCase {
         wait(for: [matched], timeout: timeout)
     }
 
+    private func waitForValue(_ element: XCUIElement, _ expected: String, timeout: TimeInterval = 30) {
+        let matched = expectation(
+            for: NSPredicate(format: "value == %@", expected), evaluatedWith: element
+        )
+        wait(for: [matched], timeout: timeout)
+    }
+
     /// Settings is a `Form`; the device and account rows sit below the fold, so
     /// they are not in the hierarchy until scrolled to.
     @discardableResult
@@ -1003,6 +1010,33 @@ final class InstantUITests: XCTestCase {
         threeD.tap()
         XCTAssertTrue(app.images["compose.preview"].waitForExistence(timeout: 10))
         XCTAssertEqual(app.buttons["compose.duration"].value as? String, "5s")
+    }
+
+    /// The stubbed launch saves to a stand-in library: a real one would put a
+    /// permission prompt in front of the test, and nothing would tap it.
+    func testSavingACopyToPhotos() {
+        let app = launch(signedIn: true)
+        let shutter = app.buttons["camera.shutter"]
+        XCTAssertTrue(shutter.waitForExistence(timeout: 30))
+        shutter.tap()
+        XCTAssertTrue(app.images["compose.preview"].waitForExistence(timeout: 30))
+
+        let save = app.buttons["compose.save"]
+        XCTAssertTrue(save.waitForExistence(timeout: 10))
+        XCTAssertEqual(save.value as? String, "not saved")
+        save.tap()
+        waitForValue(save, "saved")
+
+        // The photo is still there to send afterwards.
+        XCTAssertTrue(app.buttons["compose.sendTo"].isHittable)
+
+        // And a change to the picture takes the tick back: what was saved is
+        // no longer what is on screen.
+        app.buttons["compose.filters"].tap()
+        let strip = app.descendants(matching: .any)["compose.filterStrip"]
+        XCTAssertTrue(strip.waitForExistence(timeout: 10))
+        strip.buttons.element(boundBy: 2).tap()
+        waitForValue(save, "not saved")
     }
 
     func testARecordedClipSends() {

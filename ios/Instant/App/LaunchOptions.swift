@@ -141,6 +141,9 @@ public enum LaunchOptions {
             // Every stubbed launch starts from the defaults, so one test's
             // muted clip or red pen is never the next test's starting point.
             preferences: .inMemory(),
+            // A real library would put a permission prompt in front of a UI
+            // test, and nothing would tap it.
+            photos: StubPhotoLibrary(),
             ownsCaptureScratch: true,
             makeCamera: { StubCameraController(frame: StubBackend.cameraFrame()) }
         )

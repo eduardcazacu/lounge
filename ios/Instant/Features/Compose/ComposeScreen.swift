@@ -170,7 +170,8 @@ struct ComposeScreen: View {
                 model = ComposeModel(
                     capture: capture,
                     recipient: environment.aimedAt,
-                    preferences: environment.preferences
+                    preferences: environment.preferences,
+                    photos: environment.photos
                 )
             }
         }
@@ -271,6 +272,36 @@ struct ComposeScreen: View {
         .accessibilityValue(model.duration.rawValue)
     }
 
+    /// Keeps a copy in the person's own library, composed exactly as it
+    /// would be sent. A tick when it is there, because a save that says
+    /// nothing is a save you make twice. It sits on the bottom line rather
+    /// than in the rail because it is not a choice about the picture; it is
+    /// one of the two things that can become of it.
+    private func saveButton(_ model: ComposeModel) -> some View {
+        let saved = model.saveState == .saved
+        let failed = if case .failed = model.saveState { true } else { false }
+        return Button {
+            model.save()
+        } label: {
+            ZStack {
+                Circle().fill(saved ? Color.white : Color.black.opacity(0.35))
+                if model.saveState == .saving {
+                    ProgressView().tint(.white)
+                } else {
+                    Image(systemName: failed ? "exclamationmark.triangle.fill" : (saved ? "checkmark" : "square.and.arrow.down"))
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(saved ? .black : .white)
+                }
+            }
+            .frame(width: 44, height: 44)
+        }
+        .buttonStyle(.plain)
+        .disabled(model.saveState == .saving)
+        .accessibilityIdentifier("compose.save")
+        .accessibilityLabel("Save to Photos")
+        .accessibilityValue(model.saveValue)
+    }
+
     /// Turns the photo into its 3D clip and back. The first tap estimates the
     /// depth and renders the views, a second or two with a spinner in the
     /// button; after that it is instant either way.
@@ -352,6 +383,12 @@ struct ComposeScreen: View {
 
     private func bottomBar(_ model: ComposeModel) -> some View {
         HStack {
+            // Bottom left, opposite Send: the rail above decides what the
+            // capture *is*, and the bottom line is what becomes of it — a copy
+            // kept on one side, sent on the other. The camera's bottom bar is
+            // the same shape.
+            saveButton(model)
+
             Spacer()
 
             // An aimed capture still has to be redirectable: the only other way

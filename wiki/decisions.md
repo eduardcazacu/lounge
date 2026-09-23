@@ -692,6 +692,25 @@ it again.
 
 ---
 
+## A copy can be kept from compose, never from the viewer
+
+**Chosen** a save button on the compose screen, which writes the composed
+photo or clip to the sender's own photo library with add-only permission.
+
+**Rejected** the same button in the viewer, on a received instant.
+
+**Because** what compose holds is the person's own capture, which they are
+about to send and may want to keep; nothing about it is anyone else's. A
+received instant is the other way round: it expires, and it was sent on that
+understanding. A screenshot is always possible, and the sender is told about
+one; a save button would be the app helping, quietly.
+
+**Cost paid** a photo saved from compose is not quite the file the recipient
+gets — full size in the library rather than the wire's quarter-megabyte WebP.
+The pixels are the same; the compression is not.
+
+---
+
 ## A 3D photo's outline comes from Vision, and each layer is warped on its own
 
 **Chosen** `VisionSubjectMasker` asks Vision for a mask per subject, falling
