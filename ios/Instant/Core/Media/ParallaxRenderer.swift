@@ -36,7 +36,27 @@ public enum ParallaxRenderer {
     /// How far the outermost view moves the farthest-from-the-subject thing in
     /// the picture, as a share of the width. More than a couple of percent and
     /// the uncovered slivers are wide enough to see that they were invented.
-    static let maxShift: Float = 0.015
+    static let maxShift: Float = 0.022
+
+    /// How much further than the arithmetic says a thing nearer than the
+    /// subject swings.
+    ///
+    /// A lens moving sideways shifts what it sees by the difference in
+    /// *disparity*, and disparity is one over distance: a hand at arm's
+    /// length is as far in front of a face as the face is in front of the
+    /// far wall, so on a Nishika it swings about as far as the wall does, the
+    /// other way. An estimated map does not keep those proportions — it
+    /// spends most of its range on the scene and crowds everything close to
+    /// the lens into the top of it — so the near half of it is stretched back
+    /// out here. Without this, a hand held up to the camera barely moves.
+    static let nearBoost: Float = 2.2
+
+    /// How far a pixel of this disparity moves for a lens this far off centre.
+    @inline(__always)
+    static func move(_ disparity: Float, key: Float, shift: Float) -> Float {
+        let difference = key - disparity
+        return shift * (difference < 0 ? difference * nearBoost : difference)
+    }
 
     /// 1-2-3-4-3-2, as indices into `viewOffsets`. It stops one short of
     /// coming back to 1 so that coming back to 1 is the next cycle's first
@@ -69,9 +89,13 @@ public enum ParallaxRenderer {
 
     /// Renders the four views and writes them out as a looping clip. The
     /// caller owns the file.
-    public static func makeClip(photo: UIImage, depth: DepthMap) async throws -> RecordedClip {
+    public static func makeClip(
+        photo: UIImage,
+        depth: DepthMap,
+        masks: [SubjectMask] = []
+    ) async throws -> RecordedClip {
         let views = try await Task.detached(priority: .userInitiated) {
-            try renderViews(photo: photo, depth: depth)
+            try renderViews(photo: photo, depth: depth, masks: masks)
         }.value
         let url = CaptureScratch.newURL(pathExtension: "mov")
         do {
@@ -91,25 +115,76 @@ public enum ParallaxRenderer {
 
     /// The four views, in `viewOffsets` order, each the size of the photo as
     /// it will be sent.
-    static func renderViews(photo: UIImage, depth: DepthMap) throws -> [CGImage] {
+    static func renderViews(photo: UIImage, depth: DepthMap, masks: [SubjectMask] = []) throws -> [CGImage] {
         let source = try Bitmap(photo, longEdge: longEdge)
-        let disparity = stepped(
-            upsampled(depth, toMatch: source),
-            width: source.width,
-            height: source.height
-        )
+        let measured = upsampled(depth, toMatch: source)
+        // Pixels per unit of lens offset per unit of disparity, chosen so the
+        // outermost lens moves the most distant thing `maxShift` of the width.
+        let outermost = viewOffsets.map(abs).max() ?? 1
+        let gain = maxShift * Float(source.width) / outermost
+        if let layers = layers(source: source, disparity: measured, masks: masks) {
+            // Told where the subject is, the depth inside it is left alone —
+            // a body leaning towards the camera is meant to have a gradient,
+            // and stepping one into flat cards is what used to tear it.
+            let key = keyDisparity(of: layers) ?? keyDisparity(depth)
+            let margin = edgeMargin(measured, key: key, shift: outermost * gain, width: source.width)
+            return try viewOffsets.map {
+                try zoomed(composited(layers, key: key, shift: $0 * gain), margin: margin)
+            }
+        }
+        // Nothing found to segment by — no face, no animal, nothing that
+        // stands out — so the outline comes out of the depth map, and what
+        // the wiggle turns about is whatever is in the middle of the frame
+        // (`keyDisparity`), which is what the photographer pointed at.
+        let disparity = stepped(measured, width: source.width, height: source.height)
         let key = keyDisparity(depth)
         let (grown, grownDisparity) = enlarged(source, disparity: disparity)
         let unsure = besideNearer(grownDisparity, width: source.width, height: source.height)
-        // Pixels per unit of lens offset per unit of disparity, chosen so the
-        // outermost lens moves the most distant thing `maxShift` of the width.
-        let gain = maxShift * Float(source.width) / (viewOffsets.map(abs).max() ?? 1)
-        // Not enlarged to hide the strip each view uncovers at the frame's
-        // side: that would grow the whole picture, the background with it.
-        // The strip is a gap like any other, filled from what is beside it.
-        return viewOffsets.map { offset in
-            warp(grown, disparity: grownDisparity, key: key, shift: offset * gain, dropping: unsure).image
+        let margin = edgeMargin(grownDisparity, key: key, shift: outermost * gain, width: source.width)
+        return try viewOffsets.map { offset in
+            try zoomed(
+                warp(grown, disparity: grownDisparity, key: key, shift: offset * gain, dropping: unsure),
+                margin: margin
+            )
         }
+    }
+
+    /// The most any pixel moves in the outermost view, as a share of the
+    /// width — which is how much has to be cropped off every side.
+    ///
+    /// Anything that moves inwards uncovers the frame's own edge, and a thing
+    /// close to the lens at the edge of the picture — a hand holding the
+    /// phone — moves the most of all, so what it uncovers is a strip of
+    /// invented picture where its own edge used to be. Enlarging every view
+    /// by exactly that much puts the frame's edge outside the picture, and
+    /// costs the few percent of the photo that would otherwise be made up.
+    static func edgeMargin(_ disparity: [Float], key: Float, shift: Float, width: Int) -> CGFloat {
+        var furthest: Float = 0
+        for value in disparity { furthest = max(furthest, abs(move(value, key: key, shift: shift))) }
+        return CGFloat(min(furthest / Float(width), maxMargin))
+    }
+
+    /// However far things move, no more of the picture than this is given up
+    /// to hide the frame's edge.
+    static let maxMargin: Float = 0.05
+
+    /// A view enlarged about its middle by `margin` on every side, so nothing
+    /// shows the strip at the frame's edge that it had no picture for. Evenly,
+    /// so the shape and size are the photo's and a caption's placement, kept
+    /// in fractions of the frame, still lands where it was put.
+    static func zoomed(_ view: Bitmap, margin: CGFloat) throws -> CGImage {
+        guard margin > 0.0005 else { return view.image }
+        let width = CGFloat(view.width)
+        let height = CGFloat(view.height)
+        let inset = CGRect(x: 0, y: 0, width: width, height: height)
+            .insetBy(dx: (width * margin).rounded(), dy: (height * margin).rounded())
+        guard let cropped = view.image.cropping(to: inset),
+              let context = Bitmap.context(width: view.width, height: view.height, data: nil)
+        else { throw RenderError.noPixels }
+        context.interpolationQuality = .high
+        context.draw(cropped, in: CGRect(x: 0, y: 0, width: width, height: height))
+        guard let image = context.makeImage() else { throw RenderError.noPixels }
+        return image
     }
 
     // MARK: - Depth
@@ -548,6 +623,394 @@ public enum ParallaxRenderer {
         return (Bitmap(width: width, height: height, pixels: pixels), depth)
     }
 
+    // MARK: - Layers
+
+    /// One plane of the picture: its pixels, premultiplied by the share of it
+    /// they are, and the depth to move them by.
+    ///
+    /// The background is one, and every subject Vision found is another. Each
+    /// is warped on its own and they are composited back to front, so an
+    /// outline is a matte rather than a cut, and nothing has to be guessed
+    /// about which side of an edge a half-covered pixel belongs to: it is on
+    /// both, in its own proportion.
+    struct RenderLayer {
+        var bitmap: Bitmap
+        var disparity: [Float]
+        var centre: (x: Float, y: Float)
+        var growth: Float
+        /// What this layer's own depth is, for ordering it against the others.
+        var median: Float
+        /// Its near side, which is the part of a person a photo is of: the
+        /// face, not the feet. The wiggle turns about this.
+        var nearSide: Float
+        /// The share of the picture it covers, for picking the main subject.
+        var coverage: Double
+        /// The background closes the gaps a view uncovers. A subject leaves
+        /// its own uncovered edges transparent, so the layer behind shows
+        /// through — which is what is actually behind it.
+        var fillsGaps: Bool
+    }
+
+    /// Anything the masks cover this faintly is still the subject's, so the
+    /// background gives it up rather than carry a rim of subject colour.
+    static let maskTouch: UInt8 = 8
+
+    /// How wide a band around a mask the background gives up as well, as a
+    /// share of the width.
+    ///
+    /// A balance, measured on photographs rather than guessed. Vision's mask
+    /// arrives as a ramp a dozen pixels wide and `SubjectMask.sharpened` cuts
+    /// the outer half of it off; the pixels it cuts are the subject's — the
+    /// wisps of somebody's hair. Left in the background they travel at the
+    /// background's speed and show up as a second, slightly larger copy of
+    /// the outline moving out of step with it. Given up too generously, on
+    /// the other hand, the band around the subject is all invented wall, and
+    /// the invention has an edge of its own. Six pixels in a thousand is
+    /// where the outline stopped doubling and the invented band was still
+    /// small enough not to show.
+    static let maskSkirt: Float = 0.006
+    /// How far outside a mask to read the depth of whatever it stands in
+    /// front of, as a share of the width.
+    static let behindReach: Float = 0.015
+
+    /// The picture cut into layers by the masks, background first and then the
+    /// subjects from farthest to nearest. Nil when there is nothing usable to
+    /// cut it with, and 3D reads the outline out of the depth map as before.
+    static func layers(
+        source: Bitmap,
+        disparity: [Float],
+        masks: [SubjectMask]
+    ) -> [RenderLayer]? {
+        let width = source.width
+        let height = source.height
+        let fitted = masks.compactMap { resampled($0, width: width, height: height) }
+        guard !fitted.isEmpty else { return nil }
+
+        // The background gives up every pixel any mask touches, and a skirt
+        // all round: its colour there is part subject, and carrying it into a
+        // view is how the outline leaves a ghost of itself behind.
+        var union = [UInt8](repeating: 0, count: width * height)
+        for index in 0..<(width * height) {
+            union[index] = fitted.reduce(UInt8(0)) { max($0, $1.alpha[index]) }
+        }
+        let skirt = max(1, Int((maskSkirt * Float(width)).rounded()))
+        let claimedAll = grown(union, width: width, height: height, radius: skirt)
+        var backgroundPixels = source.pixels
+        var covered = 0
+        for index in 0..<(width * height) {
+            let claimed = claimedAll[index]
+            if claimed >= maskTouch {
+                backgroundPixels[index] = 0
+                covered += 1
+            } else {
+                backgroundPixels[index] |= opaque
+            }
+        }
+        guard covered < width * height else { return nil }
+        // What is behind the subject, invented where it has to be. The
+        // subject's own rim is read against this, and every view is drawn
+        // over it.
+        let behind = closed(backgroundPixels, width: width, height: height, disparity: disparity)
+
+        var subjects: [RenderLayer] = []
+        for mask in fitted {
+            guard let layer = subjectLayer(mask, source: source, backdrop: behind, disparity: disparity)
+            else { continue }
+            subjects.append(layer)
+        }
+        guard !subjects.isEmpty else { return nil }
+
+        let background = RenderLayer(
+            bitmap: Bitmap(width: width, height: height, pixels: backgroundPixels, isMatted: true),
+            disparity: disparity,
+            centre: (Float(width) / 2, Float(height) / 2),
+            growth: 0,
+            median: median(of: disparity, where: { _ in true }, step: 7) ?? 0,
+            nearSide: 0,
+            coverage: Double(width * height - covered) / Double(width * height),
+            fillsGaps: true
+        )
+        return [background] + subjects.sorted { $0.median < $1.median }
+    }
+
+    /// The background with the hole the subject leaves closed up, in the
+    /// picture's own frame — the wall as it would look with nobody in front
+    /// of it. Mirrored inwards, exactly as a gap is closed in a view.
+    static func closed(
+        _ pixels: [UInt32],
+        width: Int,
+        height: Int,
+        disparity: [Float]
+    ) -> [UInt32] {
+        var filled = pixels
+        var nearness = (0..<pixels.count).map { coverage(pixels[$0]) > 0 ? disparity[$0] : -1 }
+        filled.withUnsafeMutableBufferPointer { output in
+            nearness.withUnsafeMutableBufferPointer { landed in
+                for y in 0..<height {
+                    fill(row: y * width, width: width, pixels: output, nearness: landed)
+                }
+            }
+        }
+        return filled
+    }
+
+    /// One subject: its own pixels, its own depth, and how much it grows.
+    private static func subjectLayer(
+        _ mask: SubjectMask,
+        source: Bitmap,
+        backdrop: [UInt32],
+        disparity: [Float]
+    ) -> RenderLayer? {
+        let width = source.width
+        let height = source.height
+        let inside = median(of: disparity, where: { mask.alpha[$0] > 200 }, step: 3)
+        guard let inside else { return nil }
+        // A person is not a plane: the face is a long way in front of the
+        // feet, and pinning the wiggle to the middle of them leaves the face
+        // drifting. The face where Vision found one, and the near side of the
+        // subject otherwise — which is what the depth-only path does too.
+        let nearSide = mask.focus
+            .flatMap { face in
+                median(of: disparity, where: { index in
+                    let x = index % width, y = index / width
+                    return mask.alpha[index] > 200 && face.contains(CGPoint(x: x, y: y))
+                }, step: 2)
+            }
+            ?? percentile(0.75, of: disparity, where: { mask.alpha[$0] > 200 }, step: 3)
+            ?? inside
+
+        // What the subject stands in front of: the depth of a ring just
+        // outside its outline. The jump across that outline is both how much
+        // the background will move behind it and how much it grows, which is
+        // not a coincidence — the band a view uncovers beside it is exactly
+        // that wide.
+        let reach = max(1, Int((behindReach * Float(width)).rounded()))
+        let ring = grown(mask.alpha, width: width, height: height, radius: reach)
+        let behind = median(of: disparity, where: { ring[$0] > 128 && mask.alpha[$0] < maskTouch }, step: 3)
+        let jump = min(1, max(0, inside - (behind ?? 0)))
+        // The mask's own inner rim, where the depth map is still reading the
+        // wall. Only there: a subject is allowed to be as deep as it likes in
+        // the middle — that is the slant this layering is for.
+        let shrunk = shrunk(mask.alpha, width: width, height: height, radius: reach)
+        // The subject claims one pixel more than the mask does.
+        //
+        // What is left half-claimed at an outline is drawn as part subject
+        // and part invented background, and the invention is never quite the
+        // wall that was really behind the hair — the difference shows as a
+        // thin bright line all the way round. Covered by the subject instead,
+        // the edge is drawn from the photograph, which is where the true
+        // mixture of hair and wall already is.
+        let claiming = grown(mask.alpha, width: width, height: height, radius: 1)
+        // What the subject's depth is just inside its outline, for the rim to
+        // borrow. Its own local depth, not the whole subject's middle, so a
+        // slanted one keeps its slant right out to the edge.
+        let nearby = extreme(disparity, width: width, height: height, radius: reach, nearest: true)
+            ?? disparity
+
+        var sumX = 0.0, sumY = 0.0, weight = 0.0
+        var pixels = [UInt32](repeating: 0, count: width * height)
+        var depth = disparity
+        for index in 0..<(width * height) {
+            let alpha = claiming[index]
+            guard alpha > 0 else { continue }
+            pixels[index] = matted(source.pixels[index], alpha: alpha, over: backdrop[index])
+            // The depth map's outline is not the mask's, so the rim of the
+            // mask holds the wall's depth. Every pixel of this layer — the
+            // half-covered ones at its edge most of all — has to travel at
+            // the subject's speed. Left at the wall's, they trail a pixel
+            // behind the outline and read as a second copy of the subject,
+            // wiggling out of step with it.
+            if shrunk[index] < 128, depth[index] < nearby[index] - edgeStep {
+                depth[index] = nearby[index]
+            }
+            if alpha > 128 {
+                let w = Double(alpha) / 255
+                sumX += Double(index % width) * w
+                sumY += Double(index / width) * w
+                weight += w
+            }
+        }
+        guard weight > 0 else { return nil }
+        return RenderLayer(
+            bitmap: Bitmap(width: width, height: height, pixels: pixels, isMatted: true),
+            disparity: depth,
+            centre: (Float(sumX / weight), Float(sumY / weight)),
+            growth: maxGrowth * jump,
+            median: inside,
+            nearSide: nearSide,
+            coverage: mask.coverage,
+            fillsGaps: false
+        )
+    }
+
+    /// The middle disparity of the pixels a test picks out, sampled every
+    /// `step` to keep the sort cheap.
+    static func median(of disparity: [Float], where include: (Int) -> Bool, step: Int) -> Float? {
+        percentile(0.5, of: disparity, where: include, step: step)
+    }
+
+    /// The value a given way up the pixels a test picks out, sampled every
+    /// `step` to keep the sort cheap.
+    static func percentile(
+        _ fraction: Double,
+        of disparity: [Float],
+        where include: (Int) -> Bool,
+        step: Int
+    ) -> Float? {
+        var picked: [Float] = []
+        picked.reserveCapacity(disparity.count / (step * step))
+        for index in stride(from: 0, to: disparity.count, by: step) where include(index) {
+            picked.append(disparity[index])
+        }
+        guard !picked.isEmpty else { return nil }
+        picked.sort()
+        return picked[Int(Double(picked.count - 1) * fraction)]
+    }
+
+    /// A mask shrunk by `radius`, for telling its rim from its middle.
+    static func shrunk(_ alpha: [UInt8], width: Int, height: Int, radius: Int) -> [UInt8] {
+        morphology(alpha, width: width, height: height, radius: radius, grow: false)
+    }
+
+    /// A mask grown by `radius`, for reading what lies just outside it.
+    static func grown(_ alpha: [UInt8], width: Int, height: Int, radius: Int) -> [UInt8] {
+        morphology(alpha, width: width, height: height, radius: radius, grow: true)
+    }
+
+    private static func morphology(
+        _ alpha: [UInt8],
+        width: Int,
+        height: Int,
+        radius: Int,
+        grow: Bool
+    ) -> [UInt8] {
+        var source = alpha
+        var result = [UInt8](repeating: 0, count: alpha.count)
+        let kernel = vImagePixelCount(2 * radius + 1)
+        let ok = source.withUnsafeMutableBufferPointer { input in
+            result.withUnsafeMutableBufferPointer { output in
+                var from = vImage_Buffer(
+                    data: input.baseAddress,
+                    height: vImagePixelCount(height),
+                    width: vImagePixelCount(width),
+                    rowBytes: width
+                )
+                var to = vImage_Buffer(
+                    data: output.baseAddress,
+                    height: vImagePixelCount(height),
+                    width: vImagePixelCount(width),
+                    rowBytes: width
+                )
+                let flags = vImage_Flags(kvImageNoFlags)
+                let error = grow
+                    ? vImageMax_Planar8(&from, &to, nil, 0, 0, kernel, kernel, flags)
+                    : vImageMin_Planar8(&from, &to, nil, 0, 0, kernel, kernel, flags)
+                return error == kvImageNoError
+            }
+        }
+        return ok ? result : alpha
+    }
+
+    /// A mask at the size the renderer works at. Vision answers at the photo's
+    /// size, which is not the size a big library photo is rendered at.
+    static func resampled(_ mask: SubjectMask, width: Int, height: Int) -> SubjectMask? {
+        guard mask.width > 1, mask.height > 1 else { return nil }
+        guard mask.width != width || mask.height != height else { return mask }
+        // Averaged over the box each pixel came from, not sampled at its
+        // middle: a matte shrunk by nearest neighbour loses the rim that
+        // makes it a matte, and gains a staircase.
+        var alpha = [UInt8](repeating: 0, count: width * height)
+        let scaleX = Double(mask.width) / Double(width)
+        let scaleY = Double(mask.height) / Double(height)
+        for y in 0..<height {
+            let y0 = min(mask.height - 1, Int(Double(y) * scaleY))
+            let y1 = max(y0 + 1, min(mask.height, Int(Double(y + 1) * scaleY)))
+            for x in 0..<width {
+                let x0 = min(mask.width - 1, Int(Double(x) * scaleX))
+                let x1 = max(x0 + 1, min(mask.width, Int(Double(x + 1) * scaleX)))
+                var total = 0
+                for sy in y0..<y1 {
+                    for sx in x0..<x1 { total += Int(mask.alpha[sy * mask.width + sx]) }
+                }
+                alpha[y * width + x] = UInt8(total / ((y1 - y0) * (x1 - x0)))
+            }
+        }
+        return SubjectMask(
+            width: width,
+            height: height,
+            alpha: alpha,
+            focus: mask.focus.map {
+                CGRect(
+                    x: $0.minX * CGFloat(width) / CGFloat(mask.width),
+                    y: $0.minY * CGFloat(height) / CGFloat(mask.height),
+                    width: $0.width * CGFloat(width) / CGFloat(mask.width),
+                    height: $0.height * CGFloat(height) / CGFloat(mask.height)
+                )
+            }
+        )
+    }
+
+    /// The key plane the whole wiggle turns about: the biggest subject's own
+    /// depth, which is what a Nishika's user would have focused on.
+    static func keyDisparity(of layers: [RenderLayer]) -> Float? {
+        layers.filter { !$0.fillsGaps }.max { $0.coverage < $1.coverage }?.nearSide
+    }
+
+    /// One view of a layered picture: each layer moved on its own, then laid
+    /// over the one behind it.
+    static func composited(_ layers: [RenderLayer], key: Float, shift: Float) -> Bitmap {
+        var result: Bitmap?
+        for layer in layers {
+            let (bitmap, disparity) = layer.growth > 0
+                ? enlargedLayer(layer)
+                : (layer.bitmap, layer.disparity)
+            let warped = warp(
+                bitmap,
+                disparity: disparity,
+                key: key,
+                shift: shift,
+                fills: layer.fillsGaps
+            )
+            result = result.map { over(warped, $0) } ?? warped
+        }
+        return result ?? Bitmap(width: 1, height: 1, pixels: [0])
+    }
+
+    /// A layer enlarged about its own middle, sampled backwards so it stays
+    /// smooth. Its alpha grows with it, so the matte is enlarged too.
+    static func enlargedLayer(_ layer: RenderLayer) -> (Bitmap, [Float]) {
+        let width = layer.bitmap.width
+        let height = layer.bitmap.height
+        let full = 1 + layer.growth
+        var pixels = [UInt32](repeating: 0, count: width * height)
+        var depth = [Float](repeating: 0, count: width * height)
+        layer.bitmap.pixels.withUnsafeBufferPointer { input in
+            layer.disparity.withUnsafeBufferPointer { near in
+                pixels.withUnsafeMutableBufferPointer { output in
+                    depth.withUnsafeMutableBufferPointer { landed in
+                        let input = input, near = near, output = output, landed = landed
+                        let centre = layer.centre
+                        DispatchQueue.concurrentPerform(iterations: height) { y in
+                            let row = y * width
+                            let py = centre.y + (Float(y) - centre.y) / full
+                            for x in 0..<width {
+                                let px = centre.x + (Float(x) - centre.x) / full
+                                guard px >= 0, px <= Float(width - 1), py >= 0, py <= Float(height - 1) else { continue }
+                                let x0 = Int(px), y0 = Int(py)
+                                let x1 = min(x0 + 1, width - 1), y1 = min(y0 + 1, height - 1)
+                                let top = mix(input[y0 * width + x0], input[y0 * width + x1], px - Float(x0))
+                                let bottom = mix(input[y1 * width + x0], input[y1 * width + x1], px - Float(x0))
+                                output[row + x] = mix(top, bottom, py - Float(y0))
+                                landed[row + x] = near[y0 * width + x0]
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return (Bitmap(width: width, height: height, pixels: pixels, isMatted: true), depth)
+    }
+
     // MARK: - Views
 
     /// One view: every pixel moved sideways by `shift × (key − disparity)`,
@@ -563,7 +1026,8 @@ public enum ParallaxRenderer {
         disparity: [Float],
         key: Float,
         shift: Float,
-        dropping dropped: [Bool]? = nil
+        dropping dropped: [Bool]? = nil,
+        fills: Bool = true
     ) -> Bitmap {
         let width = source.width
         let height = source.height
@@ -571,6 +1035,7 @@ public enum ParallaxRenderer {
         // Doubles as the gap mask: below zero is a place nothing landed.
         var nearness = [Float](repeating: -1, count: width * height)
         let dropped = dropped ?? []
+        let matted = source.isMatted
 
         source.pixels.withUnsafeBufferPointer { input in
             disparity.withUnsafeBufferPointer { depth in
@@ -580,8 +1045,11 @@ public enum ParallaxRenderer {
                         DispatchQueue.concurrentPerform(iterations: height) { y in
                             let row = y * width
                             for x in 0..<width where dropped.isEmpty || !dropped[row + x] {
+                                // A layer carries only its own pixels; what
+                                // belongs to another is not its to move.
+                                if matted, coverage(input[row + x]) == 0 { continue }
                                 let d = depth[row + x]
-                                let move = shift * (key - d)
+                                let move = move(d, key: key, shift: shift)
                                 let target = x + Int(move.rounded())
                                 guard target >= 0, target < width, d > landed[row + target] else { continue }
                                 // The colour at exactly where this pixel came
@@ -592,31 +1060,58 @@ public enum ParallaxRenderer {
                                 let from = min(max(Float(target) - move, 0), Float(width - 1))
                                 let left = Int(from)
                                 let right = min(left + 1, width - 1)
-                                output[row + target] = mix(input[row + left], input[row + right], from - Float(left))
+                                // Never across a pixel that is not this
+                                // layer's: blended with the nothing on the
+                                // other side of its edge, a layer fades out
+                                // over its last pixel and lets what is behind
+                                // show through a seam.
+                                let both = !matted
+                                    || (coverage(input[row + left]) > 0 && coverage(input[row + right]) > 0)
+                                output[row + target] = both
+                                    ? mix(input[row + left], input[row + right], from - Float(left))
+                                    : (coverage(input[row + left]) > 0 ? input[row + left] : input[row + right])
                                 landed[row + target] = d
                             }
-                            fill(row: row, width: width, pixels: output, nearness: landed)
+                            fill(
+                                row: row,
+                                width: width,
+                                pixels: output,
+                                nearness: landed,
+                                // A subject closes the cracks its own slant
+                                // opens, and leaves its edges to the layer
+                                // behind it.
+                                insideOnly: !fills
+                            )
                         }
                     }
                 }
             }
         }
-        return Bitmap(width: width, height: height, pixels: softened(pixels, gaps: nearness, width: width))
+        let closed = fills
+            ? softened(pixels, gaps: nearness, width: width)
+            : pixels
+        return Bitmap(width: width, height: height, pixels: closed, isMatted: matted)
     }
 
     /// Closes each gap in a row with the background beside it.
     ///
     /// The farther of the gap's two neighbours is the background, and the gap
-    /// is a copy of the background's own pixels just beyond it, not one pixel
-    /// drawn out: a stretched pixel is a streak, a copied run is more wall.
-    /// Where that run itself reaches into something nearer, the edge pixel is
-    /// used instead, so the subject is never copied into its own shadow.
+    /// is the background just beyond it mirrored back in, not one pixel drawn
+    /// out: a stretched pixel is a streak, and a mirror carries the texture on
+    /// across the edge without a seam at it. Mirrored rather than slid along,
+    /// because a gap can be as wide as a person: slid, the pixel next to the
+    /// subject — the only part of a wide gap anybody ever sees — would come
+    /// from the far side of the picture. Where the mirror reaches into
+    /// something nearer, the edge pixel is used instead, so the subject is
+    /// never copied into its own shadow.
     static func fill(
         row: Int,
         width: Int,
         pixels: UnsafeMutableBufferPointer<UInt32>,
-        nearness: UnsafeMutableBufferPointer<Float>
+        nearness: UnsafeMutableBufferPointer<Float>,
+        insideOnly: Bool = false
     ) {
+        let widest = max(3, Int(Self.widestCrack * Double(width)))
         var x = 0
         while x < width {
             guard nearness[row + x] < 0 else { x += 1; continue }
@@ -629,23 +1124,49 @@ public enum ParallaxRenderer {
             let hasLeft = left >= 0
             let hasRight = right < width
             guard hasLeft || hasRight else { continue }
+            if insideOnly {
+                // Only a crack: a run with the layer solid on both sides of
+                // it. Its outer edge is not a gap at all, it is where the
+                // layer ends.
+                guard hasLeft, hasRight, length <= widest,
+                      Self.coverage(pixels[row + left]) > 250, Self.coverage(pixels[row + right]) > 250
+                else { continue }
+            }
 
-            let fromLeft = hasLeft && (!hasRight || nearness[row + left] <= nearness[row + right])
-            let edge = fromLeft ? left : right
-            let background = nearness[row + edge]
+            // The farther side is the background. Where both sides are the
+            // background — a gap as wide as a person, with wall either side —
+            // each half is filled from its own edge, because the only part of
+            // a wide gap anybody sees is where it meets the subject.
+            let farther = min(
+                hasLeft ? nearness[row + left] : .greatestFiniteMagnitude,
+                hasRight ? nearness[row + right] : .greatestFiniteMagnitude
+            )
+            let leftIsBackground = hasLeft && nearness[row + left] <= farther + 0.05
+            let rightIsBackground = hasRight && nearness[row + right] <= farther + 0.05
             for k in 0..<length {
-                let target = start + k
-                // The run beyond the edge, laid into the gap in order.
-                let copied = fromLeft ? left - length + 1 + k : right + k
+                let nearerLeft = k < length - 1 - k
+                let fromLeft = leftIsBackground && (nearerLeft || !rightIsBackground)
+                let edge = fromLeft ? left : right
+                // Counted out from that edge, and taken from the same
+                // distance the other side of it.
+                let step = fromLeft ? k : length - 1 - k
+                let copied = fromLeft ? left - step : right + step
                 let usable = copied >= 0 && copied < width
                     && nearness[row + copied] >= 0
-                    && nearness[row + copied] <= background + 0.05
-                pixels[row + target] = pixels[row + (usable ? copied : edge)]
+                    && nearness[row + copied] <= farther + 0.05
+                pixels[row + start + k] = pixels[row + (usable ? copied : edge)]
             }
             // Left marked as a gap on purpose: `softened` looks for exactly
             // these pixels.
         }
     }
+
+    /// The widest run of missing pixels inside a layer that is taken for a
+    /// crack its own stretching opened, rather than for a gap in its own
+    /// outline — the daylight between an arm and a body, which the layer
+    /// behind is meant to show through. A stretch can only open a crack as
+    /// wide as the move it stretched by, which is a fraction of this.
+    static let widestCrack = 0.01
 
     /// A filled gap is copied row by row, and rows copied independently do
     /// not quite agree with one another — a fine horizontal combing. One
@@ -677,6 +1198,80 @@ public enum ParallaxRenderer {
         return out
     }
 
+    /// The channels of a pixel. Core Graphics fills the bitmap red first, so
+    /// red is the *low* byte of the word and the byte it does not use — the
+    /// top one — is where a layer keeps its coverage.
+    @inline(__always) static func red(_ pixel: UInt32) -> UInt32 { pixel & 0xFF }
+    @inline(__always) static func green(_ pixel: UInt32) -> UInt32 { (pixel >> 8) & 0xFF }
+    @inline(__always) static func blue(_ pixel: UInt32) -> UInt32 { (pixel >> 16) & 0xFF }
+    @inline(__always) static func coverage(_ pixel: UInt32) -> UInt32 { pixel >> 24 }
+    static let opaque: UInt32 = 0xFF00_0000
+
+    /// A colour scaled by the share of a pixel it covers, with that share
+    /// kept in the low byte. Premultiplied, because a matte scaled or moved
+    /// any other way picks up a dark or a light fringe wherever it is partly
+    /// transparent.
+    @inline(__always)
+    static func premultiplied(_ colour: UInt32, alpha: UInt8) -> UInt32 {
+        guard alpha < 255 else { return colour | opaque }
+        var out = UInt32(alpha) << 24
+        for shift in stride(from: UInt32(0), to: 24, by: 8) {
+            let channel = (((colour >> shift) & 0xFF) * UInt32(alpha) + 127) / 255
+            out |= channel << shift
+        }
+        return out
+    }
+
+    /// A pixel of a layer, premultiplied, with what the picture already had
+    /// of the background taken back out of it.
+    ///
+    /// A pixel on an outline is part subject and part wall to begin with:
+    /// `C = αF + (1 − α)B`. Premultiplying `C` and laying it over a wall again
+    /// counts the wall twice, and the subject wears a bright line of it. So
+    /// the subject's own colour is recovered first — `F = (C − (1 − α)B) / α`
+    /// — and that is what the layer carries. Only the rim needs it; a pixel
+    /// wholly inside the mask is already `F`.
+    @inline(__always)
+    static func matted(_ colour: UInt32, alpha: UInt8, over background: UInt32) -> UInt32 {
+        guard alpha < 255 else { return colour | opaque }
+        // Below this there is too little subject in the pixel to divide by,
+        // and what comes out is noise.
+        guard alpha > 40 else { return 0 }
+        let a = UInt32(alpha)
+        var out = a << 24
+        for shift in stride(from: UInt32(0), to: 24, by: 8) {
+            let mixed = Int(((colour >> shift) & 0xFF) * 255)
+            let wall = Int((((background >> shift) & 0xFF)) * (255 - a))
+            // α × F, which is what a premultiplied layer holds anyway, so
+            // the division by α and the multiplication by it cancel.
+            let own = max(0, min(255, (mixed - wall) / 255))
+            out |= UInt32(own) << shift
+        }
+        return out
+    }
+
+    /// One premultiplied layer laid over another: `top + bottom × (1 − α)`.
+    static func over(_ top: Bitmap, _ bottom: Bitmap) -> Bitmap {
+        var pixels = bottom.pixels
+        for index in 0..<min(top.pixels.count, pixels.count) {
+            let above = top.pixels[index]
+            let alpha = coverage(above)
+            if alpha == 0 { continue }
+            if alpha == 0xFF {
+                pixels[index] = above
+                continue
+            }
+            let rest = 255 - alpha
+            var out = opaque
+            for shift in stride(from: UInt32(0), to: 24, by: 8) {
+                let channel = ((above >> shift) & 0xFF) + (((pixels[index] >> shift) & 0xFF) * rest + 127) / 255
+                out |= min(channel, 0xFF) << shift
+            }
+            pixels[index] = out
+        }
+        return Bitmap(width: bottom.width, height: bottom.height, pixels: pixels, isMatted: bottom.isMatted)
+    }
+
     /// (a + 2b + c) / 4, per byte.
     private static func blend(_ a: UInt32, _ b: UInt32, _ c: UInt32) -> UInt32 {
         var out: UInt32 = 0
@@ -694,11 +1289,15 @@ struct Bitmap {
     let width: Int
     let height: Int
     var pixels: [UInt32]
+    /// Whether the low byte of each pixel is a share of coverage rather than
+    /// padding: true for a layer, false for the photo and for a finished view.
+    var isMatted: Bool
 
-    init(width: Int, height: Int, pixels: [UInt32]) {
+    init(width: Int, height: Int, pixels: [UInt32], isMatted: Bool = false) {
         self.width = width
         self.height = height
         self.pixels = pixels
+        self.isMatted = isMatted
     }
 
     /// The photo upright, fitted inside `longEdge`, with even sides — the

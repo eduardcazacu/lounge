@@ -209,6 +209,40 @@ stalls and then jumps to the new zoom when the fingers lift. TrueDepth on the
 front simply stops zooming. Nothing errors. This is why 3D estimates its
 depth instead.
 
+**Vision's segmentation does not run in the Simulator.** The person, subject
+and person-segmentation requests all fail there — "Could not create inference
+context", or "E5RT is not supported" — so 3D silently renders by its depth
+map alone and the layering is never exercised. Face detection answers
+nothing too. The same requests are fine on a device and on the Mac's own
+Vision, which is how the masks in `ParallaxTests` were checked.
+
+**Vision hands back a person and, separately, their head.** Kept as two
+layers, they grow about different middles and travel at slightly different
+speeds, and the outline looks like the subject twice. `VisionSubjectMasker`
+keeps the biggest and drops any mask that is already most of one it kept.
+
+**A mask's confidence is 1.0 even when the mask is nonsense.** Asked for the
+people in a photo of a houseplant, `GeneratePersonInstanceMaskRequest`
+answers one instance at confidence 1.0, and the mask is a scatter of
+half-claimed leaves. Only the mask itself tells the good answer from the bad:
+`SubjectMask.decisiveness`, judged before any sharpening, since sharpening
+makes anything look decisive.
+
+**A depth map has no outline, and a slanted subject reads as an edge.** An
+estimated map's edges are ramps several pixels wide that sit a little off the
+true one, and the depth across a body leaning towards the camera changes as
+much as the depth across a real edge does. Nothing errors: the subject comes
+out cut into flat terraces with torn edges. 3D takes its outlines from
+Vision's masks and only falls back to the map where Vision finds nothing.
+
+**Red is the low byte of a pixel, and the byte Core Graphics does not use is
+the top one.** A bitmap made with `noneSkipLast` and read back as `UInt32`
+gives red in bits 0–7, green in 8–15, blue in 16–23 and the unused byte in
+24–31 — the opposite way round from how the flags read. Composite with the
+wrong end and every colour rotates a channel: black eyes come out red and the
+picture changes hue, with nothing to say why. `ParallaxRenderer.red`,
+`green`, `blue` and `coverage` are the only things that take a pixel apart.
+
 **Core ML on the Simulator's GPU can answer with zeros.** Depth Anything run
 with `computeUnits = .all` on the Simulator returns a map of all zeros, with
 no error, and the same model is fine on the Mac's own Core ML. A flat map is a

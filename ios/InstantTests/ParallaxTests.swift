@@ -103,15 +103,24 @@ struct ParallaxSuites {
             #expect(row[50] == values[45])
         }
 
-        @Test("Nearer than the subject moves the other way from farther")
+        /// And further, which is a Nishika's whole look: a lens moving
+        /// sideways shifts what it sees by the difference in disparity, and
+        /// disparity is one over distance, so something close to the lens
+        /// swings across the frame.
+        @Test("Nearer than the subject moves the other way from farther, and further")
         func oppositeDirections() {
             let values = (0..<60).map { UInt32(1000 + $0) }
             let depth = (0..<60).map { $0 < 30 ? Float(1) : 0 }
             let (source, disparity) = rows(values, depth: depth)
             let view = ParallaxRenderer.warp(source, disparity: disparity, key: 0.5, shift: 8)
             let row = Array(view.pixels[(2 * 60)..<(3 * 60)])
-            #expect(row[6] == values[10], "near moved left by four")
-            #expect(row[48] == values[44], "far moved right by four")
+            // Both are half a unit of disparity from the key plane.
+            let near = ParallaxRenderer.move(1, key: 0.5, shift: 8)
+            let far = ParallaxRenderer.move(0, key: 0.5, shift: 8)
+            #expect(near < 0 && far > 0, "they part company")
+            #expect(abs(near) > abs(far) * 1.5, "and the near one swings further")
+            #expect(row[6] == values[6 - Int(near.rounded())])
+            #expect(row[48] == values[48 - Int(far.rounded())])
         }
 
         @Test("An uncovered gap is filled from the background, never from the subject")
@@ -248,6 +257,285 @@ struct ParallaxSuites {
         }
     }
 
+    // MARK: - The masks themselves
+
+    @Suite("Judging a mask")
+    struct MaskTests {
+        private func mask(_ value: (Int, Int) -> UInt8, size: Int = 100) -> SubjectMask {
+            SubjectMask(
+                width: size, height: size,
+                alpha: (0..<(size * size)).map { value($0 % size, $0 / size) }
+            )
+        }
+
+        /// Both requests answer a photo of a houseplant with "one instance,
+        /// confidence 1.0". The person one's answer is a scatter of
+        /// half-claimed leaf fragments, and this is what tells them apart.
+        @Test("A solid outline is decisive; a scatter of half-claims is not")
+        func decisiveness() {
+            let solid = mask { x, y in (20..<80).contains(x) && (20..<80).contains(y) ? 255 : 0 }
+            #expect(solid.decisiveness > 0.9)
+            #expect(solid.coverage > 0.35)
+
+            let unsure = mask { x, y in (20..<80).contains(x) && (20..<80).contains(y) ? (x % 3 == 0 ? 200 : 90) : 0 }
+            #expect(unsure.decisiveness < VisionSubjectMasker.leastDecisive)
+        }
+
+        /// Vision scales its mask up from something much smaller, so a wholly
+        /// covered pixel can come back half transparent, and the background
+        /// shows through the subject as a bright outline.
+        @Test("Sharpening narrows the rim without moving it")
+        func sharpening() {
+            let ramp = mask { x, _ in UInt8(max(0, min(255, (x - 40) * 6))) }
+            let sharp = ramp.sharpened()
+            let rim = { (m: SubjectMask) in m.alpha.count { $0 > 20 && $0 < 235 } }
+            #expect(rim(sharp) < rim(ramp) / 2, "the rim is narrower")
+            // And in the same place: the outline is where the mask crosses
+            // half, and steepening turns about exactly that.
+            func crossing(_ m: SubjectMask) -> Int? { (0..<100).first { m.alpha[50 * 100 + $0] >= 128 } }
+            #expect(crossing(sharp) != nil)
+            #expect(abs((crossing(sharp) ?? 0) - (crossing(ramp) ?? 0)) <= 1, "and still where it was")
+        }
+
+        @Test("Judging comes before sharpening")
+        func judgedRaw() {
+            let unsure = mask { x, y in (20..<80).contains(x) && (20..<80).contains(y) ? (x % 3 == 0 ? 200 : 90) : 0 }
+            #expect(unsure.sharpened().decisiveness > VisionSubjectMasker.leastDecisive,
+                    "sharpening makes anything look decisive, which is why it is judged first")
+        }
+
+        @Test("A face inside the mask is kept; one in a picture on the wall is not")
+        func focus() {
+            let subject = mask { x, y in (20..<80).contains(x) && (20..<80).contains(y) ? 255 : 0 }
+            let his = CGRect(x: 40, y: 30, width: 20, height: 20)
+            let painted = CGRect(x: 85, y: 10, width: 12, height: 12)
+            #expect(subject.focused(on: [painted, his]).focus == his)
+            #expect(subject.focused(on: [painted]).focus == nil)
+        }
+    }
+
+    // MARK: - Layers from a mask
+
+    @Suite("Layers from a subject's mask")
+    struct LayerTests {
+        static let size = 200
+
+        /// A picture whose subject is a rectangle: the background carries its
+        /// column in the red channel and the subject in the green, so where
+        /// any pixel of either ended up can be read off the colour. The
+        /// subject's depth ramps down its height unless `slant` is off, and
+        /// `rim` makes its left and right columns half-covered.
+        static func scene(
+            slant: ClosedRange<Float> = 0.9...0.9,
+            rim: Bool = false
+        ) -> (source: Bitmap, disparity: [Float], mask: SubjectMask) {
+            let size = Self.size
+            let subject = 60..<140
+            var pixels = [UInt32](repeating: 0, count: size * size)
+            var disparity = [Float](repeating: 0.05, count: size * size)
+            var alpha = [UInt8](repeating: 0, count: size * size)
+            for y in 0..<size {
+                let down = Float(y - 60) / 80
+                for x in 0..<size {
+                    let index = y * size + x
+                    let inside = subject.contains(x) && subject.contains(y)
+                    // Column in one channel, so a pixel can be followed.
+                    // Its column in green if it is the subject, in red if it
+                    // is the background, so any pixel can be followed.
+                    pixels[index] = inside
+                        ? UInt32(x) << 8 | ParallaxRenderer.opaque
+                        : UInt32(x) | 0x0040_0000 | ParallaxRenderer.opaque
+                    guard inside else { continue }
+                    disparity[index] = slant.lowerBound
+                        + (slant.upperBound - slant.lowerBound) * min(max(down, 0), 1)
+                    // Four columns of rim, so one is still half-covered
+                    // after the subject claims a pixel beyond the mask.
+                    let edge = x < subject.lowerBound + 4 || x >= subject.upperBound - 4
+                    alpha[index] = rim && edge ? 128 : 255
+                }
+            }
+            return (
+                Bitmap(width: size, height: size, pixels: pixels),
+                disparity,
+                SubjectMask(width: size, height: size, alpha: alpha)
+            )
+        }
+
+        @Test("A mask makes a background layer and a subject layer, near last")
+        func twoLayers() throws {
+            let (source, disparity, mask) = Self.scene()
+            let layers = try #require(ParallaxRenderer.layers(source: source, disparity: disparity, masks: [mask]))
+            #expect(layers.count == 2)
+            #expect(layers[0].fillsGaps, "the background is first and closes its own gaps")
+            #expect(!layers[1].fillsGaps)
+            #expect(layers[1].median > layers[0].median, "the subject is nearer")
+            #expect(layers[1].growth > 0, "and stands in front of it, so it grows")
+            #expect(ParallaxRenderer.keyDisparity(of: layers) == layers[1].median, "the wiggle turns about the subject")
+        }
+
+        /// The bug this layering is for: a subject leaning towards the camera
+        /// used to be terraced into flat cards by the depth stepping, and cut
+        /// into bands that each moved on their own.
+        @Test("A slanted subject stays one layer, and its near end moves further")
+        func slantedSubject() throws {
+            let (source, disparity, mask) = Self.scene(slant: 0.4...0.95)
+            let layers = try #require(ParallaxRenderer.layers(source: source, disparity: disparity, masks: [mask]))
+            #expect(layers.count == 2, "one subject, not a card per depth")
+
+            let key = try #require(ParallaxRenderer.keyDisparity(of: layers))
+            let view = ParallaxRenderer.composited(layers, key: key, shift: 40)
+            // Where the subject's own column 100 landed, at its far top and
+            // its near bottom.
+            func landed(row: Int) -> Int? {
+                let start = row * Self.size
+                return (0..<Self.size).first { ParallaxRenderer.green(view.pixels[start + $0]) == 100 }
+            }
+            let far = try #require(landed(row: 62))
+            let near = try #require(landed(row: 137))
+            // The wiggle turns about the subject's near side, so it is the
+            // far end of the slant that swings — a flat card would move all
+            // of one piece, which is the thing being ruled out.
+            #expect(abs(far - 100) > abs(near - 100), "the far end of the slant moves further")
+            #expect((far - 100) * (near - 100) < 0, "and the two ends part company, as a slant should")
+            let bare = view.pixels.indices.filter { ParallaxRenderer.coverage(view.pixels[$0]) != 0xFF }
+            #expect(bare.isEmpty, "\(bare.count) pixels are covered by nothing")
+        }
+
+        /// At the subject's own depth, so it does not grow: a grown subject
+        /// covers its own rim, and the blend under test would have moved.
+        /// The outermost rim column is the one still half-covered once the
+        /// subject has claimed its extra pixel.
+        @Test("A half-covered rim comes out as a blend of subject and background")
+        func softRim() throws {
+            let (source, disparity, mask) = Self.scene(slant: 0.05...0.05, rim: true)
+            let layers = try #require(ParallaxRenderer.layers(source: source, disparity: disparity, masks: [mask]))
+            let key = try #require(ParallaxRenderer.keyDisparity(of: layers))
+            // No movement at all: the rim is the only thing under test.
+            let view = ParallaxRenderer.composited(layers, key: key, shift: 0)
+            let rim = view.pixels[100 * Self.size + 60]
+            #expect(ParallaxRenderer.green(rim) > 0, "part subject")
+            #expect(ParallaxRenderer.red(rim) > 0, "and part background")
+            let solid = view.pixels[100 * Self.size + 70]
+            #expect(ParallaxRenderer.red(solid) == 0, "where the subject is whole, none of the background shows")
+        }
+
+        @Test("The background under the mask is never carried into a view")
+        func noGhost() throws {
+            let (source, disparity, mask) = Self.scene()
+            let layers = try #require(ParallaxRenderer.layers(source: source, disparity: disparity, masks: [mask]))
+            let key = try #require(ParallaxRenderer.keyDisparity(of: layers))
+            let view = ParallaxRenderer.composited(layers, key: key, shift: 40)
+            let row = (0..<Self.size).map { view.pixels[100 * Self.size + $0] }
+            for x in 0..<Self.size where ParallaxRenderer.green(row[x]) == 0 {
+                // Outside the subject every pixel is background, and the
+                // background's columns are the ones it started with: 60 to
+                // 139 were under the mask and can never appear.
+                let column = ParallaxRenderer.red(row[x])
+                #expect(!(60..<140).contains(Int(column)), "column \(column) was under the subject")
+            }
+        }
+
+        /// A layer blended with the nothing beyond its own edge fades out over
+        /// its last pixel, and whatever is behind it shows through the seam.
+        @Test("A layer does not fade out at its edge")
+        func noSeam() throws {
+            let (source, disparity, mask) = Self.scene()
+            let layers = try #require(ParallaxRenderer.layers(source: source, disparity: disparity, masks: [mask]))
+            let background = layers[0]
+            let warped = ParallaxRenderer.warp(
+                background.bitmap,
+                disparity: background.disparity,
+                key: 0.9,
+                shift: 37,
+                fills: true
+            )
+            let partial = warped.pixels.count { ParallaxRenderer.coverage($0) != 0 && ParallaxRenderer.coverage($0) != 0xFF }
+            #expect(partial == 0, "\(partial) pixels came out half transparent")
+        }
+
+        /// The face is what a photo of a person is of, and a wiggle that
+        /// swings it about is a wiggle of the wrong thing.
+        @Test("The wiggle turns about the face when there is one")
+        func facePins() throws {
+            let (source, disparity, _) = Self.scene(slant: 0.4...0.95)
+            let plain = Self.scene(slant: 0.4...0.95).mask
+            // A face over the subject's top, which is its far half here.
+            let withFace = SubjectMask(
+                width: plain.width, height: plain.height, alpha: plain.alpha,
+                focus: CGRect(x: 80, y: 62, width: 40, height: 20)
+            )
+            let layers = try #require(ParallaxRenderer.layers(source: source, disparity: disparity, masks: [withFace]))
+            let key = try #require(ParallaxRenderer.keyDisparity(of: layers))
+            let atFace = disparity[70 * Self.size + 100]
+            #expect(abs(key - atFace) < 0.05, "the key plane is the face's own depth")
+        }
+
+        /// The bug that made a subject look doubled: the half-covered pixels
+        /// at an outline kept the wall's depth, so they travelled at the
+        /// wall's speed and trailed the subject by a few pixels — a second
+        /// copy of the outline, wiggling out of step with the first.
+        @Test("The rim of a subject travels at the subject's speed")
+        func rimTravelsWithTheSubject() throws {
+            let (source, disparity, _) = Self.scene(rim: true)
+            let mask = Self.scene(rim: true).mask
+            let layers = try #require(ParallaxRenderer.layers(source: source, disparity: disparity, masks: [mask]))
+            let subject = layers[1]
+            let row = 100 * Self.size
+            // The mask's own rim column, half covered, and the solid column
+            // just inside it.
+            #expect(mask.alpha[row + 60] == 128)
+            #expect(abs(subject.disparity[row + 60] - subject.disparity[row + 61]) < 0.05,
+                    "the rim moves with what it is the edge of, not with the wall")
+            #expect(subject.disparity[row + 60] > 0.5, "and not at the wall's depth")
+        }
+
+        @Test("A mask that is most of a bigger one is dropped")
+        func overlappingInstances() {
+            let size = 40
+            func block(_ range: Range<Int>) -> SubjectMask {
+                SubjectMask(
+                    width: size, height: size,
+                    alpha: (0..<(size * size)).map { range.contains($0 % size) ? 255 : 0 }
+                )
+            }
+            let person = block(5..<35)
+            let head = block(15..<25)
+            let elsewhere = block(36..<40)
+            let kept = VisionSubjectMasker.distinct([person, head, elsewhere])
+            #expect(kept.count == 2, "the head is already part of the person")
+            #expect(kept.first?.coverage == person.coverage)
+        }
+
+        @Test("A mask is resampled to the size the renderer works at")
+        func resampling() throws {
+            let (_, _, mask) = Self.scene()
+            let smaller = try #require(ParallaxRenderer.resampled(mask, width: 100, height: 100))
+            #expect(smaller.width == 100 && smaller.height == 100)
+            #expect(abs(smaller.coverage - mask.coverage) < 0.02)
+        }
+
+        /// Whether these requests answer on the Simulator is not promised,
+        /// and this is what records it: either masks, or none and the
+        /// depth-only path. What must never happen is a throw reaching the
+        /// render.
+        @MainActor
+        @Test("Vision either finds subjects or finds none")
+        func visionAnswers() async {
+            let masks = await VisionSubjectMasker().masks(for: stripes(width: 360, height: 640))
+            #expect(masks.count <= VisionSubjectMasker.mostInstances)
+            for mask in masks {
+                #expect(mask.coverage > 0 && mask.coverage <= 1)
+                #expect(mask.alpha.count == mask.width * mask.height)
+            }
+        }
+
+        @Test("No mask, and the picture renders the way it did before there were any")
+        func withoutMasks() throws {
+            let (source, disparity, _) = Self.scene()
+            #expect(ParallaxRenderer.layers(source: source, disparity: disparity, masks: []) == nil)
+        }
+    }
+
     // MARK: - The views
 
     @MainActor
@@ -337,6 +625,28 @@ struct ParallaxSuites {
             // A model that silently answers zeros still passes everything
             // above.
             #expect((map.values.max() ?? 0) - (map.values.min() ?? 0) > 0.5, "the map is not flat")
+        }
+    }
+
+    @Suite("How much of the frame is given up")
+    struct MarginTests {
+        /// A hand at the edge of the frame moving inwards uncovers the
+        /// frame's own edge, and what fills it is invented. Every view is
+        /// enlarged by the largest move instead, which puts that strip
+        /// outside the picture.
+        @Test("The crop is the largest move, and no more than the cap")
+        func margin() {
+            let flat = [Float](repeating: 0.5, count: 100)
+            #expect(ParallaxRenderer.edgeMargin(flat, key: 0.5, shift: 20, width: 1000) == 0,
+                    "nothing moves in a flat scene, so nothing is given up")
+
+            let scene = [Float](repeating: 0.1, count: 99) + [0.9]
+            let margin = ParallaxRenderer.edgeMargin(scene, key: 0.5, shift: 20, width: 1000)
+            #expect(margin > 0.005 && margin <= CGFloat(ParallaxRenderer.maxMargin))
+
+            let wild = [Float](repeating: 0, count: 50) + [Float](repeating: 1, count: 50)
+            #expect(ParallaxRenderer.edgeMargin(wild, key: 0.5, shift: 2000, width: 1000)
+                    == CGFloat(ParallaxRenderer.maxMargin), "and never more than the cap")
         }
     }
 

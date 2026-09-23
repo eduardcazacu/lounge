@@ -274,13 +274,76 @@ than stretched or turned, and only its part of the answer is read back. The
 model loads on the first 3D tap, not at launch. It is Apache-2.0, and ships
 with its licence and attribution beside it in `Instant/Resources`.
 
-**The subject stands still.** Each view moves a pixel sideways by how far its
-disparity is from the subject's, not by its disparity, so the subject lines
-up in every frame and the rest swings around it — the background one way,
-anything nearer the other. The subject is guessed as the near side of the
-middle of the frame (`keyDisparity`), which is where a selfie's face is.
+**Where the subject is comes from Vision, not from the depth.** The depth map
+knows roughly how far away things are; it does not know where a person ends.
+Its edges are ramps a few pixels wide, they sit a little off the true outline,
+and a body leaning towards the camera reads to it as a depth edge — which cut
+slanted people into terraces and glitched along their outlines.
+`VisionSubjectMasker` asks for the subject mask per instance, falling back to
+the person mask, and the renderer cuts the picture into layers at those
+outlines instead (`layers`). Vision finding nothing falls back to reading the
+outline out of the depth map, which is what the `stepped` and `besideNearer`
+passes below still do.
 
-**Edges are steps.** An estimated map's edges are ramps, and a pixel on a
+The subject request comes first even though people are what get sent: on a
+photo of a person it finds the same person with a far cleaner outline, where
+the person request's edge is a wide wispy ramp that composites as a halo.
+Neither is trusted on its word — both answer a photo of a houseplant with
+"one instance, confidence 1.0" — so a mask is kept only if it is
+`decisive`: mostly claimed outright rather than a scatter of half-claims,
+which is exactly what a wrong answer looks like. Vision scales its masks up
+from something smaller, so the kept one is `sharpened` about the halfway mark
+before use; left as it came, pixels that are wholly subject are half
+transparent and the subject wears a bright outline of the wall behind it.
+
+**The wiggle turns about the face.** `DetectFaceRectanglesRequest` runs
+alongside, and a face inside a mask becomes that layer's `focus` — the key
+plane is then the face's own depth, so it is the face that holds still and
+the feet that swing. A face found in a painting on the wall belongs to no
+mask and is ignored. With no face, the key is the subject's near side.
+
+**Every layer is warped on its own and composited back to front.** A layer
+carries its own alpha — what share of each pixel is its — premultiplied, so
+its edge is a matte rather than a cut and a half-covered pixel of hair is half
+of each. Its rim colour has the background taken back out of it first
+(`matted`): a pixel on an outline is already part subject and part wall, and
+laying it over a wall again counts the wall twice. Inside a layer the depth is
+left exactly as measured, however slanted, so a reaching arm still moves
+further than the shoulder behind it; snapping happens only where layers meet,
+which is where a real edge is.
+
+**Every pixel of a layer travels at that layer's speed, its rim most of all.**
+The depth map's outline is not the mask's, so the half-covered pixels at an
+edge hold the wall's depth. Left that way they move at the wall's speed and
+trail a few pixels behind the subject — which is seen as a second copy of the
+outline, slightly larger, wiggling out of step with the first. They take the
+subject's own local depth from just inside the outline instead, so a slanted
+subject keeps its slant right out to its edge. For the same reason the subject
+claims a pixel beyond its mask: what is left half-claimed is drawn as part
+subject and part *invented* background, and the invention is never quite the
+wall that was really behind the hair. A
+subject closes only the cracks its own stretching opens (`widestCrack`, a
+fraction of the width — a crack is as wide as the move that opened it, where
+the daylight between an arm and a body is not) and leaves its edges to the
+layer behind it, which is what is actually there. Nothing is ever sampled
+across a layer's own edge: blended with the nothing beyond it, a layer fades
+out over its last pixel and lets what is behind show through the seam.
+
+**The subject stands still, and what is nearer than it swings hardest.** Each
+view moves a pixel sideways by how far its disparity is from the subject's,
+not by its disparity, so the subject lines up in every frame and the rest
+swings around it — the background one way, anything nearer the other. A lens
+moving sideways shifts what it sees by the difference in *disparity*, and
+disparity is one over distance: a hand at arm's length is as far in front of
+a face as the face is in front of the far wall, so on a Nishika it swings
+about as far as the wall does. An estimated map does not keep those
+proportions, spending most of its range on the scene and crowding everything
+close to the lens into the top of it, so `nearBoost` stretches the near half
+of it back out. The subject is the biggest masked layer's face, or
+its near side, or — with no masks — the near side of the middle of the frame
+(`keyDisparity`).
+
+**Without masks, edges are steps.** An estimated map's edges are ramps, and a pixel on a
 ramp moves by an amount between the subject's and the wall's, so straight
 lines in the background bent as they approached the subject. After the map is
 upsampled along the photo's own edges (`CIEdgePreserveUpsampleFilter`),
@@ -293,12 +356,12 @@ vertical edge.
 
 **The nearer a layer stands, the more it is enlarged.** As Apple's spatial
 scenes do, near layers are drawn a little larger in every view
-(`growingLayers`, `enlarged`), so a layer already covers most of the band
-beside it that the moving viewpoint uncovers, and less has to be invented.
-The picture is split into layers at its real depth edges, and each grows by
-how far it stands in front of whatever its outline has behind it: a head
-against a far wall grows by most of `maxGrowth`, a hand held up to that face
-by little, and the background not at all. The band a viewpoint uncovers is
+so a layer already covers most of the band beside it that the moving
+viewpoint uncovers, and less has to be invented. Each grows by how far it
+stands in front of whatever its outline has behind it — a masked subject by
+the jump across its own mask, a depth-only layer by the jump across its edges
+(`growingLayers`): a head against a far wall grows by most of `maxGrowth`, a
+hand held up to that face by little, and the background not at all. The band a viewpoint uncovers is
 itself as wide as that jump, so the growth is the size of the problem it
 solves.
 
@@ -312,19 +375,34 @@ jump is nothing and it keeps its size, as does the background: its lines stay
 straight and the right length.
 
 **Gaps are filled from behind.** Moving the viewpoint uncovers slivers beside
-every near edge. Each is filled with a copy of the background next to it,
-taken from whichever side of the gap is farther away: filling from the
-subject would smear it into the wall.
+every near edge. Each is filled with the background beside it mirrored back
+in, from whichever side of the gap is farther away: filling from the subject
+would smear it into the wall. Mirrored rather than slid along, and each half
+of a wide gap from its own edge — a gap can be as wide as a person, and the
+only part of one anybody ever sees is where it meets the subject.
 
-**The wall right beside the subject is not moved at all.** The pixels on an
+**Without masks, the wall right beside the subject is not moved at all.** The pixels on an
 outline are part subject, part wall, and the estimate can miss the true
 outline by a few. Any of them given the wall's depth slid away with the wall
 carrying the subject's colour — a faint copy of the outline floating a few
 pixels off the subject. So background within `edgeBand` of anything nearer
 is dropped from every view (`besideNearer`) and filled like any other gap,
-from clean background farther out. The strip a view uncovers at the frame's
-own edge is filled the same way. The views are deliberately *not* scaled up to
-hide that strip: scaling enlarges the whole picture, background and all.
+from clean background farther out. With a mask there is no guessing: the
+background gives up every pixel the mask touches and a `maskSkirt` around it.
+That width is a balance measured on photographs — too narrow and the wisps of
+hair the sharpening cut off stay in the background and double the outline;
+too wide and the whole band around the subject is invented wall with an edge
+of its own.
+
+**The frame's own edge is cropped out rather than invented.** Anything moving
+inwards uncovers the edge of the photograph, and a thing close to the lens at
+the side of the frame — a hand holding the phone for a selfie — moves the
+furthest of all, so what it uncovers is a strip of made-up picture where its
+own edge used to be. Every view is enlarged by exactly the largest move in it
+(`edgeMargin`, `zoomed`), which puts that strip outside the picture and costs
+a couple of percent of the frame. It is measured rather than fixed, so a photo
+where nothing moves much gives up nothing, and `maxMargin` caps what the
+wildest depth map can ask for.
 
 **Once rendered, it is a clip.** The result is a silent `.mov` in
 `CaptureScratch`, and compose treats it as it treats a recording: the player,

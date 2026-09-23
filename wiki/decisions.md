@@ -692,6 +692,37 @@ it again.
 
 ---
 
+## A 3D photo's outline comes from Vision, and each layer is warped on its own
+
+**Chosen** `VisionSubjectMasker` asks Vision for a mask per subject, falling
+back to the person mask, and the renderer cuts the picture into layers at
+those outlines: each is warped on its own, with its own alpha, and they are
+composited back to front. A face found inside a mask becomes that layer's key
+plane.
+
+**Rejected** the person request as the first choice, though people are what
+Instant sends: on the sample photos it finds the same person as the subject
+request with a wispier outline, and on a photo with no people in it, it
+answers with confident nonsense. Also rejected: using the masks only to
+correct the depth map, and keeping the single pass. It puts the edge in the right place but every pixel still belongs
+wholly to one side of it, so fine hair stays ragged — an outline can only be a
+cut. Also rejected: leaving it to the depth map, which is what shipped first.
+
+**Because** an estimated depth map has no outline to speak of. Its edges are
+ramps a few pixels wide that sit a little off the subject, and it reads a body
+leaning towards the camera as an edge — so a slanted person came out terraced
+and glitching along the outline. A matte answers both: where the subject ends,
+and what share of a rim pixel is it.
+
+**Cost paid** Vision runs on every first 3D tap, beside the depth model. A
+photo it finds no subject in renders as before, by the depth map alone, which
+is two paths through the renderer to keep working.
+
+**Would reopen if** the depth model gets good enough at edges that the masks
+add nothing, or Vision gains a matte that carries depth with it.
+
+---
+
 ## 3D is rendered on the sender, as a clip, from estimated depth
 
 **Chosen** the 3D button estimates the photo's depth on the phone with Depth

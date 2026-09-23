@@ -153,10 +153,14 @@ public final class ComposeModel {
     /// Any photo. A recording already moves.
     public var canMakeParallax: Bool { !capture.isVideo }
 
-    /// The real thing: the depth estimated from the photo, then the four views.
+    /// The real thing: the photo's depth and its subjects' outlines, then the
+    /// four views.
     public static let parallax: @Sendable (UIImage) async throws -> RecordedClip = { photo in
+        // Vision runs beside the depth model rather than after it: they read
+        // the same photo and neither needs the other's answer.
+        async let masks = VisionSubjectMasker().masks(for: photo)
         let depth = try await DepthEstimator.shared.estimate(photo)
-        return try await ParallaxRenderer.makeClip(photo: photo, depth: depth)
+        return try await ParallaxRenderer.makeClip(photo: photo, depth: depth, masks: await masks)
     }
 
     /// The shape the compose screen lays the capture out at.
