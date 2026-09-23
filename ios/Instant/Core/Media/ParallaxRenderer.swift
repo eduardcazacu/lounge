@@ -79,6 +79,17 @@ public enum ParallaxRenderer {
         (0..<cycles).flatMap { _ in cycle }
     }
 
+    /// Which of the four viewpoints a frame of the clip is showing.
+    ///
+    /// The film grain hangs off this: one grain per viewpoint, the same every
+    /// time that viewpoint comes round, so a picture that is meant to be
+    /// still does not crawl. Views 2 and 3 of the cycle are the same
+    /// viewpoint coming back, and get the same grain.
+    static func viewIndex(atFrame frame: Int) -> Int {
+        let step = max(0, frame) / framesPerView
+        return cycle[step % cycle.count]
+    }
+
     static var duration: Double {
         Double(sequence.count * framesPerView) / Double(frameRate)
     }
@@ -129,7 +140,7 @@ public enum ParallaxRenderer {
             let key = keyDisparity(of: layers) ?? keyDisparity(depth)
             let margin = edgeMargin(measured, key: key, shift: outermost * gain, width: source.width)
             return try viewOffsets.map {
-                try zoomed(composited(layers, key: key, shift: $0 * gain), margin: margin)
+                try zoomed(split(composited(layers, key: key, shift: $0 * gain)), margin: margin)
             }
         }
         // Nothing found to segment by — no face, no animal, nothing that
@@ -143,7 +154,7 @@ public enum ParallaxRenderer {
         let margin = edgeMargin(grownDisparity, key: key, shift: outermost * gain, width: source.width)
         return try viewOffsets.map { offset in
             try zoomed(
-                warp(grown, disparity: grownDisparity, key: key, shift: offset * gain, dropping: unsure),
+                split(warp(grown, disparity: grownDisparity, key: key, shift: offset * gain, dropping: unsure)),
                 margin: margin
             )
         }
@@ -621,6 +632,42 @@ public enum ParallaxRenderer {
             }
         }
         return (Bitmap(width: width, height: height, pixels: pixels), depth)
+    }
+
+    /// How far apart the red and the blue are pulled, in pixels of a
+    /// 1080-wide frame.
+    static let fringe: Float = 0.9
+
+    /// A lens that does not quite bring every colour to the same place.
+    ///
+    /// Real glass does this, mildly, and it is on purpose here: the warp
+    /// moves pixels sideways in whole steps, so what it leaves along an
+    /// outline is a hard stair. Red and blue pulled a pixel apart put a soft
+    /// colour edge over that stair, and the eye reads the softness rather
+    /// than the steps. Sideways only, because sideways is the way the cut
+    /// lines run.
+    static func split(_ view: Bitmap) -> Bitmap {
+        let width = view.width
+        let height = view.height
+        let offset = Int((fringe * Float(width) / 1080).rounded())
+        guard offset > 0 else { return view }
+        var pixels = view.pixels
+        view.pixels.withUnsafeBufferPointer { input in
+            pixels.withUnsafeMutableBufferPointer { output in
+                let input = input, output = output
+                DispatchQueue.concurrentPerform(iterations: height) { y in
+                    let row = y * width
+                    for x in 0..<width {
+                        let redAt = min(width - 1, x + offset)
+                        let blueAt = max(0, x - offset)
+                        output[row + x] = (input[row + x] & 0xFF00_FF00)
+                            | (input[row + redAt] & 0x0000_00FF)
+                            | (input[row + blueAt] & 0x00FF_0000)
+                    }
+                }
+            }
+        }
+        return Bitmap(width: width, height: height, pixels: pixels, isMatted: view.isMatted)
     }
 
     // MARK: - Layers

@@ -75,12 +75,13 @@ The numbers that can be checked without a font are checked:
 cd backend && npx tsx ../frontend/scripts/verify-instant-parity.ts
 ```
 
-## The seven looks — two clients, and they need not match exactly
+## The looks — two clients, and they need not match exactly
 
 `ios/Instant/Core/Media/PhotoFilter.swift` and
-`frontend/src/components/instant/filters.ts`. Same seven ids, same names, same
+`frontend/src/components/instant/filters.ts`. Same eight ids, same names, same
 order, same intent — vibrance before saturation for vivid, a fixed per-channel
-gain for warm and cool.
+gain for warm and cool, a lifted-blacks curve and grain for film, which is the
+look both clients start in.
 
 The arithmetic deliberately does **not** match: `CIPhotoEffectMono` and friends
 are proprietary curves with no published definition, and the web side is a

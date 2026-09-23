@@ -314,6 +314,74 @@ struct ParallaxSuites {
         }
     }
 
+    // MARK: - Grain and fringing
+
+    @Suite("Grain follows the viewpoint, not the frame")
+    struct GrainTests {
+        /// A wiggle shows its four viewpoints over and over. Grain that
+        /// changed every frame would boil on a picture that is otherwise
+        /// still — and would cost the encoder a fortune in bits for noise
+        /// nobody asked for.
+        @Test("Each viewpoint keeps one grain, in every loop")
+        func perViewpoint() {
+            let frames = ParallaxRenderer.framesPerView
+            // The first frame of each held view, through two whole cycles.
+            let seeds = stride(from: 0, to: ParallaxRenderer.cycle.count * 2, by: 1).map {
+                ParallaxRenderer.viewIndex(atFrame: $0 * frames)
+            }
+            #expect(Array(seeds.prefix(6)) == ParallaxRenderer.cycle)
+            #expect(Array(seeds.suffix(6)) == ParallaxRenderer.cycle, "and the same again next loop")
+            #expect(Set(seeds).count == 4, "four viewpoints, four grains")
+            // A view held for three frames keeps its grain across them.
+            #expect(ParallaxRenderer.viewIndex(atFrame: 0) == ParallaxRenderer.viewIndex(atFrame: frames - 1))
+            #expect(ParallaxRenderer.viewIndex(atFrame: 0) != ParallaxRenderer.viewIndex(atFrame: frames))
+        }
+
+        @Test("A recording gets a new grain every frame")
+        func perFrame() {
+            func seed(_ frame: Int, _ seeding: VideoPipeline.GrainSeeding) -> Int {
+                VideoPipeline.grainSeed(
+                    at: CMTime(value: CMTimeValue(frame), timescale: VideoPipeline.frameRate),
+                    grain: seeding
+                )
+            }
+            #expect(seed(7, .perFrame) == 7)
+            #expect(seed(8, .perFrame) != seed(7, .perFrame))
+            // The wiggle's, by contrast, comes back round.
+            let cycle = ParallaxRenderer.cycle.count * ParallaxRenderer.framesPerView
+            #expect(seed(3, .perViewpoint) == seed(3 + cycle, .perViewpoint))
+        }
+    }
+
+    @Suite("A lens that does not quite agree with itself")
+    struct FringeTests {
+        /// The warp moves pixels sideways in whole steps, so an outline comes
+        /// out as a stair. Red and blue a pixel apart put a soft colour edge
+        /// over it.
+        @Test("Red and blue are pulled apart sideways, green left alone")
+        func splitsTheChannels() {
+            // Full width, because the fringe is measured as a share of it.
+            let width = 1080, height = 4
+            // A white block on black: every channel has the same hard edge.
+            let pixels = (0..<(width * height)).map { ($0 % width) < 500 ? UInt32(0x00FF_FFFF) : 0 }
+            let split = ParallaxRenderer.split(Bitmap(width: width, height: height, pixels: pixels))
+            let row = (0..<width).map { split.pixels[2 * width + $0] }
+            let redEdge = row.firstIndex { ParallaxRenderer.red($0) == 0 } ?? -1
+            let greenEdge = row.firstIndex { ParallaxRenderer.green($0) == 0 } ?? -1
+            let blueEdge = row.firstIndex { ParallaxRenderer.blue($0) == 0 } ?? -1
+            #expect(greenEdge == 500, "green stays where the edge was")
+            #expect(redEdge != greenEdge && blueEdge != greenEdge, "red and blue do not")
+            #expect((redEdge - greenEdge) == -(blueEdge - greenEdge), "and part evenly, either side")
+        }
+
+        @Test("A picture with no edges is left as it was")
+        func flatIsUntouched() {
+            let flat = [UInt32](repeating: 0x0080_8080, count: 1080 * 4)
+            let source = Bitmap(width: 1080, height: 4, pixels: flat)
+            #expect(ParallaxRenderer.split(source).pixels == flat)
+        }
+    }
+
     // MARK: - Layers from a mask
 
     @Suite("Layers from a subject's mask")

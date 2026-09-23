@@ -32,6 +32,19 @@ public enum VideoPipeline {
     /// at 30 fps.
     public static let mediaType = #"video/mp4; codecs="hvc1.1.6.L123.B0""#
 
+    /// Where a frame's film grain comes from.
+    ///
+    /// A recording gets a new grain every frame, which is what film does. A
+    /// wiggle must not: its four viewpoints are shown over and over, and
+    /// grain that changed every frame would boil away on a picture that is
+    /// otherwise still, and would cost the encoder a fortune in bits for
+    /// noise nobody asked for. So each viewpoint keeps one grain, the same in
+    /// every loop — `ParallaxRenderer.viewIndex(atFrame:)` says which.
+    public enum GrainSeeding: Sendable, Equatable {
+        case perFrame
+        case perViewpoint
+    }
+
     /// The longest a clip can be, which is also where the recording stops
     /// itself.
     public static let maximumDuration: Double = 5
@@ -65,13 +78,15 @@ public enum VideoPipeline {
         filter: PhotoFilter,
         strokes: [OverlayCompositor.Stroke] = [],
         captions: [OverlayCompositor.Caption],
-        includesSound: Bool = true
+        includesSound: Bool = true,
+        grain: GrainSeeding = .perFrame
     ) async throws -> Data {
         let asset = AVURLAsset(url: clip.url)
         let composition = try await videoComposition(
             for: asset,
             filter: filter,
-            overlay: OverlayCompositor.overlay(size: clip.size, strokes: strokes, captions: captions)
+            overlay: OverlayCompositor.overlay(size: clip.size, strokes: strokes, captions: captions),
+            grain: grain
         )
 
         for rung in ladder {
@@ -111,7 +126,8 @@ public enum VideoPipeline {
     public static func videoComposition(
         for asset: AVAsset,
         filter: PhotoFilter,
-        overlay: UIImage? = nil
+        overlay: UIImage? = nil,
+        grain: GrainSeeding = .perFrame
     ) async throws -> AVVideoComposition {
         guard let track = try await asset.loadTracks(withMediaType: .video).first else {
             throw PipelineError.noVideoTrack
@@ -126,7 +142,7 @@ public enum VideoPipeline {
             with: asset
         ) { request in
             let frame = Self.uprighted(request.sourceImage, orientation: orientation, size: upright)
-            var image = filter.apply(to: frame)
+            var image = filter.apply(to: frame, grain: Self.grainSeed(at: request.compositionTime, grain: grain))
             if let overlayImage {
                 image = overlayImage.composited(over: image)
             }
@@ -138,6 +154,15 @@ public enum VideoPipeline {
         composition.colorTransferFunction = AVVideoTransferFunction_ITU_R_709_2
         composition.colorYCbCrMatrix = AVVideoYCbCrMatrix_ITU_R_709_2
         return composition
+    }
+
+    /// Which grain a frame gets: its own, or its viewpoint's.
+    static func grainSeed(at time: CMTime, grain: GrainSeeding) -> Int {
+        let frame = Int((time.seconds * Double(frameRate)).rounded())
+        switch grain {
+        case .perFrame: return frame
+        case .perViewpoint: return ParallaxRenderer.viewIndex(atFrame: frame)
+        }
     }
 
     /// Turns a frame upright if it is not already.

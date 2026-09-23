@@ -805,7 +805,7 @@ final class InstantUITests: XCTestCase {
 
         let filters = app.buttons["compose.filters"]
         XCTAssertTrue(filters.waitForExistence(timeout: 15))
-        XCTAssertEqual(filters.value as? String, "Original")
+        XCTAssertEqual(filters.value as? String, "Film", "which is the look every capture starts in")
         filters.tap()
 
         let mono = app.buttons["compose.filter.mono"]

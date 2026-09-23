@@ -121,9 +121,63 @@ struct PhotoFilterTests {
         #expect(abs(faded.red - faded.blue) < 2)
     }
 
+    /// Film is a negative's toe and shoulder plus grain: a mid-grey lifts
+    /// and warms a little, and pure black does not stay pure black.
+    @Test("Film lifts the blacks and leans warm")
+    func filmIsANegative() {
+        let neutral = channels(grey())
+        let filmed = channels(PhotoFilter.film.apply(to: grey()))
+        #expect(filmed.red > filmed.blue, "warm, the way portrait negative film is")
+        #expect(abs(filmed.red - neutral.red) < 40, "and not by much")
+
+        let black = UIGraphicsImageRenderer(size: CGSize(width: 24, height: 24)).image { context in
+            UIColor.black.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 24, height: 24))
+        }
+        #expect(channels(PhotoFilter.film.apply(to: black)).green > 5, "the blacks are off zero")
+    }
+
+    /// One seed, one grain — which is what lets a wiggle keep the same grain
+    /// on a viewpoint every time it comes round, instead of boiling.
+    @Test("Grain is the same for a seed and different between seeds")
+    func grainFollowsItsSeed() {
+        let same = (
+            channels(PhotoFilter.film.apply(to: grey(), grain: 3)),
+            channels(PhotoFilter.film.apply(to: grey(), grain: 3))
+        )
+        #expect(abs(same.0.green - same.1.green) < 0.01, "the same seed gives back the same grain")
+
+        // Averages hide noise, so the difference is looked for pixel by pixel.
+        let first = PhotoFilter.film.apply(to: grey(), grain: 3)
+        let second = PhotoFilter.film.apply(to: grey(), grain: 4)
+        #expect(pixelsDiffer(first, second), "a different seed gives a different grain")
+    }
+
+    @Test("Grain is the film look's alone")
+    func grainIsFilmsAlone() {
+        #expect(!pixelsDiffer(PhotoFilter.fade.apply(to: grey(), grain: 1), PhotoFilter.fade.apply(to: grey(), grain: 2)))
+    }
+
+    private func pixelsDiffer(_ first: UIImage, _ second: UIImage) -> Bool {
+        func bytes(_ image: UIImage) -> [UInt8] {
+            let width = Int(image.size.width), height = Int(image.size.height)
+            var pixels = [UInt8](repeating: 0, count: width * height * 4)
+            pixels.withUnsafeMutableBytes { raw in
+                let context = CGContext(
+                    data: raw.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                    bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                )!
+                context.draw(image.cgImage!, in: CGRect(x: 0, y: 0, width: width, height: height))
+            }
+            return pixels
+        }
+        return bytes(first) != bytes(second)
+    }
+
     @Test("Every look is offered, and named")
     func allCasesAreNamed() {
-        #expect(PhotoFilter.allCases.first == PhotoFilter.none, "the original comes first")
+        #expect(PhotoFilter.allCases.first == PhotoFilter.film, "the look every capture starts in comes first")
         #expect(Set(PhotoFilter.allCases.map(\.name)).count == PhotoFilter.allCases.count)
         #expect(PhotoFilter.allCases.allSatisfy { !$0.name.isEmpty })
     }

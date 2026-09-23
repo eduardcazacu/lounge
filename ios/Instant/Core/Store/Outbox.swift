@@ -25,6 +25,9 @@ public struct InstantDraft: Sendable {
     public let duration: InstantDurationMode
     /// A clip's sound. Ignored for a photo.
     public let includesSound: Bool
+    /// Where the film grain comes from, which is not the same for a
+    /// recording as for a wiggle. See `VideoPipeline.GrainSeeding`.
+    public let grain: VideoPipeline.GrainSeeding
 
     public init(
         media: Media,
@@ -32,7 +35,8 @@ public struct InstantDraft: Sendable {
         strokes: [OverlayCompositor.Stroke] = [],
         captions: [OverlayCompositor.Caption],
         duration: InstantDurationMode,
-        includesSound: Bool = true
+        includesSound: Bool = true,
+        grain: VideoPipeline.GrainSeeding = .perFrame
     ) {
         self.media = media
         self.filter = filter
@@ -40,6 +44,7 @@ public struct InstantDraft: Sendable {
         self.captions = captions
         self.duration = duration
         self.includesSound = includesSound
+        self.grain = grain
     }
 
     public init(
@@ -79,7 +84,8 @@ public struct InstantDraft: Sendable {
             filter: filter,
             strokes: strokes,
             captions: captions,
-            includesSound: includesSound
+            includesSound: includesSound,
+            grain: grain
         )
     }
 }

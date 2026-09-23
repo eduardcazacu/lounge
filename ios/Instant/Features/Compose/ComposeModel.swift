@@ -49,7 +49,13 @@ public final class ComposeModel {
     private(set) var saveWork: Task<Void, Never>?
 
     /// The chosen look, applied to the photo on the way out.
-    public private(set) var filter: PhotoFilter = .none
+    public private(set) var filter: PhotoFilter = .film
+
+    /// How this capture's film grain is seeded: a recording gets a new grain
+    /// every frame, a wiggle one per viewpoint. See `VideoPipeline`.
+    public var grain: VideoPipeline.GrainSeeding {
+        isParallax ? .perViewpoint : .perFrame
+    }
 
     /// What the compose screen actually draws: the photo, with whatever look is
     /// chosen.
@@ -182,6 +188,16 @@ public final class ComposeModel {
     /// The shape the compose screen lays the capture out at.
     public var contentSize: CGSize {
         clip?.size ?? preview.size
+    }
+
+    /// The look every capture starts in, drawn once the photo is on screen.
+    ///
+    /// Not from `init`, which runs inside the black the shutter holds up: the
+    /// first render of a look is the same work as tapping one in the strip,
+    /// and that window is measured in milliseconds the sender can see.
+    public func showDefaultLook() {
+        guard filter != .none, !capture.isVideo, preview === image else { return }
+        preview = filter.apply(to: base)
     }
 
     /// Builds the strip, and is called when it is first opened rather than from
@@ -476,7 +492,8 @@ public final class ComposeModel {
             strokes: strokes,
             captions: captions.filter { !$0.trimmed.isEmpty },
             duration: duration,
-            includesSound: hasSound && includesSound
+            includesSound: hasSound && includesSound,
+            grain: grain
         )
     }
 }

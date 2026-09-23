@@ -702,7 +702,7 @@ struct ComposeModelTests {
     @Test("Choosing a filter republishes the preview")
     func filterPublishesPreview() {
         let model = ComposeModel(image: photo())
-        #expect(model.filter == .none)
+        #expect(model.filter == .film, "every capture starts in the film look")
         let original = model.preview
 
         let probe = ObservationProbe()
@@ -758,7 +758,9 @@ struct ComposeModelTests {
 
         #expect(model.preview === original, "the photo is shown as it arrived")
         #expect(model.filterThumbnails.isEmpty, "the strip is built when it is opened")
-        #expect(model.filter == .none)
+        // The look is chosen but not yet drawn: `init` runs inside the black
+        // the shutter holds up, and the screen asks for it once it is up.
+        #expect(model.filter == .film)
     }
 
     /// The strip is built once, however many times it is opened.

@@ -209,6 +209,21 @@ stalls and then jumps to the new zoom when the fingers lift. TrueDepth on the
 front simply stops zooming. Nothing errors. This is why 3D estimates its
 depth instead.
 
+**Core Image filters do not all work in the same space.** `CIToneCurve` reads
+the picture as it is encoded; the colour matrices and `CIColorControls` work in
+linear light. A curve drawn for one and handed to the other lands somewhere
+else entirely, and `CIColorControls.contrast` above 1 pivots about linear 0.5 —
+far brighter than a mid-grey — so it darkens everything below that without
+looking like it should. Nothing errors; the picture is just wrong.
+
+**`CIRandomGenerator` is premultiplied, and has no seed.** Its noise comes back
+with a random alpha, so blending it lightens a picture instead of graining it,
+and there is no way to ask for the same noise twice — which film grain on a
+looping wiggle needs. The film look makes its own tile from a seeded generator
+instead. A grain tile also has to be built in a *linear* grey space: in a
+gamma-encoded one its middle value reads as a fifth of the way up, and soft
+light darkens the whole picture by it.
+
 **Vision's segmentation does not run in the Simulator.** The person, subject
 and person-segmentation requests all fail there — "Could not create inference
 context", or "E5RT is not supported" — so 3D silently renders by its depth

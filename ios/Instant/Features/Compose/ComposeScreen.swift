@@ -68,7 +68,12 @@ struct ComposeScreen: View {
                         // against a picture that is not the one being sent is
                         // not a choice at all.
                         if let clip = model.clip {
-                            LoopingVideoView(url: clip.url, filter: model.filter, isMuted: !model.includesSound)
+                            LoopingVideoView(
+                                url: clip.url,
+                                filter: model.filter,
+                                grain: model.grain,
+                                isMuted: !model.includesSound
+                            )
                                 .frame(width: proxy.size.width, height: proxy.size.height)
                                 .accessibilityElement()
                                 .accessibilityLabel("Your video")
@@ -174,6 +179,10 @@ struct ComposeScreen: View {
                     photos: environment.photos
                 )
             }
+            // The look every capture starts in, drawn here rather than in the
+            // model's initialiser: that runs inside the black the shutter
+            // holds up, and a look costs a render.
+            model?.showDefaultLook()
         }
         .sheet(isPresented: $showsRecipients) {
             if let model {

@@ -15,6 +15,8 @@ import UIKit
 /// holds nothing but ciphertext, so there is no later moment at which one could
 /// be applied.
 public enum PhotoFilter: String, CaseIterable, Identifiable, Sendable {
+    /// The default, and first in the strip.
+    case film
     case none
     case vivid
     case warm
@@ -27,6 +29,7 @@ public enum PhotoFilter: String, CaseIterable, Identifiable, Sendable {
 
     public var name: String {
         switch self {
+        case .film: "Film"
         case .none: "Original"
         case .vivid: "Vivid"
         case .warm: "Warm"
@@ -50,11 +53,11 @@ public enum PhotoFilter: String, CaseIterable, Identifiable, Sendable {
     /// laid out. Nothing here measures the image either, so a thumbnail in the
     /// strip and the frame that goes on the wire are one transform at two
     /// resolutions rather than two approximations of one look.
-    public func apply(to image: UIImage) -> UIImage {
+    public func apply(to image: UIImage, grain seed: Int = 0) -> UIImage {
         let upright = ImagePipeline.normalizingOrientation(image)
         guard self != .none, let source = upright.cgImage else { return upright }
         let input = CIImage(cgImage: source)
-        guard let output = recipe(input),
+        guard let output = recipe(input, grain: seed),
               let rendered = Self.context.createCGImage(output, from: input.extent)
         else { return upright }
         return UIImage(cgImage: rendered, scale: upright.scale, orientation: .up)
@@ -63,15 +66,36 @@ public enum PhotoFilter: String, CaseIterable, Identifiable, Sendable {
     /// The same look on a Core Image frame, which is how a video gets it: the
     /// compose screen's player and the export both run this per frame, so a
     /// clip's look is the photo's chain and not a second definition of it.
-    public func apply(to input: CIImage) -> CIImage {
+    public func apply(to input: CIImage, grain seed: Int = 0) -> CIImage {
         guard self != .none else { return input }
-        return recipe(input)?.cropped(to: input.extent) ?? input
+        return recipe(input, grain: seed)?.cropped(to: input.extent) ?? input
     }
 
-    private func recipe(_ input: CIImage) -> CIImage? {
+    private func recipe(_ input: CIImage, grain seed: Int) -> CIImage? {
         switch self {
         case .none:
             return input
+        case .film:
+            // Colour negative film, of the warm portrait sort: skin kept
+            // where it is while the greens go quiet, the blacks lifted off
+            // zero the way a negative's toe does, and the highlights rolled
+            // rather than clipped. Then the grain, which is most of why it
+            // reads as film at all.
+            guard let toned = Self.toneCurve(input),
+                  let warmed = Self.channelScaled(toned, red: 1.035, green: 1, blue: 0.975),
+                  // Contrast is left at one: Core Image works in linear
+                  // light, where "contrast" pivots about a value far brighter
+                  // than a mid-grey and drags the whole picture down. The
+                  // curve above is where this look's contrast lives.
+                  let calmed = Self.colorControls(warmed, saturation: 0.94, contrast: 1, brightness: 0)
+            else { return nil }
+            let vibrance = CIFilter.vibrance()
+            vibrance.inputImage = calmed
+            // Vibrance back up after the saturation came down: the quiet is
+            // meant to be in the greens and the walls, not in a face.
+            vibrance.amount = 0.18
+            guard let graded = vibrance.outputImage else { return nil }
+            return Self.grained(graded, seed: seed)
         case .vivid:
             // Vibrance before saturation: it leaves already-saturated colour
             // alone, so skin does not go orange on the way to a brighter sky.
@@ -97,6 +121,100 @@ public enum PhotoFilter: String, CaseIterable, Identifiable, Sendable {
             noir.inputImage = input
             return noir.outputImage
         }
+    }
+
+    /// The negative's toe and shoulder: blacks off zero, highlights short of
+    /// one, and a gentle S in between.
+    private static func toneCurve(_ input: CIImage) -> CIImage? {
+        let curve = CIFilter.toneCurve()
+        curve.inputImage = input
+        // Read off the picture as it is encoded, which is where this filter
+        // works — unlike the colour ones below it, which are in linear light.
+        curve.point0 = CGPoint(x: 0, y: 0.05)
+        curve.point1 = CGPoint(x: 0.25, y: 0.262)
+        curve.point2 = CGPoint(x: 0.5, y: 0.513)
+        curve.point3 = CGPoint(x: 0.75, y: 0.772)
+        curve.point4 = CGPoint(x: 1, y: 0.972)
+        return curve.outputImage
+    }
+
+    /// How coarse the grain is, in pixels of a 1080-wide frame: finer than
+    /// this and the encoder throws most of it away.
+    static let grainSize: CGFloat = 1.7
+    /// How far the grain pushes a pixel either side of where it was. Soft
+    /// light, so this is a lean rather than an addition.
+    static let grainStrength: CGFloat = 0.10
+    /// The tile the grain is made of. Big enough that its repeat is not a
+    /// pattern, small enough to make in a fraction of a millisecond.
+    static let grainTile = 512
+
+    /// Film grain, made rather than photographed.
+    ///
+    /// Made here rather than with `CIRandomGenerator`, which has no seed to
+    /// give it and hands back premultiplied noise with a random alpha — it
+    /// lightens a picture rather than grains it. A seeded tile has neither
+    /// problem, and the seed is the point: the same seed gives back the same
+    /// grain, in this loop and every loop after it, which is what lets a
+    /// wiggle hold one grain per viewpoint. See `VideoPipeline.GrainSeeding`.
+    ///
+    /// Soft light rather than addition, because grain is a lean either way
+    /// about the middle grey and not a brightening: a mid-grey comes out a
+    /// mid-grey, and the picture keeps its exposure.
+    static func grained(_ input: CIImage, seed: Int) -> CIImage? {
+        let extent = input.extent
+        guard extent.width > 1, extent.height > 1, let tile = grain(seed: seed) else { return input }
+        let scale = max(grainSize * extent.width / 1080, 0.05)
+        let tiled = CIFilter.affineTile()
+        tiled.inputImage = tile
+        tiled.transform = CGAffineTransform(scaleX: scale, y: scale)
+        guard let noise = tiled.outputImage?.cropped(to: extent) else { return input }
+
+        let soft = CIFilter.softLightBlendMode()
+        soft.inputImage = noise
+        soft.backgroundImage = input
+        return soft.outputImage?.cropped(to: extent)
+    }
+
+    /// One square of grey noise, centred on the middle grey that soft light
+    /// leaves alone, from a seed.
+    static func grain(seed: Int) -> CIImage? {
+        var state = UInt64(bitPattern: Int64(seed)) &* 0x9E37_79B9_7F4A_7C15 &+ 0x1234_5678_9ABC_DEF
+        func next() -> UInt8 {
+            // SplitMix64, which is a few instructions and spreads a seed of 0
+            // as well as any other.
+            state &+= 0x9E37_79B9_7F4A_7C15
+            var z = state
+            z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+            z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+            return UInt8(truncatingIfNeeded: (z ^ (z >> 31)) >> 24)
+        }
+        let side = grainTile
+        var bytes = [UInt8](repeating: 0, count: side * side)
+        let spread = Double(grainStrength) * 127
+        for index in 0..<bytes.count {
+            let centred = 128 + (Double(next()) - 127.5) / 127.5 * spread
+            bytes[index] = UInt8(max(0, min(255, centred.rounded())))
+        }
+        guard let provider = CGDataProvider(data: Data(bytes) as CFData),
+              let linear = CGColorSpace(name: CGColorSpace.linearGray),
+              let image = CGImage(
+                width: side,
+                height: side,
+                bitsPerComponent: 8,
+                bitsPerPixel: 8,
+                bytesPerRow: side,
+                // Linear, so that the tile's middle value is the middle soft
+                // light leaves alone. In a gamma-encoded grey it reads as a
+                // fifth of the way up instead, and grain darkens the picture.
+                space: linear,
+                bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue),
+                provider: provider,
+                decode: nil,
+                shouldInterpolate: false,
+                intent: .defaultIntent
+              )
+        else { return nil }
+        return CIImage(cgImage: image)
     }
 
     private static func colorControls(

@@ -18,6 +18,9 @@ import SwiftUI
 struct LoopingVideoView: UIViewRepresentable {
     let url: URL
     let filter: PhotoFilter
+    /// The same seeding the encode will use, so the grain in the preview is
+    /// the grain that gets sent.
+    var grain: VideoPipeline.GrainSeeding = .perFrame
     let isMuted: Bool
 
     final class PlayerView: UIView {
@@ -30,16 +33,22 @@ struct LoopingVideoView: UIViewRepresentable {
         let player = AVQueuePlayer()
         private var looper: AVPlayerLooper?
         private(set) var filter: PhotoFilter?
+        private(set) var grain: VideoPipeline.GrainSeeding?
         private var loading: Task<Void, Never>?
 
         init() {}
 
-        func load(_ url: URL, filter: PhotoFilter) {
+        func load(_ url: URL, filter: PhotoFilter, grain: VideoPipeline.GrainSeeding) {
             self.filter = filter
+            self.grain = grain
             loading?.cancel()
             loading = Task { [weak self] in
                 let asset = AVURLAsset(url: url)
-                let composition = try? await VideoPipeline.videoComposition(for: asset, filter: filter)
+                let composition = try? await VideoPipeline.videoComposition(
+                    for: asset,
+                    filter: filter,
+                    grain: grain
+                )
                 guard let self, !Task.isCancelled else { return }
                 let item = AVPlayerItem(asset: asset)
                 item.videoComposition = composition
@@ -68,14 +77,14 @@ struct LoopingVideoView: UIViewRepresentable {
         view.playerLayer.player = context.coordinator.player
         view.playerLayer.videoGravity = .resizeAspect
         context.coordinator.player.isMuted = isMuted
-        context.coordinator.load(url, filter: filter)
+        context.coordinator.load(url, filter: filter, grain: grain)
         return view
     }
 
     func updateUIView(_ view: PlayerView, context: Context) {
         context.coordinator.player.isMuted = isMuted
-        if context.coordinator.filter != filter {
-            context.coordinator.load(url, filter: filter)
+        if context.coordinator.filter != filter || context.coordinator.grain != grain {
+            context.coordinator.load(url, filter: filter, grain: grain)
         }
     }
 

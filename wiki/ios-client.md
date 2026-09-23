@@ -134,8 +134,13 @@ discarded or once encoded, and the directory is emptied at launch and sign-out.
 
 ## Filters
 
-`PhotoFilter` is seven looks — original, vivid, warm, cool, fade, mono, noir —
-each a fixed Core Image chain. They are chosen on the compose screen, **after**
+`PhotoFilter` is eight looks — film, original, vivid, warm, cool, fade, mono,
+noir — each a fixed Core Image chain. **Film is where every capture starts**,
+and is first in the strip: a warm portrait negative, with the blacks lifted off
+zero the way a negative's toe does, the highlights rolled rather than clipped,
+the greens quietened while skin is left where it is, and grain. It is drawn
+when the compose screen appears rather than in `ComposeModel.init`, which runs
+inside the black the shutter holds up. They are chosen on the compose screen, **after**
 the shot, and that is a property of the preview rather than a preference:
 `AVCaptureVideoPreviewLayer` draws buffers the capture system hands it directly,
 with nowhere to hang a `CIFilter`, so a filtered viewfinder would mean replacing
@@ -152,6 +157,28 @@ shows. The full-resolution render happens once, in the outbox, after the
 compose screen has closed. Nothing in the chains
 measures the photo, so the thumbnail in the strip and the frame that goes on the
 wire are one transform at two resolutions.
+
+**Two of Core Image's spaces, in one chain.** `CIToneCurve` reads the picture
+as it is encoded, so the film curve's points are the numbers you would write
+looking at an sRGB photo. Everything else — the colour matrices,
+`CIColorControls`, the blends — works in linear light, where "contrast" pivots
+about a value far brighter than a mid-grey and quietly drags the whole picture
+down; the film look asks for none. See [gotchas.md](gotchas.md).
+
+**The grain is made, not photographed.** A seeded tile of noise, tiled over the
+frame and blended in soft light so that it leans either side of the middle
+rather than adding to it — a mid-grey comes out a mid-grey and the picture
+keeps its exposure. `CIRandomGenerator` is not used: it takes no seed, and the
+noise it hands back is premultiplied with a random alpha, which lightens a
+picture rather than graining it.
+
+**A wiggle gets one grain per viewpoint, not one per frame**
+(`VideoPipeline.GrainSeeding`). Its four viewpoints are shown over and over;
+grain that changed every frame would boil on a picture that is otherwise still,
+and would spend the encoder's whole bitrate on noise nobody asked for. The seed
+is the viewpoint (`ParallaxRenderer.viewIndex(atFrame:)`), so the grain on a
+viewpoint is the same in every loop. A recording gets a new grain every frame,
+which is what film does.
 
 ## Captions
 
@@ -373,6 +400,13 @@ would open a seam down the nose. A surface fading into the distance — a floor
 running from under the subject to the back wall — is outlined nowhere, so its
 jump is nothing and it keeps its size, as does the background: its lines stay
 straight and the right length.
+
+**A lens that does not quite agree with itself.** Each view is drawn with its
+red and blue pulled a pixel apart sideways (`split`). Real glass does this
+mildly, and it is on purpose here: the warp moves pixels in whole steps, so
+what it leaves along an outline is a hard stair, and a soft colour edge over
+that stair is what the eye reads instead of the steps. Sideways only, because
+sideways is the way the cut lines run.
 
 **Gaps are filled from behind.** Moving the viewpoint uncovers slivers beside
 every near edge. Each is filled with the background beside it mirrored back
