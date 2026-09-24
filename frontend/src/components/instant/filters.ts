@@ -121,8 +121,10 @@ function monochrome(contrast: number, brightness: number): Recipe {
 
 /// A warm portrait negative: blacks lifted off zero the way a negative's toe
 /// does, highlights rolled rather than clipped, and a gentle S in between.
-/// The phone spells the same curve as five points for `CIToneCurve`; here it
-/// is a lookup table, which is the same shape by another name.
+/// The phone grades through a `.cube` table measured off the stock. This is a
+/// curve drawn to lean the same way — the arithmetic has never matched across
+/// the two clients, and does not have to; what matches is the list of looks
+/// and what they are called.
 function toneCurve(): Recipe {
   const points = [
     [0, 0.05],

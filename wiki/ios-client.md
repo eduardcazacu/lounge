@@ -136,9 +136,14 @@ discarded or once encoded, and the directory is emptied at launch and sign-out.
 
 `PhotoFilter` is eight looks — film, original, vivid, warm, cool, fade, mono,
 noir — each a fixed Core Image chain. **Film is where every capture starts**,
-and is first in the strip: a warm portrait negative, with the blacks lifted off
-zero the way a negative's toe does, the highlights rolled rather than clipped,
-the greens quietened while skin is left where it is, and grain. It is drawn
+and is first in the strip: a warm portrait negative, and grain. The grading is
+a `.cube` lookup table measured off the stock
+(`Instant/Resources/kodak_portra_400.cube`, read by `ColorCube`), not a curve
+and a couple of matrices leaning in roughly its direction — a film emulation
+is a measurement, and a table says it in one step with no intermediate stage
+to go wrong in the wrong colour space. What the look *is* is nobody's
+business but whoever chose the table: the tests check that it ships and that
+it is applied, not what it does to a grey. It is drawn
 when the compose screen appears rather than in `ComposeModel.init`, which runs
 inside the black the shutter holds up. They are chosen on the compose screen, **after**
 the shot, and that is a property of the preview rather than a preference:
@@ -158,12 +163,12 @@ compose screen has closed. Nothing in the chains
 measures the photo, so the thumbnail in the strip and the frame that goes on the
 wire are one transform at two resolutions.
 
-**Two of Core Image's spaces, in one chain.** `CIToneCurve` reads the picture
-as it is encoded, so the film curve's points are the numbers you would write
-looking at an sRGB photo. Everything else — the colour matrices,
-`CIColorControls`, the blends — works in linear light, where "contrast" pivots
-about a value far brighter than a mid-grey and quietly drags the whole picture
-down; the film look asks for none. See [gotchas.md](gotchas.md).
+**Two of Core Image's spaces, in one chain.** A `.cube` is authored against
+the picture as it is encoded, so it is applied with
+`CIColorCubeWithColorSpace` in sRGB; the colour matrices, `CIColorControls`
+and the blends all work in linear light instead, where "contrast" pivots about
+a value far brighter than a mid-grey and quietly drags everything below it
+down. See [gotchas.md](gotchas.md).
 
 **The grain is made, not photographed.** A seeded tile of noise, tiled over the
 frame and blended in soft light so that it leans either side of the middle

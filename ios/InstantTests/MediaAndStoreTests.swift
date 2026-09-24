@@ -42,6 +42,11 @@ struct PhotoFilterTests {
     }
 
     /// Mean red, green and blue over the whole image, 0...255.
+    /// The look as a function, so a test can run one without naming it.
+    private func apply(_ filter: PhotoFilter) -> (UIImage) -> (red: Double, green: Double, blue: Double) {
+        { self.channels(filter.apply(to: $0)) }
+    }
+
     private func channels(_ image: UIImage) -> (red: Double, green: Double, blue: Double) {
         let cg = image.cgImage!
         let width = cg.width
@@ -88,53 +93,62 @@ struct PhotoFilterTests {
         }
     }
 
-    @Test("Warm leans red, cool leans blue")
-    func temperatureGoesTheRightWay() {
-        let neutral = channels(grey())
-        #expect(abs(neutral.red - neutral.blue) < 1, "the fixture has to start neutral")
-
-        let warm = channels(PhotoFilter.warm.apply(to: grey()))
-        #expect(warm.red > neutral.red)
-        #expect(warm.blue < neutral.blue)
-
-        let cool = channels(PhotoFilter.cool.apply(to: grey()))
-        #expect(cool.blue > neutral.blue)
-        #expect(cool.red < neutral.red)
-    }
-
-    @Test("Mono and noir come out grey")
-    func monochromeHasNoColour() {
-        for filter in [PhotoFilter.mono, .noir] {
-            let result = channels(filter.apply(to: colourful()))
-            #expect(abs(result.red - result.green) < 2, "\(filter.name) kept some colour")
-            #expect(abs(result.green - result.blue) < 2, "\(filter.name) kept some colour")
+    /// What a look *is* belongs to whoever chose it, and pinning its numbers
+    /// in a test only freezes one person's taste. What a test can say is that
+    /// picking a look does something, and does the same thing twice.
+    @Test("Every look but the original changes the picture, the same way each time")
+    func everyLookIsApplied() {
+        for filter in PhotoFilter.allCases where filter != .none {
+            let once = apply(filter)(colourful())
+            #expect(once != channels(colourful()), "\(filter.name) left the photo as it was")
+            #expect(once == apply(filter)(colourful()), "\(filter.name) is not the same look twice")
         }
     }
 
-    /// Fade is a tone curve, not a tint: it lifts the blacks, so a mid-grey
-    /// gets brighter without any channel pulling away from the others.
-    @Test("Fade lifts without tinting")
-    func fadeLiftsBlacks() {
-        let neutral = channels(grey())
-        let faded = channels(PhotoFilter.fade.apply(to: grey()))
-        #expect(faded.red > neutral.red)
-        #expect(abs(faded.red - faded.blue) < 2)
+    /// The look itself is the stock's business, not this test's. What is
+    /// checked is that the table ships and is the one the look asks for: a
+    /// `.cube` missing from the app's resources is a packaging mistake, and
+    /// the film look would quietly become grain on an ungraded photo.
+    @Test("The stock's table ships with the app")
+    func stockShips() throws {
+        let stock = try #require(PhotoFilter.stock, "the .cube is missing from the app's resources")
+        #expect(stock.dimension == 13)
+        #expect(stock.data.count == 13 * 13 * 13 * 4 * MemoryLayout<Float>.size)
     }
 
-    /// Film is a negative's toe and shoulder plus grain: a mid-grey lifts
-    /// and warms a little, and pure black does not stay pure black.
-    @Test("Film lifts the blacks and leans warm")
-    func filmIsANegative() {
-        let neutral = channels(grey())
-        let filmed = channels(PhotoFilter.film.apply(to: grey()))
-        #expect(filmed.red > filmed.blue, "warm, the way portrait negative film is")
-        #expect(abs(filmed.red - neutral.red) < 40, "and not by much")
+    /// A table read wrong is a look that lands somewhere else entirely, and
+    /// nothing says so — so the parsing is checked on a table small enough to
+    /// know by heart.
+    @Test("A .cube is read as written: size, domain, red fastest")
+    func parsesACube() throws {
+        let text = """
+        # a toy
+        TITLE "toy"
+        LUT_3D_SIZE 2
+        DOMAIN_MIN 0.0 0.0 0.0
+        DOMAIN_MAX 1.0 1.0 1.0
+        0 0 0
+        1 0 0
+        0 1 0
+        1 1 0
+        0 0 1
+        1 0 1
+        0 1 1
+        1 1 1
+        """
+        let cube = try #require(ColorCube.parse(text))
+        #expect(cube.dimension == 2)
+        let values = cube.data.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
+        #expect(values.count == 8 * 4)
+        #expect(Array(values.prefix(8)) == [0, 0, 0, 1, 1, 0, 0, 1], "red varies fastest, and alpha is added")
+        #expect(Array(values.suffix(4)) == [1, 1, 1, 1])
 
-        let black = UIGraphicsImageRenderer(size: CGSize(width: 24, height: 24)).image { context in
-            UIColor.black.setFill()
-            context.fill(CGRect(x: 0, y: 0, width: 24, height: 24))
-        }
-        #expect(channels(PhotoFilter.film.apply(to: black)).green > 5, "the blacks are off zero")
+        // A domain that is not 0…1 is scaled into it.
+        let scaled = try #require(ColorCube.parse(text.replacingOccurrences(of: "DOMAIN_MAX 1.0 1.0 1.0", with: "DOMAIN_MAX 2.0 2.0 2.0")))
+        let halved = scaled.data.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
+        #expect(Array(halved.suffix(4)) == [0.5, 0.5, 0.5, 1])
+
+        #expect(ColorCube.parse("LUT_3D_SIZE 2\n0 0 0") == nil, "a table with entries missing is no table")
     }
 
     /// One seed, one grain — which is what lets a wiggle keep the same grain

@@ -76,25 +76,11 @@ public enum PhotoFilter: String, CaseIterable, Identifiable, Sendable {
         case .none:
             return input
         case .film:
-            // Colour negative film, of the warm portrait sort: skin kept
-            // where it is while the greens go quiet, the blacks lifted off
-            // zero the way a negative's toe does, and the highlights rolled
-            // rather than clipped. Then the grain, which is most of why it
-            // reads as film at all.
-            guard let toned = Self.toneCurve(input),
-                  let warmed = Self.channelScaled(toned, red: 1.035, green: 1, blue: 0.975),
-                  // Contrast is left at one: Core Image works in linear
-                  // light, where "contrast" pivots about a value far brighter
-                  // than a mid-grey and drags the whole picture down. The
-                  // curve above is where this look's contrast lives.
-                    let calmed = Self.colorControls(warmed, saturation: 0.94, contrast: 1.08, brightness: 0)
-            else { return nil }
-            let vibrance = CIFilter.vibrance()
-            vibrance.inputImage = calmed
-            // Vibrance back up after the saturation came down: the quiet is
-            // meant to be in the greens and the walls, not in a face.
-            vibrance.amount = 0.18
-            guard let graded = vibrance.outputImage else { return nil }
+            // Colour negative film of the warm portrait sort, as a lookup
+            // table somebody measured off the stock rather than a curve and
+            // a couple of matrices leaning in roughly its direction. Then the
+            // grain, which is most of why it reads as film at all.
+            let graded = Self.stock?.apply(to: input) ?? input
             return Self.grained(graded, seed: seed)
         case .vivid:
             // Vibrance before saturation: it leaves already-saturated colour
@@ -123,20 +109,9 @@ public enum PhotoFilter: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// The negative's toe and shoulder: blacks off zero, highlights short of
-    /// one, and a gentle S in between.
-    private static func toneCurve(_ input: CIImage) -> CIImage? {
-        let curve = CIFilter.toneCurve()
-        curve.inputImage = input
-        // Read off the picture as it is encoded, which is where this filter
-        // works — unlike the colour ones below it, which are in linear light.
-        curve.point0 = CGPoint(x: 0, y: 0.05)
-        curve.point1 = CGPoint(x: 0.25, y: 0.262)
-        curve.point2 = CGPoint(x: 0.5, y: 0.513)
-        curve.point3 = CGPoint(x: 0.75, y: 0.772)
-        curve.point4 = CGPoint(x: 1, y: 0.972)
-        return curve.outputImage
-    }
+    /// The stock the film look is of, read once out of the app's resources.
+    /// See `ColorCube`.
+    static let stock = ColorCube.named("kodak_portra_400")
 
     /// How coarse the grain is, in pixels of a 1080-wide frame: finer than
     /// this and the encoder throws most of it away.

@@ -210,11 +210,13 @@ front simply stops zooming. Nothing errors. This is why 3D estimates its
 depth instead.
 
 **Core Image filters do not all work in the same space.** `CIToneCurve` reads
-the picture as it is encoded; the colour matrices and `CIColorControls` work in
-linear light. A curve drawn for one and handed to the other lands somewhere
-else entirely, and `CIColorControls.contrast` above 1 pivots about linear 0.5 —
-far brighter than a mid-grey — so it darkens everything below that without
-looking like it should. Nothing errors; the picture is just wrong.
+the picture as it is encoded, and a `.cube` is authored that way too — which is
+why it goes through `CIColorCubeWithColorSpace` with sRGB rather than
+`CIColorCube`. The colour matrices and `CIColorControls` work in linear light
+instead. A curve or a table drawn for one and handed to the other lands
+somewhere else entirely, and `CIColorControls.contrast` above 1 pivots about
+linear 0.5 — far brighter than a mid-grey — so it darkens everything below that
+without looking like it should. Nothing errors; the picture is just wrong.
 
 **`CIRandomGenerator` is premultiplied, and has no seed.** Its noise comes back
 with a random alpha, so blending it lightens a picture instead of graining it,
