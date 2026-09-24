@@ -85,7 +85,8 @@ export function ComposeScreen({
   const [strokes, setStrokes] = useState<Stroke[]>([]);
   const [ink, setInk] = useState<InkId>("white");
   const [duration, setDuration] = useState<InstantDurationMode>("5s");
-  const [filter, setFilter] = useState<FilterId>("none");
+  // Film, as on the phone: the look every capture starts in.
+  const [filter, setFilter] = useState<FilterId>("film");
   const [showsFilters, setShowsFilters] = useState(false);
   const [thumbnails, setThumbnails] = useState<{ id: FilterId; url: string }[]>([]);
   const [isDrawing, setIsDrawing] = useState(false);

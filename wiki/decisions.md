@@ -690,3 +690,86 @@ it again.
 
 **Would reopen if** Instant ever had users who do not update promptly.
 
+---
+
+## A copy can be kept from compose, never from the viewer
+
+**Chosen** a save button on the compose screen, which writes the composed
+photo or clip to the sender's own photo library with add-only permission.
+
+**Rejected** the same button in the viewer, on a received instant.
+
+**Because** what compose holds is the person's own capture, which they are
+about to send and may want to keep; nothing about it is anyone else's. A
+received instant is the other way round: it expires, and it was sent on that
+understanding. A screenshot is always possible, and the sender is told about
+one; a save button would be the app helping, quietly.
+
+**Cost paid** a photo saved from compose is not quite the file the recipient
+gets — full size in the library rather than the wire's quarter-megabyte WebP.
+The pixels are the same; the compression is not.
+
+---
+
+## A 3D photo's outline comes from Vision, and each layer is warped on its own
+
+**Chosen** `VisionSubjectMasker` asks Vision for a mask per subject, falling
+back to the person mask, and the renderer cuts the picture into layers at
+those outlines: each is warped on its own, with its own alpha, and they are
+composited back to front. A face found inside a mask becomes that layer's key
+plane.
+
+**Rejected** the person request as the first choice, though people are what
+Instant sends: on the sample photos it finds the same person as the subject
+request with a wispier outline, and on a photo with no people in it, it
+answers with confident nonsense. Also rejected: using the masks only to
+correct the depth map, and keeping the single pass. It puts the edge in the right place but every pixel still belongs
+wholly to one side of it, so fine hair stays ragged — an outline can only be a
+cut. Also rejected: leaving it to the depth map, which is what shipped first.
+
+**Because** an estimated depth map has no outline to speak of. Its edges are
+ramps a few pixels wide that sit a little off the subject, and it reads a body
+leaning towards the camera as an edge — so a slanted person came out terraced
+and glitching along the outline. A matte answers both: where the subject ends,
+and what share of a rim pixel is it.
+
+**Cost paid** Vision runs on every first 3D tap, beside the depth model. A
+photo it finds no subject in renders as before, by the depth map alone, which
+is two paths through the renderer to keep working.
+
+**Would reopen if** the depth model gets good enough at edges that the masks
+add nothing, or Vision gains a matte that carries depth with it.
+
+---
+
+## 3D is rendered on the sender, as a clip, from estimated depth
+
+**Chosen** the 3D button estimates the photo's depth on the phone with Depth
+Anything V2 Small (Apple's Core ML conversion, 8-bit palettized, 24 MB,
+Apache-2.0), renders four viewpoints from it, and writes them out as a silent
+clip, 1-2-3-4-3-2 eight times over (`DepthEstimator`, `ParallaxRenderer`).
+From there on it is a clip: the same encode, seal, wire format and viewer.
+
+**Rejected** the depth the camera measures (TrueDepth, dual cameras). It was
+built twice and taken out both times. On every photo, a device delivering
+depth restricts its own zoom, so the back camera's pinch stalled and jumped
+and the front camera's did nothing (see [gotchas.md](gotchas.md)). As a camera
+mode chosen before the shot, zoom worked outside it, but 3D could never be
+decided after the photo, and the mode took the camera's zoom and its movie
+output away while on. Also rejected: Apple's own photo-to-3D generator,
+`ImagePresentationComponent.Spatial3DImage`, which is visionOS only; and
+sending the photo with its depth to be wiggled on the recipient's screen — a
+new media type and a contract on three sides and the web, for something the
+sender has to see before sending anyway.
+
+**Because** estimating after the shot leaves the camera exactly as it was —
+zoom, zero shutter lag, shutter speed — and gives every photo 3D, including
+zoomed ones, library ones and those from a phone with one lens. A clip needs
+nothing new anywhere past the compose screen.
+
+**Cost paid** 24 MB of app, and the first 3D tap loading the model. The
+parallax is a guess twice over: at the depth, and at what was behind the
+subject, which is copied from the background beside it.
+
+**Would reopen if** iOS gets a public depth-estimation or spatial-scene API,
+or camera depth stops restricting zoom.

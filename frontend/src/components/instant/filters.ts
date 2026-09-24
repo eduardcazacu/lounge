@@ -1,7 +1,8 @@
-// The seven looks offered on the compose screen.
+// The eight looks offered on the compose screen, film first — it is the look
+// every capture starts in.
 //
 // The iOS side is `ios/Instant/Core/Media/PhotoFilter.swift`, where each look is
-// a Core Image chain. These are the same seven looks by the same names and the
+// a Core Image chain. These are the same eight looks by the same names and the
 // same intent — vibrance before saturation for vivid, a fixed per-channel gain
 // for warm and cool, a lifted-blacks curve for fade — but the arithmetic cannot
 // be identical, because `CIPhotoEffectMono` and friends are proprietary curves
@@ -14,9 +15,18 @@
 // not differ is which looks exist and what they are called — that is the part
 // somebody would notice moving between their phone and their laptop.
 
-export type FilterId = "none" | "vivid" | "warm" | "cool" | "fade" | "mono" | "noir";
+export type FilterId =
+  | "film"
+  | "none"
+  | "vivid"
+  | "warm"
+  | "cool"
+  | "fade"
+  | "mono"
+  | "noir";
 
 export const FILTERS: { id: FilterId; name: string }[] = [
+  { id: "film", name: "Film" },
   { id: "none", name: "Original" },
   { id: "vivid", name: "Vivid" },
   { id: "warm", name: "Warm" },
@@ -27,7 +37,7 @@ export const FILTERS: { id: FilterId; name: string }[] = [
 ];
 
 export function filterName(id: FilterId): string {
-  return FILTERS.find((filter) => filter.id === id)?.name ?? "Original";
+  return FILTERS.find((filter) => filter.id === id)?.name ?? "Film";
 }
 
 /// Rec. 709, the weights Core Image's colour controls use.
@@ -109,7 +119,65 @@ function monochrome(contrast: number, brightness: number): Recipe {
   };
 }
 
+/// A warm portrait negative: blacks lifted off zero the way a negative's toe
+/// does, highlights rolled rather than clipped, and a gentle S in between.
+/// The phone grades through a `.cube` table measured off the stock. This is a
+/// curve drawn to lean the same way — the arithmetic has never matched across
+/// the two clients, and does not have to; what matches is the list of looks
+/// and what they are called.
+function toneCurve(): Recipe {
+  const points = [
+    [0, 0.05],
+    [0.25, 0.262],
+    [0.5, 0.513],
+    [0.75, 0.772],
+    [1, 0.972],
+  ];
+  const table = new Uint8ClampedArray(256);
+  for (let value = 0; value < 256; value += 1) {
+    const x = value / 255;
+    let segment = 0;
+    while (segment < points.length - 2 && x > points[segment + 1][0]) {
+      segment += 1;
+    }
+    const [x0, y0] = points[segment];
+    const [x1, y1] = points[segment + 1];
+    const t = x1 === x0 ? 0 : (x - x0) / (x1 - x0);
+    table[value] = clamp255((y0 + (y1 - y0) * t) * 255);
+  }
+  return (pixels) => {
+    for (let index = 0; index < pixels.length; index += 4) {
+      pixels[index] = table[pixels[index]];
+      pixels[index + 1] = table[pixels[index + 1]];
+      pixels[index + 2] = table[pixels[index + 2]];
+    }
+  };
+}
+
+/// Film grain, made rather than photographed: a lean either side of where a
+/// pixel already was, so the picture keeps its exposure.
+///
+/// The phone seeds this, because a 3D wiggle needs one grain per viewpoint
+/// and the same one in every loop. Nothing here loops, so the web takes the
+/// grain it is given and spends no thought on seeding it.
+function grain(strength: number): Recipe {
+  return (pixels) => {
+    let state = 0x9e3779b9;
+    for (let index = 0; index < pixels.length; index += 4) {
+      // xorshift32: cheap, and the same picture grains the same way twice.
+      state ^= state << 13;
+      state ^= state >>> 17;
+      state ^= state << 5;
+      const lean = (((state >>> 0) / 0xffffffff) * 2 - 1) * strength * 255;
+      pixels[index] = clamp255(pixels[index] + lean);
+      pixels[index + 1] = clamp255(pixels[index + 1] + lean);
+      pixels[index + 2] = clamp255(pixels[index + 2] + lean);
+    }
+  };
+}
+
 const RECIPES: Record<FilterId, Recipe[]> = {
+  film: [toneCurve(), channelScaled(1.035, 1, 0.975), colorControls(0.94, 1, 0), vibrance(0.18), grain(0.05)],
   none: [],
   vivid: [vibrance(0.6), colorControls(1.08, 1.1, 0)],
   warm: [channelScaled(1.08, 1.01, 0.9)],

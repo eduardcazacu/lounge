@@ -1,0 +1,13 @@
+DepthAnythingV2SmallF32P8.mlpackage
+
+Depth Anything V2 Small, converted to Core ML by Apple and taken from
+https://huggingface.co/apple/coreml-depth-anything-v2-small (the F32P8
+variant, 8-bit palettized weights).
+
+Original work: Depth Anything V2, Lihe Yang et al., 2024.
+
+Licensed under the Apache License, Version 2.0; a copy is beside this file in
+DepthAnythingV2SmallF32P8.LICENSE.txt.
+
+Instant uses it to estimate a photo's depth on the phone for the 3D button.
+See wiki/ios-client.md and wiki/decisions.md.

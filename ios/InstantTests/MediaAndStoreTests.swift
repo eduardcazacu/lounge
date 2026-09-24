@@ -42,6 +42,11 @@ struct PhotoFilterTests {
     }
 
     /// Mean red, green and blue over the whole image, 0...255.
+    /// The look as a function, so a test can run one without naming it.
+    private func apply(_ filter: PhotoFilter) -> (UIImage) -> (red: Double, green: Double, blue: Double) {
+        { self.channels(filter.apply(to: $0)) }
+    }
+
     private func channels(_ image: UIImage) -> (red: Double, green: Double, blue: Double) {
         let cg = image.cgImage!
         let width = cg.width
@@ -88,42 +93,206 @@ struct PhotoFilterTests {
         }
     }
 
-    @Test("Warm leans red, cool leans blue")
-    func temperatureGoesTheRightWay() {
-        let neutral = channels(grey())
-        #expect(abs(neutral.red - neutral.blue) < 1, "the fixture has to start neutral")
-
-        let warm = channels(PhotoFilter.warm.apply(to: grey()))
-        #expect(warm.red > neutral.red)
-        #expect(warm.blue < neutral.blue)
-
-        let cool = channels(PhotoFilter.cool.apply(to: grey()))
-        #expect(cool.blue > neutral.blue)
-        #expect(cool.red < neutral.red)
-    }
-
-    @Test("Mono and noir come out grey")
-    func monochromeHasNoColour() {
-        for filter in [PhotoFilter.mono, .noir] {
-            let result = channels(filter.apply(to: colourful()))
-            #expect(abs(result.red - result.green) < 2, "\(filter.name) kept some colour")
-            #expect(abs(result.green - result.blue) < 2, "\(filter.name) kept some colour")
+    /// What a look *is* belongs to whoever chose it, and pinning its numbers
+    /// in a test only freezes one person's taste. What a test can say is that
+    /// picking a look does something, and does the same thing twice.
+    @Test("Every look but the original changes the picture, the same way each time")
+    func everyLookIsApplied() {
+        for filter in PhotoFilter.allCases where filter != .none {
+            let once = apply(filter)(colourful())
+            #expect(once != channels(colourful()), "\(filter.name) left the photo as it was")
+            #expect(once == apply(filter)(colourful()), "\(filter.name) is not the same look twice")
         }
     }
 
-    /// Fade is a tone curve, not a tint: it lifts the blacks, so a mid-grey
-    /// gets brighter without any channel pulling away from the others.
-    @Test("Fade lifts without tinting")
-    func fadeLiftsBlacks() {
-        let neutral = channels(grey())
-        let faded = channels(PhotoFilter.fade.apply(to: grey()))
-        #expect(faded.red > neutral.red)
-        #expect(abs(faded.red - faded.blue) < 2)
+    /// The look itself is the stock's business, not this test's. What is
+    /// checked is that the table ships and is the one the look asks for: a
+    /// `.cube` missing from the app's resources is a packaging mistake, and
+    /// the film look would quietly become grain on an ungraded photo.
+    @Test("The stock's table ships with the app")
+    func stockShips() throws {
+        let stock = try #require(PhotoFilter.stock, "the .cube is missing from the app's resources")
+        #expect(stock.dimension == 13)
+        #expect(stock.data.count == 13 * 13 * 13 * 4 * MemoryLayout<Float>.size)
+    }
+
+    /// A table read wrong is a look that lands somewhere else entirely, and
+    /// nothing says so — so the parsing is checked on a table small enough to
+    /// know by heart.
+    @Test("A .cube is read as written: size, domain, red fastest")
+    func parsesACube() throws {
+        let text = """
+        # a toy
+        TITLE "toy"
+        LUT_3D_SIZE 2
+        DOMAIN_MIN 0.0 0.0 0.0
+        DOMAIN_MAX 1.0 1.0 1.0
+        0 0 0
+        1 0 0
+        0 1 0
+        1 1 0
+        0 0 1
+        1 0 1
+        0 1 1
+        1 1 1
+        """
+        let cube = try #require(ColorCube.parse(text))
+        #expect(cube.dimension == 2)
+        let values = cube.data.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
+        #expect(values.count == 8 * 4)
+        #expect(Array(values.prefix(8)) == [0, 0, 0, 1, 1, 0, 0, 1], "red varies fastest, and alpha is added")
+        #expect(Array(values.suffix(4)) == [1, 1, 1, 1])
+
+        // A domain that is not 0…1 is scaled into it.
+        let scaled = try #require(ColorCube.parse(text.replacingOccurrences(of: "DOMAIN_MAX 1.0 1.0 1.0", with: "DOMAIN_MAX 2.0 2.0 2.0")))
+        let halved = scaled.data.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
+        #expect(Array(halved.suffix(4)) == [0.5, 0.5, 0.5, 1])
+
+        #expect(ColorCube.parse("LUT_3D_SIZE 2\n0 0 0") == nil, "a table with entries missing is no table")
+    }
+
+    /// A dark frame with one bright thing in the middle of it, which is the
+    /// only picture halation has anything to say about.
+    private func lamp(_ side: Int) -> UIImage {
+        let size = CGSize(width: side, height: side)
+        let format = UIGraphicsImageRendererFormat.preferred()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: size, format: format).image { context in
+            UIColor.black.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+            UIColor.white.setFill()
+            context.fill(CGRect(
+                x: side * 3 / 8, y: side * 3 / 8, width: side / 4, height: side / 4
+            ))
+        }
+    }
+
+    /// An image's bytes, so that a test can look at one pixel rather than at
+    /// the average of all of them.
+    private struct Sampled {
+        let width: Int
+        let bytes: [UInt8]
+
+        func at(_ x: Int, _ y: Int) -> (red: Double, green: Double, blue: Double) {
+            let base = (y * width + x) * 4
+            return (Double(bytes[base]), Double(bytes[base + 1]), Double(bytes[base + 2]))
+        }
+    }
+
+    private func sampled(_ image: UIImage) -> Sampled {
+        let cg = image.cgImage!
+        var bytes = [UInt8](repeating: 0, count: cg.width * cg.height * 4)
+        let context = CGContext(
+            data: &bytes,
+            width: cg.width,
+            height: cg.height,
+            bitsPerComponent: 8,
+            bytesPerRow: cg.width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+        context.draw(cg, in: CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
+        return Sampled(width: cg.width, bytes: bytes)
+    }
+
+    private func halated(_ image: UIImage) -> UIImage? {
+        guard let cg = image.cgImage,
+              let bloomed = PhotoFilter.halated(CIImage(cgImage: cg)),
+              let rendered = CIContext().createCGImage(
+                bloomed, from: CGRect(x: 0, y: 0, width: cg.width, height: cg.height)
+              )
+        else { return nil }
+        return UIImage(cgImage: rendered)
+    }
+
+    /// Not what the halo looks like — that is taste, and tunable — but that it
+    /// is a halo at all: red rather than white, outside the bright thing
+    /// rather than on it, and gone by the far corner. Every way this can fail
+    /// fails silently: a threshold judged in the wrong colour space blooms the
+    /// whole picture, and a blur over an unclamped extent eats the halo at the
+    /// frame's edge.
+    @Test("A bright source bleeds red into the dark beside it")
+    func halationRingsWhatIsBright() throws {
+        let side = 256
+        let source = lamp(side)
+        let plain = sampled(source)
+        let bloomed = sampled(try #require(halated(source)))
+
+        // Just outside the bright square's right edge, level with its middle.
+        let x = side * 5 / 8 + 4
+        let y = side / 2
+        #expect(plain.at(x, y).red < 2, "the picture is not dark where the halo is looked for")
+
+        let halo = bloomed.at(x, y)
+        #expect(halo.red > 12, "nothing bled out of the bright square")
+        #expect(halo.red > halo.blue * 2, "the halo is not red: \(halo)")
+        #expect(bloomed.at(x + 24, y).red < halo.red, "the halo does not fall off with distance")
+        #expect(bloomed.at(side - 2, 2).red < 2, "the halo reached the far corner")
+    }
+
+    /// One seed, one grain — which is what lets a wiggle keep the same grain
+    /// on a viewpoint every time it comes round, instead of boiling.
+    @Test("Grain is the same for a seed and different between seeds")
+    func grainFollowsItsSeed() {
+        let same = (
+            channels(PhotoFilter.film.apply(to: grey(), grain: 3)),
+            channels(PhotoFilter.film.apply(to: grey(), grain: 3))
+        )
+        #expect(abs(same.0.green - same.1.green) < 0.01, "the same seed gives back the same grain")
+
+        // Averages hide noise, so the difference is looked for pixel by pixel.
+        let first = PhotoFilter.film.apply(to: grey(), grain: 3)
+        let second = PhotoFilter.film.apply(to: grey(), grain: 4)
+        #expect(pixelsDiffer(first, second), "a different seed gives a different grain")
+    }
+
+    /// The bug this is for: a seed that was a step along one shared sequence
+    /// gave the next frame the last frame's grain moved along by a pixel, so
+    /// the grain slid sideways across the picture instead of sparkling.
+    @Test("One seed's grain is no part of another's, at any offset")
+    func grainIsNotTheSameNoiseSlidAlong() {
+        let side = 64
+        let first = PhotoFilter.grainBytes(seed: 11, side: side)
+        let second = PhotoFilter.grainBytes(seed: 12, side: side)
+        #expect(first == PhotoFilter.grainBytes(seed: 11, side: side), "the same seed is the same grain")
+        #expect(first != second)
+
+        // Slid against each other, one way and the other, they must still
+        // look like two different pictures.
+        for shift in 1...8 {
+            for pair in [(first, second), (second, first)] {
+                let overlap = zip(pair.0.dropFirst(shift), pair.1).count { $0 == $1 }
+                let share = Double(overlap) / Double(pair.0.count - shift)
+                #expect(share < 0.2, "shifted by \(shift), \(Int(share * 100))% of the grain matched")
+            }
+        }
+    }
+
+    @Test("Grain is the film look's alone")
+    func grainIsFilmsAlone() {
+        #expect(!pixelsDiffer(PhotoFilter.fade.apply(to: grey(), grain: 1), PhotoFilter.fade.apply(to: grey(), grain: 2)))
+    }
+
+    private func pixelsDiffer(_ first: UIImage, _ second: UIImage) -> Bool {
+        func bytes(_ image: UIImage) -> [UInt8] {
+            let width = Int(image.size.width), height = Int(image.size.height)
+            var pixels = [UInt8](repeating: 0, count: width * height * 4)
+            pixels.withUnsafeMutableBytes { raw in
+                let context = CGContext(
+                    data: raw.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                    bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                )!
+                context.draw(image.cgImage!, in: CGRect(x: 0, y: 0, width: width, height: height))
+            }
+            return pixels
+        }
+        return bytes(first) != bytes(second)
     }
 
     @Test("Every look is offered, and named")
     func allCasesAreNamed() {
-        #expect(PhotoFilter.allCases.first == PhotoFilter.none, "the original comes first")
+        #expect(PhotoFilter.allCases.first == PhotoFilter.film, "the look every capture starts in comes first")
         #expect(Set(PhotoFilter.allCases.map(\.name)).count == PhotoFilter.allCases.count)
         #expect(PhotoFilter.allCases.allSatisfy { !$0.name.isEmpty })
     }

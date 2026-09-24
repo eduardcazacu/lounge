@@ -166,16 +166,16 @@ console.log("\nthe caption box");
 
 console.log("\nthe looks");
 {
-  // Same seven, same names, same order as `PhotoFilter.allCases`.
+  // Same eight, same names, same order as `PhotoFilter.allCases`.
   check(
-    "seven looks, in the iOS order",
-    FILTERS.map((filter) => filter.id).join(",") === "none,vivid,warm,cool,fade,mono,noir",
+    "eight looks, in the iOS order",
+    FILTERS.map((filter) => filter.id).join(",") === "film,none,vivid,warm,cool,fade,mono,noir",
     FILTERS.map((filter) => filter.id)
   );
   check(
     "named as they are on the phone",
     FILTERS.map((filter) => filter.name).join(",") ===
-      "Original,Vivid,Warm,Cool,Fade,Mono,Noir",
+      "Film,Original,Vivid,Warm,Cool,Fade,Mono,Noir",
     FILTERS.map((filter) => filter.name)
   );
 }

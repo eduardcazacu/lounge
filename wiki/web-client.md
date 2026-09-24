@@ -108,7 +108,7 @@ the viewer.
 | `SendToSheet.tsx` | Recent/everyone, several recipients, All behind a confirmation |
 | `InstantViewer.tsx` | Full screen, countdown or playback, report; the one-shot fetch guard |
 | `useOutbox.ts` | Render once, seal per recipient, retry; the send pill's state |
-| `overlay.ts`, `filters.ts` | The caption and drawing geometry, and the seven looks |
+| `overlay.ts`, `filters.ts` | The caption and drawing geometry, and the eight looks |
 | `InstantKeySetup.tsx` | The honest disclosure panel |
 | `SafetyNumberPanel.tsx` | The 12×5-digit number, and a changed-key warning |
 | `moderation.ts`, `ReportSheet.tsx` | Blocking and reporting |
@@ -176,7 +176,7 @@ cd backend && npx tsx ../frontend/scripts/verify-instant-parity.ts
 
 Checks the rules that now exist twice and cannot be seen to differ from either
 client alone: the receipt states, the relative-time phrasing, the caption
-geometry and the names of the seven looks.
+geometry and the names of the eight looks.
 
 ## Themes are a user column, not a CSS theme
 

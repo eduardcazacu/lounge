@@ -201,6 +201,87 @@ darker. Done when a hold begins, it put the blink at the start of every clip.
 `CameraController` configures the microphone and the movie connection when the
 session is built, and a recording changes nothing.
 
+**Depth delivery takes the camera's zoom away.** With
+`isDepthDataDeliveryEnabled` on a photo output, a virtual back camera only
+delivers depth inside `supportedVideoZoomRangesForDepthDataDelivery`, and a
+pinch outside it makes the device reconfigure to drop depth — the preview
+stalls and then jumps to the new zoom when the fingers lift. TrueDepth on the
+front simply stops zooming. Nothing errors. This is why 3D estimates its
+depth instead.
+
+**Core Image filters do not all work in the same space.** `CIToneCurve` reads
+the picture as it is encoded, and a `.cube` is authored that way too — which is
+why it goes through `CIColorCubeWithColorSpace` with sRGB rather than
+`CIColorCube`. The colour matrices and `CIColorControls` work in linear light
+instead. A curve or a table drawn for one and handed to the other lands
+somewhere else entirely, and `CIColorControls.contrast` above 1 pivots about
+linear 0.5 — far brighter than a mid-grey — so it darkens everything below that
+without looking like it should. Nothing errors; the picture is just wrong.
+
+**`CIAdditionCompositing` adds the alpha channel too.** Two opaque images make
+one of alpha two, which is not a thing, and Core Image does not say so. The
+halation glow composited that way brightened flat mid-grey it should have left
+untouched, and the soft-light blend after it — the grain — then rendered the
+whole frame black. `CILinearDodgeBlendMode` is the same arithmetic on the
+colour and leaves alpha where it was, which is what a glow wants.
+
+**`CIRandomGenerator` is premultiplied, and has no seed.** Its noise comes back
+with a random alpha, so blending it lightens a picture instead of graining it,
+and there is no way to ask for the same noise twice — which film grain on a
+looping wiggle needs. The film look makes its own tile from a seeded generator
+instead. A grain tile also has to be built in a *linear* grey space: in a
+gamma-encoded one its middle value reads as a fifth of the way up, and soft
+light darkens the whole picture by it.
+
+**A killed build leaves a build database that believes everything is done.**
+Interrupt `xcodebuild` and the next run can compile nothing at all — no error,
+`** TEST SUCCEEDED **`, and the tests that run are the ones from before the
+edit. A new test file is simply absent from the run. The `✔ Test run with N
+tests` line is the only thing that shows it, which is why it is worth reading
+every time; the cure is `rm -rf <DerivedData>/Build/Intermediates.noindex/XCBuildData`,
+and `touch` on the source does not help.
+
+**Vision's segmentation does not run in the Simulator.** The person, subject
+and person-segmentation requests all fail there — "Could not create inference
+context", or "E5RT is not supported" — so 3D silently renders by its depth
+map alone and the layering is never exercised. Face detection answers
+nothing too. The same requests are fine on a device and on the Mac's own
+Vision, which is how the masks in `ParallaxTests` were checked.
+
+**Vision hands back a person and, separately, their head.** Kept as two
+layers, they grow about different middles and travel at slightly different
+speeds, and the outline looks like the subject twice. `VisionSubjectMasker`
+keeps the biggest and drops any mask that is already most of one it kept.
+
+**A mask's confidence is 1.0 even when the mask is nonsense.** Asked for the
+people in a photo of a houseplant, `GeneratePersonInstanceMaskRequest`
+answers one instance at confidence 1.0, and the mask is a scatter of
+half-claimed leaves. Only the mask itself tells the good answer from the bad:
+`SubjectMask.decisiveness`, judged before any sharpening, since sharpening
+makes anything look decisive.
+
+**A depth map has no outline, and a slanted subject reads as an edge.** An
+estimated map's edges are ramps several pixels wide that sit a little off the
+true one, and the depth across a body leaning towards the camera changes as
+much as the depth across a real edge does. Nothing errors: the subject comes
+out cut into flat terraces with torn edges. 3D takes its outlines from
+Vision's masks and only falls back to the map where Vision finds nothing.
+
+**Red is the low byte of a pixel, and the byte Core Graphics does not use is
+the top one.** A bitmap made with `noneSkipLast` and read back as `UInt32`
+gives red in bits 0–7, green in 8–15, blue in 16–23 and the unused byte in
+24–31 — the opposite way round from how the flags read. Composite with the
+wrong end and every colour rotates a channel: black eyes come out red and the
+picture changes hue, with nothing to say why. `ParallaxRenderer.red`,
+`green`, `blue` and `coverage` are the only things that take a pixel apart.
+
+**Core ML on the Simulator's GPU can answer with zeros.** Depth Anything run
+with `computeUnits = .all` on the Simulator returns a map of all zeros, with
+no error, and the same model is fine on the Mac's own Core ML. A flat map is a
+3D clip in which nothing moves. `DepthEstimator` runs CPU-only on the
+Simulator, and its test fails on a flat map, since every other check passes
+one.
+
 **Haptics are silent while the audio session records.** iOS drops them
 without an error, and with the microphone on the capture session for as long
 as the camera is open, that is all the time — the tap that says a clip has

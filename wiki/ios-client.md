@@ -11,7 +11,8 @@ Enclave. See [product.md](product.md).
 iPhone only (`TARGETED_DEVICE_FAMILY = 1`) — the camera and the pager are
 phone-shaped, and a portrait-only app declaring iPad support fails App Store
 validation. iPads still run it in compatibility mode. Deployment target iOS
-18.0, Swift 6. Sole SPM dependency is libwebp.
+18.0, Swift 6. Sole SPM dependency is libwebp; the one bundled model is Depth
+Anything V2 Small, for 3D.
 
 Points at `https://api.lounge.eduardcazacu.com` by default; switch
 `AppEnvironment.live()` to `.localWorker` to run against `npm run dev:worker`.
@@ -133,8 +134,18 @@ discarded or once encoded, and the directory is emptied at launch and sign-out.
 
 ## Filters
 
-`PhotoFilter` is seven looks — original, vivid, warm, cool, fade, mono, noir —
-each a fixed Core Image chain. They are chosen on the compose screen, **after**
+`PhotoFilter` is eight looks — film, original, vivid, warm, cool, fade, mono,
+noir — each a fixed Core Image chain. **Film is where every capture starts**,
+and is first in the strip: a warm portrait negative, and grain. The grading is
+a `.cube` lookup table measured off the stock
+(`Instant/Resources/kodak_portra_400.cube`, read by `ColorCube`), not a curve
+and a couple of matrices leaning in roughly its direction — a film emulation
+is a measurement, and a table says it in one step with no intermediate stage
+to go wrong in the wrong colour space. What the look *is* is nobody's
+business but whoever chose the table: the tests check that it ships and that
+it is applied, not what it does to a grey. It is drawn
+when the compose screen appears rather than in `ComposeModel.init`, which runs
+inside the black the shutter holds up. They are chosen on the compose screen, **after**
 the shot, and that is a property of the preview rather than a preference:
 `AVCaptureVideoPreviewLayer` draws buffers the capture system hands it directly,
 with nowhere to hang a `CIFilter`, so a filtered viewfinder would mean replacing
@@ -151,6 +162,43 @@ shows. The full-resolution render happens once, in the outbox, after the
 compose screen has closed. Nothing in the chains
 measures the photo, so the thumbnail in the strip and the frame that goes on the
 wire are one transform at two resolutions.
+
+**Two of Core Image's spaces, in one chain.** A `.cube` is authored against
+the picture as it is encoded, so it is applied with
+`CIColorCubeWithColorSpace` in sRGB; the colour matrices, `CIColorControls`
+and the blends all work in linear light instead, where "contrast" pivots about
+a value far brighter than a mid-grey and quietly drags everything below it
+down. See [gotchas.md](gotchas.md).
+
+**Halation is the red around a bright thing.** On film, light that got through
+the emulsion reflects off the back of the base and exposes the picture a second
+time from behind, spread out by the trip and reddest by the end of it, which is
+why a window on Portra has a warm ring and a digital highlight has a hard edge.
+`PhotoFilter.halated` is that: everything above a threshold, tinted red, blurred
+and added back. Its reach and its strength are `halationSize` — a fraction of
+the frame's width, so the strip's thumbnail blooms like the frame on the wire —
+and `halationStrength`, beside the grain's two constants and tuned the same way.
+
+**The threshold is high on purpose** (`halationThreshold`, in linear light). A
+bright *surface* — a white wall, an overcast sky — passes a low threshold across
+the whole of itself, and a blur over something uniform has no edge to work with,
+so nothing glows and the wall simply turns pink. At 0.88 what is left is lamps,
+windows and speculars, which is what haloes on film.
+
+**The grain is made, not photographed.** A seeded tile of noise, tiled over the
+frame and blended in soft light so that it leans either side of the middle
+rather than adding to it — a mid-grey comes out a mid-grey and the picture
+keeps its exposure. `CIRandomGenerator` is not used: it takes no seed, and the
+noise it hands back is premultiplied with a random alpha, which lightens a
+picture rather than graining it.
+
+**A wiggle gets one grain per viewpoint, not one per frame**
+(`VideoPipeline.GrainSeeding`). Its four viewpoints are shown over and over;
+grain that changed every frame would boil on a picture that is otherwise still,
+and would spend the encoder's whole bitrate on noise nobody asked for. The seed
+is the viewpoint (`ParallaxRenderer.viewIndex(atFrame:)`), so the grain on a
+viewpoint is the same in every loop. A recording gets a new grain every frame,
+which is what film does.
 
 ## Captions
 
@@ -257,6 +305,195 @@ tracking playback; Loop stays until tapped. The sensitivity check sees the
 first and the middle frame, and a report attaches the frame it was paused on.
 The model reaches the player through `VideoPlaying`, so its rules are tested
 against `StubVideoPlayback`.
+
+## 3D
+
+Every photo has a **3D** button in the rail. It renders a Nishika-style
+wiggle: four viewpoints a little apart, played 1-2-3-4-3-2 at a tenth of a
+second each, eight cycles to 4.8 s (`ParallaxRenderer`).
+
+**Depth is estimated, not measured.** `DepthEstimator` runs Depth Anything V2
+Small, Apple's Core ML conversion, on the photo after it is taken. The camera
+could measure depth, but a capture device delivering it restricts its own
+zoom — see [decisions.md](decisions.md). The model's input is a fixed
+landscape 518×392, so a portrait photo is letterboxed into it upright rather
+than stretched or turned, and only its part of the answer is read back. The
+model loads on the first 3D tap, not at launch. It is Apache-2.0, and ships
+with its licence and attribution beside it in `Instant/Resources`.
+
+**Where the subject is comes from Vision, not from the depth.** The depth map
+knows roughly how far away things are; it does not know where a person ends.
+Its edges are ramps a few pixels wide, they sit a little off the true outline,
+and a body leaning towards the camera reads to it as a depth edge — which cut
+slanted people into terraces and glitched along their outlines.
+`VisionSubjectMasker` asks for the subject mask per instance, falling back to
+the person mask, and the renderer cuts the picture into layers at those
+outlines instead (`layers`). Vision finding nothing falls back to reading the
+outline out of the depth map, which is what the `stepped` and `besideNearer`
+passes below still do.
+
+The subject request comes first even though people are what get sent: on a
+photo of a person it finds the same person with a far cleaner outline, where
+the person request's edge is a wide wispy ramp that composites as a halo.
+Neither is trusted on its word — both answer a photo of a houseplant with
+"one instance, confidence 1.0" — so a mask is kept only if it is
+`decisive`: mostly claimed outright rather than a scatter of half-claims,
+which is exactly what a wrong answer looks like. Vision scales its masks up
+from something smaller, so the kept one is `sharpened` about the halfway mark
+before use; left as it came, pixels that are wholly subject are half
+transparent and the subject wears a bright outline of the wall behind it.
+
+**The wiggle turns about the face.** `DetectFaceRectanglesRequest` runs
+alongside, and a face inside a mask becomes that layer's `focus` — the key
+plane is then the face's own depth, so it is the face that holds still and
+the feet that swing. A face found in a painting on the wall belongs to no
+mask and is ignored. With no face, the key is the subject's near side.
+
+**Every layer is warped on its own and composited back to front.** A layer
+carries its own alpha — what share of each pixel is its — premultiplied, so
+its edge is a matte rather than a cut and a half-covered pixel of hair is half
+of each. Its rim colour has the background taken back out of it first
+(`matted`): a pixel on an outline is already part subject and part wall, and
+laying it over a wall again counts the wall twice. Inside a layer the depth is
+left exactly as measured, however slanted, so a reaching arm still moves
+further than the shoulder behind it; snapping happens only where layers meet,
+which is where a real edge is.
+
+**Every pixel of a layer travels at that layer's speed, its rim most of all.**
+The depth map's outline is not the mask's, so the half-covered pixels at an
+edge hold the wall's depth. Left that way they move at the wall's speed and
+trail a few pixels behind the subject — which is seen as a second copy of the
+outline, slightly larger, wiggling out of step with the first. They take the
+subject's own local depth from just inside the outline instead, so a slanted
+subject keeps its slant right out to its edge. For the same reason the subject
+claims a pixel beyond its mask: what is left half-claimed is drawn as part
+subject and part *invented* background, and the invention is never quite the
+wall that was really behind the hair. A
+subject closes only the cracks its own stretching opens (`widestCrack`, a
+fraction of the width — a crack is as wide as the move that opened it, where
+the daylight between an arm and a body is not) and leaves its edges to the
+layer behind it, which is what is actually there. Nothing is ever sampled
+across a layer's own edge: blended with the nothing beyond it, a layer fades
+out over its last pixel and lets what is behind show through the seam.
+
+**The subject stands still, and what is nearer than it swings hardest.** Each
+view moves a pixel sideways by how far its disparity is from the subject's,
+not by its disparity, so the subject lines up in every frame and the rest
+swings around it — the background one way, anything nearer the other. A lens
+moving sideways shifts what it sees by the difference in *disparity*, and
+disparity is one over distance: a hand at arm's length is as far in front of
+a face as the face is in front of the far wall, so on a Nishika it swings
+about as far as the wall does. An estimated map does not keep those
+proportions, spending most of its range on the scene and crowding everything
+close to the lens into the top of it, so `nearBoost` stretches the near half
+of it back out. The subject is the biggest masked layer's face, or
+its near side, or — with no masks — the near side of the middle of the frame
+(`keyDisparity`).
+
+**Without masks, edges are steps.** An estimated map's edges are ramps, and a pixel on a
+ramp moves by an amount between the subject's and the wall's, so straight
+lines in the background bent as they approached the subject. After the map is
+upsampled along the photo's own edges (`CIEdgePreserveUpsampleFilter`),
+`stepped` snaps every pixel within reach of a real depth edge to its near or
+far side, and leaves gentle slopes — a floor, a wall going away — alone. The
+cut sits a little towards far, so the outer ring of hair goes with the head.
+Each pixel is then sampled at its exact fractional source position, since a
+slope's gradual move rounded to whole pixels is a staircase down every
+vertical edge.
+
+**The nearer a layer stands, the more it is enlarged.** As Apple's spatial
+scenes do, near layers are drawn a little larger in every view
+so a layer already covers most of the band beside it that the moving
+viewpoint uncovers, and less has to be invented. Each grows by how far it
+stands in front of whatever its outline has behind it — a masked subject by
+the jump across its own mask, a depth-only layer by the jump across its edges
+(`growingLayers`): a head against a far wall grows by most of `maxGrowth`, a
+hand held up to that face by little, and the background not at all. The band a viewpoint uncovers is
+itself as wide as that jump, so the growth is the size of the problem it
+solves.
+
+Each layer grows about its own middle, never about one shared centre: grown
+about the subject's, a hand off to one side would also be pushed outwards and
+uncover a strip along its inner side. Two layers that meet smoothly and both
+grow are merged and grow as one, or a face split in two by its own relief
+would open a seam down the nose. A surface fading into the distance — a floor
+running from under the subject to the back wall — is outlined nowhere, so its
+jump is nothing and it keeps its size, as does the background: its lines stay
+straight and the right length.
+
+**A lens that does not quite agree with itself.** Each view is drawn with its
+red and blue pulled a pixel apart sideways (`split`). Real glass does this
+mildly, and it is on purpose here: the warp moves pixels in whole steps, so
+what it leaves along an outline is a hard stair, and a soft colour edge over
+that stair is what the eye reads instead of the steps. Sideways only, because
+sideways is the way the cut lines run.
+
+**Gaps are filled from behind.** Moving the viewpoint uncovers slivers beside
+every near edge. Each is filled with the background beside it mirrored back
+in, from whichever side of the gap is farther away: filling from the subject
+would smear it into the wall. Mirrored rather than slid along, and each half
+of a wide gap from its own edge — a gap can be as wide as a person, and the
+only part of one anybody ever sees is where it meets the subject.
+
+**Without masks, the wall right beside the subject is not moved at all.** The pixels on an
+outline are part subject, part wall, and the estimate can miss the true
+outline by a few. Any of them given the wall's depth slid away with the wall
+carrying the subject's colour — a faint copy of the outline floating a few
+pixels off the subject. So background within `edgeBand` of anything nearer
+is dropped from every view (`besideNearer`) and filled like any other gap,
+from clean background farther out. With a mask there is no guessing: the
+background gives up every pixel the mask touches and a `maskSkirt` around it.
+That width is a balance measured on photographs — too narrow and the wisps of
+hair the sharpening cut off stay in the background and double the outline;
+too wide and the whole band around the subject is invented wall with an edge
+of its own.
+
+**The frame's own edge is cropped out rather than invented.** Anything moving
+inwards uncovers the edge of the photograph, and a thing close to the lens at
+the side of the frame — a hand holding the phone for a selfie — moves the
+furthest of all, so what it uncovers is a strip of made-up picture where its
+own edge used to be. Every view is enlarged by exactly the largest move in it
+(`edgeMargin`, `zoomed`), which puts that strip outside the picture and costs
+a couple of percent of the frame. It is measured rather than fixed, so a photo
+where nothing moves much gives up nothing, and `maxMargin` caps what the
+wildest depth map can ask for.
+
+**Once rendered, it is a clip.** The result is a silent `.mov` in
+`CaptureScratch`, and compose treats it as it treats a recording: the player,
+filters per frame, captions and drawing, Once and Loop, and the same encode
+and seal. Nothing on the wire changes. The duration switches family with the
+button and each family is remembered on its own, so a Loop never becomes a
+photo's duration. The render is kept, so turning 3D off and on again is free;
+a render nobody sent is deleted when compose closes.
+
+**The loop has no seam.** The clip ends on view 2 rather than 1, so looping
+back to view 1 is an ordinary step, and the file ends exactly on its last
+frame. Sent as Once, it still wiggles eight times before it closes.
+
+## Keeping a copy
+
+The arrow in the rail puts the capture in the person's own photo library,
+composed exactly as it would be sent: the look, the drawing and the captions
+already in the pixels, and a 3D photo as its clip
+(`ComposeModel.save`, `PhotoLibrary.swift`). A photo goes over as a `UIImage`
+for Photos to store at full size, rather than as the WebP the wire gets, which
+is squeezed to a quarter of a megabyte for a screen it will be looked at on
+once. A clip goes over as the file that would be sent.
+
+**The send and the save render the same pixels**, from `InstantDraft`'s
+`composedPhoto` and `composedVideo`. The save leaves the recording where it
+is: the outbox owns that file and deletes it once a send has encoded it, and
+a save must not take it out from under a send that has not happened yet.
+
+**Add-only permission**, asked for on the first save
+(`NSPhotoLibraryAddUsageDescription`). It is all saving needs, and unlike the
+library the picker reads, it grants no sight of a single photo the person has
+not handed over.
+
+The button shows a tick once the copy is there, and takes it back the moment
+anything changes the picture — a tick that outlived the photo it was about
+would be a lie. There is no such button in the viewer: an instant you were
+sent expires, and that is the whole promise.
 
 ## Sending
 

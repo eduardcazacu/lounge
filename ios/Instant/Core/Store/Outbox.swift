@@ -25,6 +25,9 @@ public struct InstantDraft: Sendable {
     public let duration: InstantDurationMode
     /// A clip's sound. Ignored for a photo.
     public let includesSound: Bool
+    /// Where the film grain comes from, which is not the same for a
+    /// recording as for a wiggle. See `VideoPipeline.GrainSeeding`.
+    public let grain: VideoPipeline.GrainSeeding
 
     public init(
         media: Media,
@@ -32,7 +35,8 @@ public struct InstantDraft: Sendable {
         strokes: [OverlayCompositor.Stroke] = [],
         captions: [OverlayCompositor.Caption],
         duration: InstantDurationMode,
-        includesSound: Bool = true
+        includesSound: Bool = true,
+        grain: VideoPipeline.GrainSeeding = .perFrame
     ) {
         self.media = media
         self.filter = filter
@@ -40,6 +44,7 @@ public struct InstantDraft: Sendable {
         self.captions = captions
         self.duration = duration
         self.includesSound = includesSound
+        self.grain = grain
     }
 
     public init(
@@ -54,6 +59,34 @@ public struct InstantDraft: Sendable {
 
     var clip: RecordedClip? {
         if case .video(let clip) = media { clip } else { nil }
+    }
+
+    /// The photo with every choice made about it already in its pixels: the
+    /// look, then the drawing, then the captions. What the recipient sees,
+    /// and — saved to the library — what the sender keeps.
+    var composedPhoto: UIImage? {
+        guard case .photo(let image) = media else { return nil }
+        return OverlayCompositor.composite(
+            image: filter.apply(to: image),
+            strokes: strokes,
+            captions: captions
+        )
+    }
+
+    /// The clip, encoded with the same three applied per frame. It leaves the
+    /// recording where it is: the outbox owns that file and deletes it when
+    /// the send is done with it, and a save must not take it out from under
+    /// a send that has not happened yet.
+    func composedVideo() async throws -> Data {
+        guard let clip else { throw ImagePipeline.PipelineError.noDimensions }
+        return try await VideoPipeline.encode(
+            clip,
+            filter: filter,
+            strokes: strokes,
+            captions: captions,
+            includesSound: includesSound,
+            grain: grain
+        )
     }
 }
 
@@ -551,23 +584,14 @@ public final class Outbox {
     /// retry reuses the encoded bytes.
     nonisolated static func render(_ draft: InstantDraft) async throws -> RenderedMedia {
         switch draft.media {
-        case .photo(let image):
-            let flattened = OverlayCompositor.composite(
-                image: draft.filter.apply(to: image),
-                strokes: draft.strokes,
-                captions: draft.captions
-            )
+        case .photo:
+            guard let flattened = draft.composedPhoto else {
+                throw ImagePipeline.PipelineError.noDimensions
+            }
             return RenderedMedia(data: try ImagePipeline.encode(flattened), mediaType: PendingSend.photoMediaType)
         case .video(let clip):
             defer { CaptureScratch.remove(clip.url) }
-            let data = try await VideoPipeline.encode(
-                clip,
-                filter: draft.filter,
-                strokes: draft.strokes,
-                captions: draft.captions,
-                includesSound: draft.includesSound
-            )
-            return RenderedMedia(data: data, mediaType: VideoPipeline.mediaType)
+            return RenderedMedia(data: try await draft.composedVideo(), mediaType: VideoPipeline.mediaType)
         }
     }
 

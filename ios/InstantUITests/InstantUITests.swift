@@ -43,6 +43,13 @@ final class InstantUITests: XCTestCase {
         wait(for: [matched], timeout: timeout)
     }
 
+    private func waitForValue(_ element: XCUIElement, _ expected: String, timeout: TimeInterval = 30) {
+        let matched = expectation(
+            for: NSPredicate(format: "value == %@", expected), evaluatedWith: element
+        )
+        wait(for: [matched], timeout: timeout)
+    }
+
     /// Settings is a `Form`; the device and account rows sit below the fold, so
     /// they are not in the hierarchy until scrolled to.
     @discardableResult
@@ -798,7 +805,7 @@ final class InstantUITests: XCTestCase {
 
         let filters = app.buttons["compose.filters"]
         XCTAssertTrue(filters.waitForExistence(timeout: 15))
-        XCTAssertEqual(filters.value as? String, "Original")
+        XCTAssertEqual(filters.value as? String, "Film", "which is the look every capture starts in")
         filters.tap()
 
         let mono = app.buttons["compose.filter.mono"]
@@ -967,6 +974,7 @@ final class InstantUITests: XCTestCase {
         XCTAssertTrue(app.buttons["compose.caption"].exists)
         XCTAssertTrue(app.buttons["compose.draw"].exists)
         XCTAssertTrue(app.buttons["compose.filters"].exists)
+        XCTAssertFalse(app.buttons["compose.parallax"].exists, "a clip already moves")
 
         app.buttons["compose.discard"].tap()
         XCTAssertTrue(shutter.waitForExistence(timeout: 30))
@@ -976,6 +984,59 @@ final class InstantUITests: XCTestCase {
         XCTAssertTrue(app.images["compose.preview"].waitForExistence(timeout: 30))
         XCTAssertEqual(app.buttons["compose.duration"].value as? String, "5s")
         XCTAssertFalse(app.buttons["compose.sound"].exists, "a photo has no sound to turn off")
+    }
+
+    /// The depth estimate and the render behind the button are the real ones,
+    /// on the Simulator's CPU.
+    func testThe3DButtonTurnsAPhotoIntoALoopingClipAndBack() {
+        let app = launch(signedIn: true)
+        let shutter = app.buttons["camera.shutter"]
+        XCTAssertTrue(shutter.waitForExistence(timeout: 30))
+        shutter.tap()
+
+        XCTAssertTrue(app.images["compose.preview"].waitForExistence(timeout: 30))
+        let threeD = app.buttons["compose.parallax"]
+        XCTAssertTrue(threeD.waitForExistence(timeout: 10))
+        XCTAssertEqual(threeD.value as? String, "off")
+        threeD.tap()
+
+        // The render is real, and the Simulator is slow at it.
+        let clip = app.descendants(matching: .any)["compose.video"]
+        XCTAssertTrue(clip.waitForExistence(timeout: 60))
+        XCTAssertEqual(threeD.value as? String, "on")
+        XCTAssertEqual(app.buttons["compose.duration"].value as? String, "once", "it plays like a clip")
+        XCTAssertFalse(app.buttons["compose.sound"].exists, "four stills have no sound")
+
+        threeD.tap()
+        XCTAssertTrue(app.images["compose.preview"].waitForExistence(timeout: 10))
+        XCTAssertEqual(app.buttons["compose.duration"].value as? String, "5s")
+    }
+
+    /// The stubbed launch saves to a stand-in library: a real one would put a
+    /// permission prompt in front of the test, and nothing would tap it.
+    func testSavingACopyToPhotos() {
+        let app = launch(signedIn: true)
+        let shutter = app.buttons["camera.shutter"]
+        XCTAssertTrue(shutter.waitForExistence(timeout: 30))
+        shutter.tap()
+        XCTAssertTrue(app.images["compose.preview"].waitForExistence(timeout: 30))
+
+        let save = app.buttons["compose.save"]
+        XCTAssertTrue(save.waitForExistence(timeout: 10))
+        XCTAssertEqual(save.value as? String, "not saved")
+        save.tap()
+        waitForValue(save, "saved")
+
+        // The photo is still there to send afterwards.
+        XCTAssertTrue(app.buttons["compose.sendTo"].isHittable)
+
+        // And a change to the picture takes the tick back: what was saved is
+        // no longer what is on screen.
+        app.buttons["compose.filters"].tap()
+        let strip = app.descendants(matching: .any)["compose.filterStrip"]
+        XCTAssertTrue(strip.waitForExistence(timeout: 10))
+        strip.buttons.element(boundBy: 2).tap()
+        waitForValue(save, "not saved")
     }
 
     func testARecordedClipSends() {

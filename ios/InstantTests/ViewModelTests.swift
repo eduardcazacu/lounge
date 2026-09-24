@@ -574,6 +574,120 @@ struct CameraZoomTests {
 }
 
 @MainActor
+@Suite("Saving a copy to Photos")
+struct ComposeSaveTests {
+    private func photo(width: CGFloat = 60, height: CGFloat = 40) -> UIImage {
+        let format = UIGraphicsImageRendererFormat.preferred()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: CGSize(width: width, height: height), format: format).image { context in
+            UIColor.systemRed.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        }
+    }
+
+    private func red(of image: UIImage) -> Int {
+        var pixel = [UInt8](repeating: 0, count: 4)
+        let context = CGContext(
+            data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+        context.draw(image.cgImage!, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        return Int(pixel[0])
+    }
+
+    /// What is kept is what would be sent: the look, the drawing and the
+    /// captions already in the pixels, not the photo as it came off the
+    /// shutter.
+    @Test("A photo is saved composed, at the size it was")
+    func savesComposedPhoto() async throws {
+        let library = StubPhotoLibrary()
+        let original = photo()
+        let model = ComposeModel(capture: .photo(original), photos: library)
+        model.select(.mono)
+        model.addCaption(at: OverlayCompositor.Placement(x: 0.5, y: 0.5))
+
+        model.save()
+        #expect(model.saveState == .saving)
+        await model.saveWork?.value
+
+        #expect(model.saveState == .saved)
+        guard case .photo(let saved) = library.saved.first else {
+            Issue.record("expected a photo")
+            return
+        }
+        #expect(saved.size == original.size)
+        #expect(red(of: original) > 200, "the photo itself is red")
+        #expect(red(of: saved) < red(of: original) - 50, "and the saved copy carries the look")
+    }
+
+    @Test("A clip is saved as video, and is still there to send afterwards")
+    func savesClip() async throws {
+        let url = CaptureScratch.newURL(pathExtension: "mov")
+        try await StillClipWriter.write(photo(width: 90, height: 160), duration: 0.3, to: url)
+        let clip = try await RecordedClip.load(from: url)
+        defer { CaptureScratch.remove(url) }
+        let library = StubPhotoLibrary()
+        let model = ComposeModel(capture: .video(clip), photos: library)
+
+        model.save()
+        await model.saveWork?.value
+
+        #expect(model.saveState == .saved)
+        guard case .video(let data) = library.saved.first else {
+            Issue.record("expected a video")
+            return
+        }
+        #expect(data.count > 0)
+        #expect(
+            FileManager.default.fileExists(atPath: clip.url.path),
+            "a save must not take the recording from under a send that has not happened yet"
+        )
+    }
+
+    @Test("A refused library says so, and the tick does not appear")
+    func refused() async {
+        let library = StubPhotoLibrary(error: PhotoLibraryError.refused)
+        let model = ComposeModel(capture: .photo(photo()), photos: library)
+
+        model.save()
+        await model.saveWork?.value
+
+        #expect(model.saveState == .failed("Instant needs permission to add to your photos."))
+        #expect(model.saveValue.contains("permission"))
+        #expect(library.saved.isEmpty)
+    }
+
+    /// The tick says "what is on screen is in your library", so anything that
+    /// changes the picture has to take it back.
+    @Test("Changing the picture after a save clears the tick")
+    func changingClearsTheTick() async {
+        let model = ComposeModel(capture: .photo(photo()), photos: StubPhotoLibrary())
+        model.save()
+        await model.saveWork?.value
+        #expect(model.saveState == .saved)
+
+        model.select(.vivid)
+        #expect(model.saveState == .idle)
+
+        model.save()
+        await model.saveWork?.value
+        model.beginStroke(at: CGPoint(x: 0.5, y: 0.5))
+        #expect(model.saveState == .idle)
+    }
+
+    @Test("Tapping twice while it is saving saves once")
+    func onlyOnce() async {
+        let library = StubPhotoLibrary()
+        let model = ComposeModel(capture: .photo(photo()), photos: library)
+        model.save()
+        model.save()
+        await model.saveWork?.value
+        #expect(library.saved.count == 1)
+    }
+}
+
+@MainActor
 @Suite("Compose")
 struct ComposeModelTests {
     private func photo(width: CGFloat = 200, height: CGFloat = 300) -> UIImage {
@@ -588,7 +702,7 @@ struct ComposeModelTests {
     @Test("Choosing a filter republishes the preview")
     func filterPublishesPreview() {
         let model = ComposeModel(image: photo())
-        #expect(model.filter == .none)
+        #expect(model.filter == .film, "every capture starts in the film look")
         let original = model.preview
 
         let probe = ObservationProbe()
@@ -644,7 +758,9 @@ struct ComposeModelTests {
 
         #expect(model.preview === original, "the photo is shown as it arrived")
         #expect(model.filterThumbnails.isEmpty, "the strip is built when it is opened")
-        #expect(model.filter == .none)
+        // The look is chosen but not yet drawn: `init` runs inside the black
+        // the shutter holds up, and the screen asks for it once it is up.
+        #expect(model.filter == .film)
     }
 
     /// The strip is built once, however many times it is opened.
