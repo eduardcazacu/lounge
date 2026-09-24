@@ -79,9 +79,11 @@ public enum PhotoFilter: String, CaseIterable, Identifiable, Sendable {
             // Colour negative film of the warm portrait sort, as a lookup
             // table somebody measured off the stock rather than a curve and
             // a couple of matrices leaning in roughly its direction. Then the
-            // grain, which is most of why it reads as film at all.
+            // halation around whatever is bright, and then the grain, which is
+            // most of why it reads as film at all.
             let graded = Self.stock?.apply(to: input) ?? input
-            return Self.grained(graded, seed: seed)
+            guard let bloomed = Self.halated(graded) else { return nil }
+            return Self.grained(bloomed, seed: seed)
         case .vivid:
             // Vibrance before saturation: it leaves already-saturated colour
             // alone, so skin does not go orange on the way to a brighter sky.
@@ -112,6 +114,104 @@ public enum PhotoFilter: String, CaseIterable, Identifiable, Sendable {
     /// The stock the film look is of, read once out of the app's resources.
     /// See `ColorCube`.
     static let stock = ColorCube.named("kodak_portra_400")
+
+    /// How far the halo reaches, as a fraction of the frame's width — so a
+    /// thumbnail in the strip blooms by as much of itself as the frame on the
+    /// wire does, rather than by the same number of pixels.
+    static let halationSize: CGFloat = 0.025
+    /// How much of the halo is added back on top of the picture.
+    static let halationStrength: CGFloat = 0.7
+    /// How bright a thing has to be before it blooms, in linear light — which
+    /// is about 0.95 of the way up the picture as you see it, so a lamp, a
+    /// window or a specular hit, and not a white wall. Lower than this and a
+    /// big bright surface passes the threshold across the whole of itself,
+    /// where a blur has no edge to work with: the wall does not glow, it just
+    /// turns pink.
+    static let halationThreshold: CGFloat = 0.88
+    /// What it comes back as. Red is nearly all of it: red light is what
+    /// reaches the back of the base and returns through the emulsion.
+    static let halationTint = (red: CGFloat(1), green: CGFloat(0.22), blue: CGFloat(0.08))
+
+    /// The red bleed around a bright source.
+    ///
+    /// On film this is light that went through the emulsion, reflected off the
+    /// back of the base and exposed the picture a second time from behind,
+    /// spread out by the trip. It survives reddest because red penetrates
+    /// furthest and the anti-halation backing absorbs it least, which is why a
+    /// street light on Portra has a warm ring and a hard digital highlight has
+    /// nothing.
+    ///
+    /// Core Image works in linear light, which is the trap everywhere else in
+    /// this file and exactly right here: light adds, so a threshold, a blur and
+    /// an addition are all the arithmetic the physical thing does. The picture
+    /// as it is encoded would spread the glow by the wrong amount and grey it.
+    ///
+    /// It goes on after the grade, not before. Halation happens in the negative
+    /// and the table is a measurement of the print, so the physical order is
+    /// the other way round — but a table that has already rolled the highlights
+    /// would grade the halo too, and the red we asked for would come back as
+    /// whatever the stock does to red. Tunable and predictable beats
+    /// chronological.
+    static func halated(_ input: CIImage) -> CIImage? {
+        let extent = input.extent
+        guard !extent.isInfinite, extent.width > 1, extent.height > 1,
+              halationStrength > 0, halationSize > 0
+        else { return input }
+
+        // Everything above the threshold, rescaled so that the threshold is
+        // nothing and white is all of it. Judged on brightness rather than per
+        // channel, so a saturated blue light blooms like any other light —
+        // what scatters is the light, not one of its channels.
+        let gain = 1 / max(1 - halationThreshold, 0.01)
+        let knee = CIFilter.colorMatrix()
+        knee.inputImage = input
+        let luma = CIVector(x: 0.2126 * gain, y: 0.7152 * gain, z: 0.0722 * gain, w: 0)
+        knee.rVector = luma
+        knee.gVector = luma
+        knee.bVector = luma
+        knee.aVector = CIVector(x: 0, y: 0, z: 0, w: 1)
+        knee.biasVector = CIVector(
+            x: -halationThreshold * gain,
+            y: -halationThreshold * gain,
+            z: -halationThreshold * gain,
+            w: 0
+        )
+        guard let above = knee.outputImage else { return input }
+
+        // Clamped before the tint, so that everything darker than the
+        // threshold is nothing at all rather than a negative that the blur
+        // would then smear as a hole.
+        let clamp = CIFilter.colorClamp()
+        clamp.inputImage = above
+        clamp.minComponents = CIVector(x: 0, y: 0, z: 0, w: 0)
+        clamp.maxComponents = CIVector(x: 1, y: 1, z: 1, w: 1)
+        guard let sources = clamp.outputImage else { return input }
+
+        let tint = CIFilter.colorMatrix()
+        tint.inputImage = sources
+        tint.rVector = CIVector(x: halationTint.red * halationStrength, y: 0, z: 0, w: 0)
+        tint.gVector = CIVector(x: 0, y: halationTint.green * halationStrength, z: 0, w: 0)
+        tint.bVector = CIVector(x: 0, y: 0, z: halationTint.blue * halationStrength, w: 0)
+        tint.aVector = CIVector(x: 0, y: 0, z: 0, w: 1)
+        guard let coloured = tint.outputImage else { return input }
+
+        let blur = CIFilter.gaussianBlur()
+        // Clamped to the extent first, or the blur mixes the glow with the
+        // nothing outside the frame and a bright edge loses half its halo.
+        blur.inputImage = coloured.clampedToExtent()
+        blur.radius = Float(max(halationSize * extent.width, 0.5))
+        guard let spread = blur.outputImage?.cropped(to: extent) else { return input }
+
+        // Linear dodge, which is addition as a blend mode — and not
+        // `CIAdditionCompositing`, which adds the alpha channel along with the
+        // colour. Two opaque images make one of alpha two, which brightens
+        // what it was supposed to leave alone and hands the grain after it a
+        // picture it renders black. Nothing about that says so.
+        let add = CIFilter.linearDodgeBlendMode()
+        add.inputImage = spread
+        add.backgroundImage = input
+        return add.outputImage?.cropped(to: extent) ?? input
+    }
 
     /// How coarse the grain is, in pixels of a 1080-wide frame: finer than
     /// this and the encoder throws most of it away.

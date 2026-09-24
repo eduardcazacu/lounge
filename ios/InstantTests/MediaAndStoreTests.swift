@@ -151,6 +151,85 @@ struct PhotoFilterTests {
         #expect(ColorCube.parse("LUT_3D_SIZE 2\n0 0 0") == nil, "a table with entries missing is no table")
     }
 
+    /// A dark frame with one bright thing in the middle of it, which is the
+    /// only picture halation has anything to say about.
+    private func lamp(_ side: Int) -> UIImage {
+        let size = CGSize(width: side, height: side)
+        let format = UIGraphicsImageRendererFormat.preferred()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: size, format: format).image { context in
+            UIColor.black.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+            UIColor.white.setFill()
+            context.fill(CGRect(
+                x: side * 3 / 8, y: side * 3 / 8, width: side / 4, height: side / 4
+            ))
+        }
+    }
+
+    /// An image's bytes, so that a test can look at one pixel rather than at
+    /// the average of all of them.
+    private struct Sampled {
+        let width: Int
+        let bytes: [UInt8]
+
+        func at(_ x: Int, _ y: Int) -> (red: Double, green: Double, blue: Double) {
+            let base = (y * width + x) * 4
+            return (Double(bytes[base]), Double(bytes[base + 1]), Double(bytes[base + 2]))
+        }
+    }
+
+    private func sampled(_ image: UIImage) -> Sampled {
+        let cg = image.cgImage!
+        var bytes = [UInt8](repeating: 0, count: cg.width * cg.height * 4)
+        let context = CGContext(
+            data: &bytes,
+            width: cg.width,
+            height: cg.height,
+            bitsPerComponent: 8,
+            bytesPerRow: cg.width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+        context.draw(cg, in: CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
+        return Sampled(width: cg.width, bytes: bytes)
+    }
+
+    private func halated(_ image: UIImage) -> UIImage? {
+        guard let cg = image.cgImage,
+              let bloomed = PhotoFilter.halated(CIImage(cgImage: cg)),
+              let rendered = CIContext().createCGImage(
+                bloomed, from: CGRect(x: 0, y: 0, width: cg.width, height: cg.height)
+              )
+        else { return nil }
+        return UIImage(cgImage: rendered)
+    }
+
+    /// Not what the halo looks like — that is taste, and tunable — but that it
+    /// is a halo at all: red rather than white, outside the bright thing
+    /// rather than on it, and gone by the far corner. Every way this can fail
+    /// fails silently: a threshold judged in the wrong colour space blooms the
+    /// whole picture, and a blur over an unclamped extent eats the halo at the
+    /// frame's edge.
+    @Test("A bright source bleeds red into the dark beside it")
+    func halationRingsWhatIsBright() throws {
+        let side = 256
+        let source = lamp(side)
+        let plain = sampled(source)
+        let bloomed = sampled(try #require(halated(source)))
+
+        // Just outside the bright square's right edge, level with its middle.
+        let x = side * 5 / 8 + 4
+        let y = side / 2
+        #expect(plain.at(x, y).red < 2, "the picture is not dark where the halo is looked for")
+
+        let halo = bloomed.at(x, y)
+        #expect(halo.red > 12, "nothing bled out of the bright square")
+        #expect(halo.red > halo.blue * 2, "the halo is not red: \(halo)")
+        #expect(bloomed.at(x + 24, y).red < halo.red, "the halo does not fall off with distance")
+        #expect(bloomed.at(side - 2, 2).red < 2, "the halo reached the far corner")
+    }
+
     /// One seed, one grain — which is what lets a wiggle keep the same grain
     /// on a viewpoint every time it comes round, instead of boiling.
     @Test("Grain is the same for a seed and different between seeds")

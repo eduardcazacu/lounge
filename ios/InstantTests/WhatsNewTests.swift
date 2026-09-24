@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import Testing
 @testable import Instant
 
@@ -85,6 +86,16 @@ struct WhatsNewTests {
 
         #expect(WhatsNewTracker(defaults: defaults).isDue == false)
         #expect(WhatsNewTracker(defaults: defaults, notes: next).isDue)
+    }
+
+    /// A symbol name the system does not have draws nothing at all, and says
+    /// nothing about it — the note would simply appear with a gap where its
+    /// icon should be, on whichever iOS version dropped it.
+    @Test("Every note's symbol is one the system has")
+    func symbolsExist() {
+        for item in WhatsNew.current.features + WhatsNew.current.fixes {
+            #expect(UIImage(systemName: item.symbol) != nil, "no symbol called \(item.symbol)")
+        }
     }
 
     /// The notes name a version, and the sheet's title says it. A release

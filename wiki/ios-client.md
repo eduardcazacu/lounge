@@ -170,6 +170,21 @@ and the blends all work in linear light instead, where "contrast" pivots about
 a value far brighter than a mid-grey and quietly drags everything below it
 down. See [gotchas.md](gotchas.md).
 
+**Halation is the red around a bright thing.** On film, light that got through
+the emulsion reflects off the back of the base and exposes the picture a second
+time from behind, spread out by the trip and reddest by the end of it, which is
+why a window on Portra has a warm ring and a digital highlight has a hard edge.
+`PhotoFilter.halated` is that: everything above a threshold, tinted red, blurred
+and added back. Its reach and its strength are `halationSize` — a fraction of
+the frame's width, so the strip's thumbnail blooms like the frame on the wire —
+and `halationStrength`, beside the grain's two constants and tuned the same way.
+
+**The threshold is high on purpose** (`halationThreshold`, in linear light). A
+bright *surface* — a white wall, an overcast sky — passes a low threshold across
+the whole of itself, and a blur over something uniform has no edge to work with,
+so nothing glows and the wall simply turns pink. At 0.88 what is left is lamps,
+windows and speculars, which is what haloes on film.
+
 **The grain is made, not photographed.** A seeded tile of noise, tiled over the
 frame and blended in soft light so that it leans either side of the middle
 rather than adding to it — a mid-grey comes out a mid-grey and the picture

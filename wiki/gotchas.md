@@ -218,6 +218,13 @@ somewhere else entirely, and `CIColorControls.contrast` above 1 pivots about
 linear 0.5 — far brighter than a mid-grey — so it darkens everything below that
 without looking like it should. Nothing errors; the picture is just wrong.
 
+**`CIAdditionCompositing` adds the alpha channel too.** Two opaque images make
+one of alpha two, which is not a thing, and Core Image does not say so. The
+halation glow composited that way brightened flat mid-grey it should have left
+untouched, and the soft-light blend after it — the grain — then rendered the
+whole frame black. `CILinearDodgeBlendMode` is the same arithmetic on the
+colour and leaves alpha where it was, which is what a glow wants.
+
 **`CIRandomGenerator` is premultiplied, and has no seed.** Its noise comes back
 with a random alpha, so blending it lightens a picture instead of graining it,
 and there is no way to ask for the same noise twice — which film grain on a
@@ -225,6 +232,14 @@ looping wiggle needs. The film look makes its own tile from a seeded generator
 instead. A grain tile also has to be built in a *linear* grey space: in a
 gamma-encoded one its middle value reads as a fifth of the way up, and soft
 light darkens the whole picture by it.
+
+**A killed build leaves a build database that believes everything is done.**
+Interrupt `xcodebuild` and the next run can compile nothing at all — no error,
+`** TEST SUCCEEDED **`, and the tests that run are the ones from before the
+edit. A new test file is simply absent from the run. The `✔ Test run with N
+tests` line is the only thing that shows it, which is why it is worth reading
+every time; the cure is `rm -rf <DerivedData>/Build/Intermediates.noindex/XCBuildData`,
+and `touch` on the source does not help.
 
 **Vision's segmentation does not run in the Simulator.** The person, subject
 and person-segmentation requests all fail there — "Could not create inference
