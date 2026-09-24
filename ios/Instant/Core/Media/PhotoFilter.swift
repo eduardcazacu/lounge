@@ -87,7 +87,7 @@ public enum PhotoFilter: String, CaseIterable, Identifiable, Sendable {
                   // light, where "contrast" pivots about a value far brighter
                   // than a mid-grey and drags the whole picture down. The
                   // curve above is where this look's contrast lives.
-                  let calmed = Self.colorControls(warmed, saturation: 0.94, contrast: 1, brightness: 0)
+                    let calmed = Self.colorControls(warmed, saturation: 0.94, contrast: 1.08, brightness: 0)
             else { return nil }
             let vibrance = CIFilter.vibrance()
             vibrance.inputImage = calmed
@@ -140,10 +140,10 @@ public enum PhotoFilter: String, CaseIterable, Identifiable, Sendable {
 
     /// How coarse the grain is, in pixels of a 1080-wide frame: finer than
     /// this and the encoder throws most of it away.
-    static let grainSize: CGFloat = 1.7
+    static let grainSize: CGFloat = 3
     /// How far the grain pushes a pixel either side of where it was. Soft
     /// light, so this is a lean rather than an addition.
-    static let grainStrength: CGFloat = 0.10
+    static let grainStrength: CGFloat = 0.20
     /// The tile the grain is made of. Big enough that its repeat is not a
     /// pattern, small enough to make in a fraction of a millisecond.
     static let grainTile = 512
@@ -175,26 +175,42 @@ public enum PhotoFilter: String, CaseIterable, Identifiable, Sendable {
         return soft.outputImage?.cropped(to: extent)
     }
 
+    /// The 64 bits of SplitMix64's finalizer, which is what turns a counter
+    /// into something that looks like noise.
+    @inline(__always)
+    private static func scrambled(_ value: UInt64) -> UInt64 {
+        var z = value
+        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+        return z ^ (z >> 31)
+    }
+
     /// One square of grey noise, centred on the middle grey that soft light
-    /// leaves alone, from a seed.
-    static func grain(seed: Int) -> CIImage? {
-        var state = UInt64(bitPattern: Int64(seed)) &* 0x9E37_79B9_7F4A_7C15 &+ 0x1234_5678_9ABC_DEF
-        func next() -> UInt8 {
-            // SplitMix64, which is a few instructions and spreads a seed of 0
-            // as well as any other.
-            state &+= 0x9E37_79B9_7F4A_7C15
-            var z = state
-            z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
-            z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
-            return UInt8(truncatingIfNeeded: (z ^ (z >> 31)) >> 24)
-        }
-        let side = grainTile
+    /// leaves alone.
+    ///
+    /// The seed chooses a stream rather than a place in one. Walked along a
+    /// single sequence instead — each seed starting one step further along
+    /// than the last — the tile for one frame comes out as the tile for the
+    /// frame before it moved along by a pixel, and grain that ought to
+    /// sparkle slides sideways across the picture instead. So the seed is
+    /// hashed once and then mixed into every pixel's own hash, which leaves
+    /// no relation between one seed's tile and the next's.
+    static func grainBytes(seed: Int, side: Int) -> [UInt8] {
+        let stream = scrambled(UInt64(bitPattern: Int64(seed)) &+ 0x9E37_79B9_7F4A_7C15)
         var bytes = [UInt8](repeating: 0, count: side * side)
         let spread = Double(grainStrength) * 127
-        for index in 0..<bytes.count {
-            let centred = 128 + (Double(next()) - 127.5) / 127.5 * spread
+        for index in bytes.indices {
+            let noise = scrambled(stream ^ (UInt64(index) &* 0xD6E8_FEB8_6659_FD93))
+            let centred = 128 + (Double(noise >> 56) - 127.5) / 127.5 * spread
             bytes[index] = UInt8(max(0, min(255, centred.rounded())))
         }
+        return bytes
+    }
+
+    /// That square as an image Core Image can tile.
+    static func grain(seed: Int) -> CIImage? {
+        let side = grainTile
+        let bytes = grainBytes(seed: seed, side: side)
         guard let provider = CGDataProvider(data: Data(bytes) as CFData),
               let linear = CGColorSpace(name: CGColorSpace.linearGray),
               let image = CGImage(

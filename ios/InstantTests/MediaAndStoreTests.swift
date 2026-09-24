@@ -153,6 +153,28 @@ struct PhotoFilterTests {
         #expect(pixelsDiffer(first, second), "a different seed gives a different grain")
     }
 
+    /// The bug this is for: a seed that was a step along one shared sequence
+    /// gave the next frame the last frame's grain moved along by a pixel, so
+    /// the grain slid sideways across the picture instead of sparkling.
+    @Test("One seed's grain is no part of another's, at any offset")
+    func grainIsNotTheSameNoiseSlidAlong() {
+        let side = 64
+        let first = PhotoFilter.grainBytes(seed: 11, side: side)
+        let second = PhotoFilter.grainBytes(seed: 12, side: side)
+        #expect(first == PhotoFilter.grainBytes(seed: 11, side: side), "the same seed is the same grain")
+        #expect(first != second)
+
+        // Slid against each other, one way and the other, they must still
+        // look like two different pictures.
+        for shift in 1...8 {
+            for pair in [(first, second), (second, first)] {
+                let overlap = zip(pair.0.dropFirst(shift), pair.1).count { $0 == $1 }
+                let share = Double(overlap) / Double(pair.0.count - shift)
+                #expect(share < 0.2, "shifted by \(shift), \(Int(share * 100))% of the grain matched")
+            }
+        }
+    }
+
     @Test("Grain is the film look's alone")
     func grainIsFilmsAlone() {
         #expect(!pixelsDiffer(PhotoFilter.fade.apply(to: grey(), grain: 1), PhotoFilter.fade.apply(to: grey(), grain: 2)))

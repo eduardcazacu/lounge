@@ -636,7 +636,7 @@ public enum ParallaxRenderer {
 
     /// How far apart the red and the blue are pulled, in pixels of a
     /// 1080-wide frame.
-    static let fringe: Float = 0.9
+    static let fringe: Float = 3
 
     /// A lens that does not quite bring every colour to the same place.
     ///
