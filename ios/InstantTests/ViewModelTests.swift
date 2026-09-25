@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import Synchronization
 import Testing
 import UIKit
 @testable import Instant
@@ -1359,13 +1360,15 @@ struct RecipientOrderingTests {
     func readsHistoryLate() async {
         let userAPI = FakeUserAPI()
         userAPI.usersResult = users([2, 3])
-        var history: [InstantConversationSummary] = []
+        // Changed after the model has captured the closure, which is the point
+        // of the test.
+        let history = Mutex<[InstantConversationSummary]>([])
 
         let model = SendToModel(
             userAPI: userAPI, instantAPI: FakeInstantAPI(),
-            history: { history }, currentUserId: 1
+            history: { history.withLock { $0 } }, currentUserId: 1
         )
-        history = [.fixture(userId: 3)]
+        history.withLock { $0 = [.fixture(userId: 3)] }
         await model.load()
 
         #expect(order(model.candidates) == [3, 2])

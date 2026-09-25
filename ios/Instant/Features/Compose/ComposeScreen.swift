@@ -48,7 +48,9 @@ struct ComposeScreen: View {
         let start: Double
     }
 
-    private static let photoSpace = "compose.photo"
+    /// Nonisolated because `onGeometryChange` reads it from a `Sendable`
+    /// closure; a string needs no actor.
+    private nonisolated static let photoSpace = "compose.photo"
     private static let prompt = "Add a caption"
 
     var body: some View {

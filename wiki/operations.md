@@ -139,3 +139,9 @@ backend **first**; make sure the `testing`-group review accounts can sign in and
 have each signed in on a device once, so they have a device key (nobody can be
 sent an instant before enrolling one); and bump `MARKETING_VERSION` /
 `CURRENT_PROJECT_VERSION` on every upload.
+
+They are set once, on the project, and every target inherits them, because the
+widget and the Notification Service Extension must carry the app's build
+number: Apple warns on every upload when they do not. Xcode's General tab
+writes a target-level copy when Version or Build is edited there, and the three
+drift apart again. Bump them in the project's Build Settings.

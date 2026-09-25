@@ -19,6 +19,7 @@ import { relativeShort, relativeSpoken } from "./relativeTime";
 import { receiptStatus } from "./sendReceipt";
 import { INSTANT_COLORS, viewportSizing, viewportTopLine } from "./style";
 import type { InstantConnectionState } from "../../hooks/useInstant";
+import { blockUser } from "./moderation";
 
 // Conversations, ported from `ios/Instant/Features/Inbox/InboxScreen.swift`.
 // One row per person: avatar, name with their streak beside it, and whatever
@@ -461,7 +462,6 @@ function BlockConfirmation({
             data-testid="inbox.block.confirm"
             onClick={async () => {
               setWorking(true);
-              const { blockUser } = await import("./moderation");
               try {
                 await blockUser(row.userId);
                 onBlocked(row.userId);

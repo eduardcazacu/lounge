@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "react-router-dom"
 import { Comment } from "../hooks";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { getThemePalette } from "../themes";
 import { extractFirstYouTubeEmbedUrl, extractStandaloneImagePreviewUrls, getTransformedImageUrl, isImageLikeUrl, isYouTubeUrl } from "../lib/content";
@@ -42,9 +42,9 @@ export const BlogCard = ({
   const [postLikeCount, setPostLikeCount] = useState(likeCount);
   const [postLikedByMe, setPostLikedByMe] = useState(likedByMe);
   const [likeLoading, setLikeLoading] = useState(false);
-  const markdownComponents = {
+  const markdownComponents: Components = {
     img: () => null,
-    a: (props: any) => (
+    a: (props) => (
       <a
         href={props.href}
         target="_blank"

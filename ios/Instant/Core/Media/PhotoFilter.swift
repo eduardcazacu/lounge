@@ -44,7 +44,7 @@ public enum PhotoFilter: String, CaseIterable, Identifiable, Sendable {
     /// and building a fresh one is most of the cost of a small render — the
     /// filter strip renders one thumbnail per case and would pay it seven times.
     /// `CIContext` is documented as thread-safe.
-    nonisolated(unsafe) private static let context = CIContext()
+    private static let context = CIContext()
 
     /// The photo with this look baked in, at exactly the size it came in at.
     ///

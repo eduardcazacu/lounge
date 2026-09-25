@@ -22,7 +22,11 @@ Before each submission:
 5. **Archive** in Xcode (Product → Archive) with the Release configuration and
    upload. The Sensitive Content Analysis and Push capabilities must be enabled on
    the App ID; automatic signing adds them.
-6. Bump `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` for every upload.
+6. Bump `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` for every upload, on the
+   **project** (Instant project → Build Settings), not on a target. The app and
+   both extensions inherit them from there, and Apple wants their build numbers
+   equal. Editing Version or Build on a target's General tab gives that target
+   its own copy again, and the mismatch warning comes back.
 
 ## App information
 

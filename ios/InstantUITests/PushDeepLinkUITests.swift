@@ -7,6 +7,9 @@ import XCTest
 /// everything on this side of the wire. The one thing it cannot prove is that
 /// Apple accepts the request the backend sends; the ES256 signing and request
 /// shape are asserted in the backend's own tests instead.
+///
+/// `@MainActor` for the same reason as `InstantUITests`.
+@MainActor
 final class PushDeepLinkUITests: XCTestCase {
     func testNotificationPayloadCarriesNoPhotoAndNamesTheInstant() throws {
         // The payload the backend actually sends, from

@@ -577,8 +577,17 @@ public enum ParallaxRenderer {
                 labels.withUnsafeBufferPointer { patchOf in
                     pixels.withUnsafeMutableBufferPointer { output in
                         depth.withUnsafeMutableBufferPointer { landed in
-                            let input = input, near = near, patchOf = patchOf, output = output, landed = landed
-                            func colourAt(_ x: Float, _ y: Float) -> UInt32 {
+                            // Every row below is one iteration, and each writes only
+                            // its own row of `output` and `landed`, so the buffers
+                            // are shared without a race. The compiler cannot see
+                            // that through a raw pointer; `nonisolated(unsafe)` says
+                            // so, here and at the other `concurrentPerform` loops.
+                            nonisolated(unsafe) let input = input
+                            nonisolated(unsafe) let near = near
+                            nonisolated(unsafe) let patchOf = patchOf
+                            nonisolated(unsafe) let output = output
+                            nonisolated(unsafe) let landed = landed
+                            @Sendable func colourAt(_ x: Float, _ y: Float) -> UInt32 {
                                 let fx = min(max(x, 0), Float(width - 1))
                                 let fy = min(max(y, 0), Float(height - 1))
                                 let x0 = Int(fx), y0 = Int(fy)
@@ -654,7 +663,8 @@ public enum ParallaxRenderer {
         var pixels = view.pixels
         view.pixels.withUnsafeBufferPointer { input in
             pixels.withUnsafeMutableBufferPointer { output in
-                let input = input, output = output
+                nonisolated(unsafe) let input = input
+                nonisolated(unsafe) let output = output
                 DispatchQueue.concurrentPerform(iterations: height) { y in
                     let row = y * width
                     for x in 0..<width {
@@ -1035,7 +1045,10 @@ public enum ParallaxRenderer {
             layer.disparity.withUnsafeBufferPointer { near in
                 pixels.withUnsafeMutableBufferPointer { output in
                     depth.withUnsafeMutableBufferPointer { landed in
-                        let input = input, near = near, output = output, landed = landed
+                        nonisolated(unsafe) let input = input
+                        nonisolated(unsafe) let near = near
+                        nonisolated(unsafe) let output = output
+                        nonisolated(unsafe) let landed = landed
                         let centre = layer.centre
                         DispatchQueue.concurrentPerform(iterations: height) { y in
                             let row = y * width
@@ -1088,7 +1101,10 @@ public enum ParallaxRenderer {
             disparity.withUnsafeBufferPointer { depth in
                 pixels.withUnsafeMutableBufferPointer { output in
                     nearness.withUnsafeMutableBufferPointer { landed in
-                        let input = input, depth = depth, output = output, landed = landed
+                        nonisolated(unsafe) let input = input
+                        nonisolated(unsafe) let depth = depth
+                        nonisolated(unsafe) let output = output
+                        nonisolated(unsafe) let landed = landed
                         DispatchQueue.concurrentPerform(iterations: height) { y in
                             let row = y * width
                             for x in 0..<width where dropped.isEmpty || !dropped[row + x] {
