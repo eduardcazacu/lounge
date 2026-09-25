@@ -52,6 +52,9 @@ public final class AppEnvironment {
 
     /// Set when a push arrives naming an instant, so the UI can jump to it.
     public var pendingInstantId: String?
+    /// Who the notification said the pending instant is from. The viewer opens
+    /// on the tap and shows this while the instant itself is still on its way.
+    public private(set) var pendingSenderName: String?
     public var showsInbox = false
 
     /// True while a capture is being composed.
@@ -122,11 +125,12 @@ public final class AppEnvironment {
         clearAim()
     }
 
-    public func openInbox(instantId: String? = nil) {
+    public func openInbox(instantId: String? = nil, senderName: String? = nil) {
         // Assigning the same id twice would not fire the observation the inbox
         // watches, and a second push for an instant already pending is not a
         // second thing to open.
         if let instantId, instantId != pendingInstantId {
+            pendingSenderName = senderName
             pendingInstantId = instantId
         }
         showsInbox = true
@@ -200,10 +204,11 @@ public final class AppEnvironment {
     }
 
     public static func live(config: AppConfig = .production) -> AppEnvironment {
+        if let url = JourneyLog.defaultFileURL { JourneyLog.shared.persist(to: url) }
         let session = SessionStore()
-        let client = APIClient(config: config, tokens: session) { [weak session] in
+        let client = APIClient(config: config, tokens: session, onSessionExpired: { [weak session] in
             session?.signOut()
-        }
+        })
         let instantAPI = InstantAPI(client: client)
         let identities = DeviceIdentityStore()
         let store = InstantStore(

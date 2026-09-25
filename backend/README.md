@@ -33,6 +33,13 @@ endpoints cannot work. For anything touching Instant's transport or storage:
 npm run dev:worker   # wrangler dev
 ```
 
+With the `[[hyperdrive]]` block in `wrangler.toml` enabled, `wrangler dev`
+refuses to start without a local database to stand in for it:
+
+```bash
+CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE="$DATABASE_URL" npm run dev:worker
+```
+
 Cron triggers fire under neither. The hourly sweep is also reachable as
 `POST /api/v1/admin/instant/sweep` (admin only), which runs the same function.
 

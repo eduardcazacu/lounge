@@ -8,6 +8,9 @@ struct InstantApp: App {
     @State private var environment: AppEnvironment
 
     init() {
+        // First, so the launch is timed from the process starting rather than
+        // from whatever the environment spends before it is built.
+        JourneyLog.shared.beginLaunch()
         let environment = LaunchOptions.makeEnvironment()
         _environment = State(initialValue: environment)
         AppDelegate.shared = environment
@@ -51,8 +54,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     /// first wins and the other is a no-op.
     @MainActor static func installRegistrar() {
         guard registrar == nil, let environment = shared else { return }
-        let registrar = PushRegistrar(userAPI: environment.userAPI) { [weak environment] instantId in
-            environment?.openInbox(instantId: instantId)
+        let registrar = PushRegistrar(userAPI: environment.userAPI) { [weak environment] instantId, senderName in
+            environment?.openInbox(instantId: instantId, senderName: senderName)
         }
         registrar.observeTaps()
         self.registrar = registrar

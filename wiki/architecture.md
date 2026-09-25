@@ -56,7 +56,11 @@ Routers, all mounted under `/api/v1`:
 **Postgres, not D1.** Prisma 7 with the `@prisma/adapter-pg` driver adapter.
 `backend/src/prisma.ts` detects `navigator.userAgent === "Cloudflare-Workers"`
 and builds a fresh client per request there, while caching per-URL clients on
-`globalThis` under Node. The D1 and KV blocks in `wrangler.toml` are commented
+`globalThis` under Node. On Workers that client connects through **Hyperdrive**
+(the `HYPERDRIVE` binding, read in `getConfig` in `backend/src/env.ts`), whose
+pool keeps the connections to Postgres warm; a client per request is then cheap.
+Without the binding it falls back to `DATABASE_URL`, and every request pays for
+its own connection. See [decisions.md](decisions.md). The D1 and KV blocks in `wrangler.toml` are commented
 out and there is no D1 database.
 
 **One R2 bucket**, bound as `BLOG_IMAGES`, holding three unrelated things under

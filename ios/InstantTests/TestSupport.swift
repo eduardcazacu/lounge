@@ -239,6 +239,8 @@ final class FakeInstantAPI: InstantAPIProtocol, @unchecked Sendable {
         var sentMediaTypes: [String] = []
         /// Awaited before `send` answers, so a test can hold an upload open.
         var sendGate: (@Sendable () async -> Void)?
+        /// Awaited before `markViewed` answers, so a test can hold a receipt open.
+        var viewedGate: (@Sendable () async -> Void)?
         var sendDelivered = true
         var sendError: Error?
         var inboxError: Error?
@@ -262,6 +264,7 @@ final class FakeInstantAPI: InstantAPIProtocol, @unchecked Sendable {
     var sentHeaders: [(mediaIv: String, ephemeralPubKey: String)] { storage.withLock { $0.sentHeaders } }
     var sentMediaTypes: [String] { storage.withLock { $0.sentMediaTypes } }
     var sendGate: (@Sendable () async -> Void)? { get { storage.withLock { $0.sendGate } } set { storage.withLock { $0.sendGate = newValue } } }
+    var viewedGate: (@Sendable () async -> Void)? { get { storage.withLock { $0.viewedGate } } set { storage.withLock { $0.viewedGate = newValue } } }
     var sendDelivered: Bool { get { storage.withLock { $0.sendDelivered } } set { storage.withLock { $0.sendDelivered = newValue } } }
     var sendError: Error? { get { storage.withLock { $0.sendError } } set { storage.withLock { $0.sendError = newValue } } }
     var inboxError: Error? { get { storage.withLock { $0.inboxError } } set { storage.withLock { $0.inboxError = newValue } } }
@@ -334,6 +337,7 @@ final class FakeInstantAPI: InstantAPIProtocol, @unchecked Sendable {
     }
 
     func markViewed(instantId: String) async throws {
+        if let gate = viewedGate { await gate() }
         storage.withLock { $0.viewedIds.append(instantId) }
     }
 

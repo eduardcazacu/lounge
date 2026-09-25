@@ -224,6 +224,13 @@ struct SettingsScreen: View {
             }
             .accessibilityIdentifier("settings.whatsNew")
 
+            NavigationLink {
+                TimingsScreen()
+            } label: {
+                Label("Timings", systemImage: "stopwatch")
+            }
+            .accessibilityIdentifier("settings.timings")
+
             LabeledContent("Version") {
                 Text(Self.appVersion)
                     .foregroundStyle(InstantStyle.secondaryText)

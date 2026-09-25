@@ -474,6 +474,7 @@ struct VideoSuites {
             #expect(model.showsCountdown)
             #expect(!model.staysOpen)
             #expect(stub.isPlaying)
+            await model.receiptDelivery?.value
             #expect(api.viewedIds == ["v1"])
 
             stub.advance(to: 0.5)
@@ -552,6 +553,7 @@ struct VideoSuites {
             #expect(concealedAPI.viewedIds.isEmpty, "not seen until revealed")
             await concealed.reveal()
             #expect(flagged.isPlaying)
+            await concealed.receiptDelivery?.value
             #expect(concealedAPI.viewedIds == ["v1"])
         }
 

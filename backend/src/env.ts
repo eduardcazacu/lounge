@@ -2,6 +2,7 @@ import type { Context } from "hono";
 
 export type AppEnv = {
   DATABASE_URL?: string;
+  HYPERDRIVE?: Hyperdrive;
   JWT_SECRET?: string;
   R2_PUBLIC_BASE_URL?: string;
   VAPID_PUBLIC_KEY?: string;
@@ -14,7 +15,14 @@ export type AppEnv = {
 };
 
 export function getConfig(c: Context<any>) {
-  const databaseUrl = c.env?.DATABASE_URL ?? process.env.DATABASE_URL;
+  // Hyperdrive when the Worker has the binding, the database itself otherwise.
+  // On Workers `src/prisma.ts` builds a client per request, and without
+  // Hyperdrive every one of those opened its own TCP, TLS and Postgres
+  // handshake before its first query — the bulk of what each API call cost.
+  // Node (`npm run dev`) and the scripts have no binding and keep DATABASE_URL.
+  // See wiki/decisions.md.
+  const databaseUrl =
+    c.env?.HYPERDRIVE?.connectionString ?? c.env?.DATABASE_URL ?? process.env.DATABASE_URL;
   const jwtSecret = c.env?.JWT_SECRET ?? process.env.JWT_SECRET;
   const r2PublicBaseUrl = c.env?.R2_PUBLIC_BASE_URL ?? process.env.R2_PUBLIC_BASE_URL;
   const vapidPublicKey = c.env?.VAPID_PUBLIC_KEY ?? process.env.VAPID_PUBLIC_KEY;

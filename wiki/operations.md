@@ -41,15 +41,17 @@ unconfigured rather than throwing. The backend records whatever tokens it is
 given and simply has none to send to; adding the secrets starts delivery with no
 code change.
 
-Bindings in `backend/wrangler.toml`: `BLOG_IMAGES` (R2) and `INSTANT_INBOX`
-(Durable Object). Cron `0 * * * *`. Node-only: `PORT`, `NODE_ENV`. Script-only:
+Bindings in `backend/wrangler.toml`: `BLOG_IMAGES` (R2), `INSTANT_INBOX`
+(Durable Object) and `HYPERDRIVE` (the Postgres pool; its configuration, which
+holds the database credentials, lives in Cloudflare — see below). Cron `0 * * * *`. Node-only: `PORT`, `NODE_ENV`. Script-only:
 `ACCOUNT_PASSWORD`. Vercel: `VITE_BACKEND_URL`, `VITE_IMAGE_TRANSFORM_BASE_URL`.
 
 Local template: `backend/.env.example`.
 
 ## Configuration that exists only in a dashboard
 
-Two things are not in this repository and cannot be, and both fail quietly.
+Three things are not in this repository and cannot be, and all of them fail
+quietly.
 
 1. **The R2 lifecycle rule.** On the `eddies-lounge-images` bucket, objects
    under the `instant/` prefix expire after **1 day**. It is not expressible in
@@ -59,7 +61,18 @@ Two things are not in this repository and cannot be, and both fail quietly.
 2. **The bucket's public domain**, `images.lounge.eduardcazacu.com` (or a
    Public Development URL), which `R2_PUBLIC_BASE_URL` must match.
 
-A rebuilt bucket needs both re-applied. Neither will be missed until much later.
+3. **The Hyperdrive configuration** named by the `[[hyperdrive]]` id in
+   `wrangler.toml`. It holds the database connection string, so it is created
+   with `npx wrangler hyperdrive create` and never written down here. It must
+   have **caching disabled** (`--caching-disabled`): with the default 60-second
+   cache, reads such as the inbox are served stale, and a tapped notification
+   waits for an instant the cache says is not there. A rotated database
+   password is updated with `npx wrangler hyperdrive update <id>
+   --connection-string=…`, not only in the `DATABASE_URL` secret. If the two
+   disagree, the Worker uses Hyperdrive's.
+
+A rebuilt bucket needs the first two re-applied. None of them will be missed
+until much later.
 
 ## Verification scripts
 

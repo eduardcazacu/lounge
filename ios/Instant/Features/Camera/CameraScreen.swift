@@ -18,6 +18,8 @@ struct CameraScreen: View {
     /// tap, which is the moment the photo is of, and comes down when there is a
     /// photo to look at.
     @State private var shutterOpacity: Double = 0
+    /// Counts presses, so each one plays the shutter's haptic once.
+    @State private var shutterPresses = 0
     /// The shutter is down and has not yet been held long enough to record.
     @State private var holdTimer: Task<Void, Never>?
     /// The shutter was held long enough; lifting it ends the recording.
@@ -41,6 +43,7 @@ struct CameraScreen: View {
                         .onAppear {
                             environment.isComposing = true
                             revealCapture()
+                            JourneyLog.shared.end(.capture, outcome: "composing", linkable: true)
                         }
                         .onDisappear { environment.isComposing = false }
                 } else {
@@ -53,6 +56,7 @@ struct CameraScreen: View {
             // still moving under a photo that has already been taken.
             shutterCover
         }
+        .sensoryFeedback(.impact(weight: .light), trigger: shutterPresses)
         .task {
             if model == nil { model = CameraModel(camera: environment.makeCamera()) }
             await model?.start()
@@ -137,7 +141,7 @@ struct CameraScreen: View {
                 CameraPreview(
                     session: session,
                     mirrored: model.position == .front,
-                    isSwitching: model.isSwitching
+                    holdsFrame: model.isSwitching || model.isTakingPhoto
                 )
                 .opacity(model.isPreviewReady ? 1 : 0)
                 .animation(.easeOut(duration: 0.28), value: model.isPreviewReady)
@@ -350,16 +354,18 @@ struct CameraScreen: View {
     }
 
     /// Long enough that a quick press is never read as a hold, short enough
-    /// that a deliberate one does not feel ignored.
-    static let holdThreshold: Duration = .milliseconds(300)
+    /// that a deliberate one does not feel ignored. A tap lasts about 50–150 ms;
+    /// 300 ms felt like too long a wait before a clip began.
+    static let holdThreshold: Duration = .milliseconds(50)
 
-    /// Black over the frame, from the press until there is a photo to look at.
+    /// The shutter's dimming, over a frame that has already stopped.
     ///
-    /// It is not a blink. A blink ends on a timer, and whatever is left between
-    /// the end of it and the photo appearing is the live camera still moving
-    /// under a frame that was captured a moment ago — which reads as the
-    /// shutter having missed. This stays up for exactly that window instead, so
-    /// the last thing the viewfinder does is stop.
+    /// The preview holds the frame of the press (`CameraModel.isTakingPhoto`)
+    /// until the photo is on screen, so nothing moves under the dimming when it
+    /// lifts: the last thing the viewfinder does is stop, on the picture that
+    /// was taken. It used to stay black for that whole window instead — the
+    /// 0.37 s the camera spends processing the photo — which read as the app
+    /// being slow rather than the shutter being quick.
     private var shutterCover: some View {
         Color.black
             .aspectRatio(InstantStyle.viewportAspectRatio, contentMode: .fit)
@@ -370,21 +376,40 @@ struct CameraScreen: View {
             .allowsHitTesting(false)
     }
 
-    /// Covers the frame, takes the photo, and — if the capture failed — gives
-    /// the frame back. The successful path is uncovered by the compose screen
-    /// appearing, which is the moment the photo is actually on screen.
+    /// How dark the frame goes on the shutter.
+    static let shutterDim: Double = 0.85
+    /// From the press until the frame starts coming back, so the dip is seen
+    /// at full depth rather than turned round half way down.
+    static let shutterHold: Duration = .milliseconds(55)
+
+    /// Plays the shutter, and takes the photo under a frame that holds still
+    /// until the compose screen replaces it.
+    ///
+    /// The frame freezing on its own is fast but reads as a glitch: a picture
+    /// that simply stops looks like the app hung, not like a photo was taken.
+    /// So the held frame is *taken*: it goes dark over 30 ms, stays down for a
+    /// moment, then comes back over 100 ms, with a light tap under the finger.
+    /// All of it is over in under 0.2 s, well inside the time the camera
+    /// spends processing the photo anyway (0.34 s measured). Only the
+    /// brightness moves: a frame that also pressed inward read as the
+    /// viewport shrinking, not as a shutter.
+    ///
+    /// The way back is started by a timer, not by `withAnimation`'s
+    /// `completion:`. Chained that way, the completion ran before a single
+    /// frame of the dim was drawn, the fade-out replaced it at once, and the
+    /// shutter never showed at all (`wiki/gotchas.md`).
     private func capture(_ model: CameraModel) async {
-        // Fast enough to read as a cut rather than a fade; not instant, which
-        // on a bright frame reads as a dropped frame.
-        withAnimation(.easeOut(duration: 0.04)) { shutterOpacity = 1 }
-        await model.shoot()
-        if model.stage != .composing {
-            revealCapture()
+        shutterPresses += 1
+        withAnimation(.easeOut(duration: 0.05)) { shutterOpacity = Self.shutterDim }
+        Task {
+            try? await Task.sleep(for: Self.shutterHold)
+            withAnimation(.easeIn(duration: 0.05)) { shutterOpacity = 0 }
         }
+        await model.shoot()
     }
 
     private func revealCapture() {
-        withAnimation(.easeIn(duration: 0.12)) { shutterOpacity = 0 }
+        withAnimation(.easeIn(duration: 0.05)) { shutterOpacity = 0 }
     }
 
     private var inboxPill: some View {
@@ -453,8 +478,9 @@ struct CameraPreview: UIViewRepresentable {
     let session: AVCaptureSession
     let mirrored: Bool
     /// True while the session is swapping cameras, which is the window the
-    /// preview layer has nothing honest to show.
-    let isSwitching: Bool
+    /// preview layer has nothing honest to show, and while a photo is being
+    /// taken, when the frame of the press is the honest thing to show.
+    let holdsFrame: Bool
 
     final class PreviewView: UIView {
         override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
@@ -487,6 +513,8 @@ struct CameraPreview: UIViewRepresentable {
             }
             addSubview(cover)
             held = cover
+            // Does nothing for a flip; for a photo, the moment the press shows.
+            JourneyLog.shared.mark(.capture, "frameHeld")
         }
 
         /// Cross-fades back to the live camera. Short, because by the time this
@@ -518,7 +546,7 @@ struct CameraPreview: UIViewRepresentable {
     func updateUIView(_ view: PreviewView, context: Context) {
         // Before the mirroring below: once that changes, the stale frame in the
         // layer is already being drawn the wrong way round.
-        if isSwitching {
+        if holdsFrame {
             view.hold()
         }
         view.previewLayer.session = session
@@ -526,7 +554,7 @@ struct CameraPreview: UIViewRepresentable {
         // path un-mirrors to match.
         view.previewLayer.connection?.automaticallyAdjustsVideoMirroring = false
         view.previewLayer.connection?.isVideoMirrored = mirrored
-        if !isSwitching {
+        if !holdsFrame {
             view.release()
         }
     }

@@ -9,6 +9,12 @@ import SwiftUI
 struct InboxScreen: View {
     @Environment(AppEnvironment.self) private var environment
     @State private var viewing: ViewerModel?
+    /// The instant a tapped notification named, while it is still on its way.
+    /// The viewer is already up for it: a tap that lands on the inbox list and
+    /// then, a second later, has the viewer slide up over it reads as two
+    /// loads, and the inbox fetch it waits on was measured at 1.0–1.4 s
+    /// (`wiki/ios-performance.md`).
+    @State private var waitingFor: String?
     @State private var safetyNumberPeer: InstantStore.Conversation?
     @State private var report: ReportModel?
     @State private var blockCandidate: InstantStore.Conversation?
@@ -40,20 +46,35 @@ struct InboxScreen: View {
                 }
             }
         }
-        .fullScreenCover(item: $viewing) { model in
-            ViewerScreen(model: model, onClose: {
-                store.dismiss(model.instant.id)
-                // Closing an instant lands back here rather than on the camera,
-                // with the sender's row now offering a reply — the one thing
-                // somebody who has just looked at a photo is likely to want.
-                // `showsInbox` is already true on every path that opens a
-                // viewer; setting it is what makes that a rule rather than a
-                // coincidence of how the viewer was reached.
-                if model.wasSeen { store.noteOpened(senderId: model.instant.senderId) }
-                environment.showsInbox = true
-                viewing = nil
-                Task { await store.refreshHistory() }
-            }, onBlocked: { environment.didBlock(userId: $0) })
+        // One cover for both, so the instant arriving swaps what is inside it
+        // rather than presenting a second screen over the first.
+        .fullScreenCover(isPresented: Binding(
+            get: { viewing != nil || waitingFor != nil },
+            set: { if !$0 { viewing = nil; waitingFor = nil } }
+        )) {
+            if let model = viewing {
+                ViewerScreen(model: model, onClose: {
+                    store.dismiss(model.instant.id)
+                    // Closing an instant lands back here rather than on the camera,
+                    // with the sender's row now offering a reply — the one thing
+                    // somebody who has just looked at a photo is likely to want.
+                    // `showsInbox` is already true on every path that opens a
+                    // viewer; setting it is what makes that a rule rather than a
+                    // coincidence of how the viewer was reached.
+                    if model.wasSeen { store.noteOpened(senderId: model.instant.senderId) }
+                    environment.showsInbox = true
+                    viewing = nil
+                    Task { await store.refreshHistory() }
+                }, onBlocked: { environment.didBlock(userId: $0) })
+            } else if let id = waitingFor {
+                WaitingViewerScreen(senderName: environment.pendingSenderName) {
+                    // Given up on. Nothing was fetched, so nothing is spent: the
+                    // instant stays in the inbox for a tap on its row.
+                    JourneyLog.shared.end(.openInstant, key: id, outcome: "closedWhileWaiting")
+                    environment.pendingInstantId = nil
+                    waitingFor = nil
+                }
+            }
         }
         .sheet(item: $report) { report in
             ReportScreen(
@@ -95,6 +116,10 @@ struct InboxScreen: View {
         // land is the difference between the deep link working and the inbox
         // just sitting there with the instant one tap away.
         .onChange(of: store.instants) { _, _ in openPendingIfPossible() }
+        // The other thing a pending open waits on. Without it, an instant that
+        // was already in the cache when the tap came in, before the identity
+        // was loaded, was dropped: nothing about `instants` changes afterwards.
+        .onChange(of: store.device?.deviceId) { _, _ in openPendingIfPossible() }
         .onAppear { openPendingIfPossible() }
         .task { await ageReceipts() }
     }
@@ -363,14 +388,21 @@ struct InboxScreen: View {
         .accessibilityIdentifier("inbox.empty")
     }
 
-    /// Opens whatever a notification asked for, once it is actually in the
-    /// inbox. Stays pending until then, and is cleared once spent.
+    /// Opens whatever a notification asked for. Until the instant is in the
+    /// inbox and this device's identity is loaded, the viewer waits for it;
+    /// the id stays pending until the instant is actually open.
     private func openPendingIfPossible() {
-        guard viewing == nil,
-              let id = environment.pendingInstantId,
-              let instant = store.instants.first(where: { $0.id == id })
-        else { return }
+        guard viewing == nil, let id = environment.pendingInstantId else { return }
+        guard let instant = store.instants.first(where: { $0.id == id }), store.device != nil else {
+            if waitingFor != id {
+                waitingFor = id
+                JourneyLog.shared.mark(.openInstant, key: id, "waitingShown")
+            }
+            return
+        }
+        JourneyLog.shared.mark(.openInstant, key: id, "instantAvailable")
         environment.pendingInstantId = nil
+        waitingFor = nil
         open(instant)
     }
 
@@ -384,7 +416,15 @@ struct InboxScreen: View {
     }
 
     private func open(_ instant: InstantDelivery) {
-        guard let device = store.device else { return }
+        // A notification's journey is already running, and is kept.
+        JourneyLog.shared.begin(.openInstant, key: instant.id, attributes: ["source": "inbox"])
+        guard let device = store.device else {
+            // Recorded rather than silent: a tap lost here is one of the things
+            // the timings exist to catch (`wiki/ios-performance.md`).
+            JourneyLog.shared.end(.openInstant, key: instant.id, outcome: "noDevice")
+            return
+        }
+        JourneyLog.shared.mark(.openInstant, key: instant.id, "viewerRequested")
         viewing = ViewerModel(
             instant: instant,
             api: environment.instantAPI,
@@ -392,9 +432,5 @@ struct InboxScreen: View {
             preferences: environment.preferences
         )
     }
-}
-
-extension ViewerModel: @MainActor Identifiable {
-    public nonisolated var id: String { instant.id }
 }
 #endif

@@ -17,6 +17,7 @@ const SWEEP_BATCH_SIZE = 200;
 
 export type SweepEnv = {
   DATABASE_URL?: string;
+  HYPERDRIVE?: Hyperdrive;
   JWT_SECRET?: string;
   R2_PUBLIC_BASE_URL?: string;
   VAPID_PUBLIC_KEY?: string;

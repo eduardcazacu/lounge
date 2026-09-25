@@ -79,6 +79,76 @@ struct APIClientTests {
         #expect(stub.requests.last?.value(forHTTPHeaderField: "Authorization") == "Bearer fresh")
     }
 
+    /// A JWT whose only claims are the two the client reads.
+    private func jwt(expiringAt expiry: Date) -> String {
+        let payload = #"{"id":7,"exp":\#(Int(expiry.timeIntervalSince1970))}"#
+        return "e30.\(Base64URL.encode(Data(payload.utf8))).sig"
+    }
+
+    /// A cold start's token has usually expired. Sending it anyway spends a
+    /// round trip on a 403 that says what the expiry already did.
+    @Test("An expired token is refreshed before the request, not after its 403")
+    func refreshesExpiredTokenFirst() async throws {
+        let now = Date()
+        let tokens = InMemoryTokenStore(token: jwt(expiringAt: now.addingTimeInterval(-60)))
+        let stub = Stub { request in
+            request.path.hasSuffix("/refresh")
+                ? .init(status: 200, body: Data(#"{"token":"fresh"}"#.utf8))
+                : .init(status: 200, body: Data("{}".utf8))
+        }
+        let client = APIClient(config: .production, tokens: tokens, session: stub.session, now: { now })
+
+        _ = try await client.data(for: .get("api/v1/instant/inbox"))
+
+        let paths = stub.requests.map(\.path)
+        #expect(paths.count == 2)
+        #expect(paths.first?.hasSuffix("/refresh") == true)
+        #expect(stub.requests.last?.value(forHTTPHeaderField: "Authorization") == "Bearer fresh")
+    }
+
+    @Test("A token with time left is sent as it is")
+    func keepsLiveToken() async throws {
+        let now = Date()
+        let token = jwt(expiringAt: now.addingTimeInterval(600))
+        let stub = Stub(handler: Stub.json("{}"))
+        let client = APIClient(
+            config: .production, tokens: InMemoryTokenStore(token: token), session: stub.session, now: { now }
+        )
+
+        _ = try await client.data(for: .get("api/v1/instant/inbox"))
+
+        #expect(stub.requests.map(\.path) == ["/api/v1/instant/inbox"])
+    }
+
+    /// Offline, the early refresh fails; that must not be read as the session
+    /// ending. The request still goes, and the 403 path has the final say.
+    @Test("A failed early refresh still sends the request")
+    func sendsAfterFailedEarlyRefresh() async throws {
+        let now = Date()
+        let expired = jwt(expiringAt: now.addingTimeInterval(-60))
+        let refreshes = Counter()
+        let stub = Stub { request in
+            if request.path.hasSuffix("/refresh") {
+                return refreshes.next() == 0
+                    ? .init(status: 503, body: Data("{}".utf8))
+                    : .init(status: 200, body: Data(#"{"token":"fresh"}"#.utf8))
+            }
+            return request.value(forHTTPHeaderField: "Authorization") == "Bearer fresh"
+                ? .init(status: 200, body: Data("{}".utf8))
+                : .init(status: 403, body: Data(#"{"msg":"You are not logged in"}"#.utf8))
+        }
+        let expiredCalls = Counter()
+        let client = APIClient(
+            config: .production, tokens: InMemoryTokenStore(token: expired), session: stub.session,
+            now: { now }, onSessionExpired: { _ = expiredCalls.next() }
+        )
+
+        _ = try await client.data(for: .get("api/v1/instant/inbox"))
+
+        #expect(expiredCalls.count == 0, "the session was never over")
+        #expect(stub.requests.last?.value(forHTTPHeaderField: "Authorization") == "Bearer fresh")
+    }
+
     @Test("Gives up after one failed refresh instead of looping")
     func stopsAfterFailedRefresh() async throws {
         let expired = Counter()

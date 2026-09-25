@@ -261,6 +261,7 @@ public final class InstantStore {
     /// Enrolls this device and brings the connection up. Safe to call on every
     /// launch and on every foreground: registration is an upsert.
     public func start(userId: Int) async {
+        JourneyLog.shared.markRunning("storeStarting")
         if self.userId != userId {
             reset()
             self.userId = userId
@@ -274,6 +275,7 @@ public final class InstantStore {
             return
         }
         device = identity
+        JourneyLog.shared.markRunning("identityLoaded")
 
         // Fetched alongside registering rather than after it and the socket
         // connect, which is three round trips on a cold start — but only when
@@ -293,6 +295,7 @@ public final class InstantStore {
                 publicKey: identity.publicKeyBase64
             )
             enrollmentError = nil
+            JourneyLog.shared.mark(.launch, "deviceRegistered")
         } catch let error as APIError where error.isAuthFailure {
             sessionExpired = true
             return
@@ -387,6 +390,8 @@ public final class InstantStore {
             guard userId == owner else { return }
             dropUnconfirmed(keeping: Set(fresh.map(\.id)))
             merge(fresh)
+            // What a launch is waiting for: the inbox as the server has it.
+            JourneyLog.shared.end(.launch)
         } catch let error as APIError where error.isAuthFailure {
             sessionExpired = true
         } catch {

@@ -1,5 +1,8 @@
 #if canImport(UIKit)
-import AVFoundation
+// `@preconcurrency`: the session, its inputs and its outputs cross to
+// `sessionQueue` and back. AVFoundation documents them as safe to use from the
+// queue that configures them; it has not annotated them `Sendable`.
+@preconcurrency import AVFoundation
 import Foundation
 import UIKit
 
@@ -98,6 +101,26 @@ public final class CameraController: NSObject, CameraControlling {
     private var finishedEarly: Result<URL, Error>?
     private var discardsRecording = false
 
+    /// Every change to the session happens here, one at a time.
+    ///
+    /// Configuring a session is slow — adding the inputs and outputs, the
+    /// commit, and activating the audio session took about 650 ms on an
+    /// iPhone 15 Pro — and it used to run on the main actor, at launch, in
+    /// front of everything else: the inbox store could not start, a tapped
+    /// notification's viewer could not appear, and the inbox fetch's answer
+    /// could not land until it was done (`wiki/ios-performance.md`). Serial,
+    /// rather than the global queue the pieces used before, so a `stop` can
+    /// never overtake the `start` it follows, nor a flip the build it changes.
+    private let sessionQueue = DispatchQueue(
+        label: "com.eduardcazacu.instant.camera-session",
+        qos: .userInitiated
+    )
+
+    /// The start in flight. The screen asks for one on appearing and again on
+    /// becoming active, and at launch those overlap; the second waits for the
+    /// first rather than building the session twice.
+    private var starting: Task<Void, Never>?
+
     public override init() {
         super.init()
     }
@@ -108,6 +131,17 @@ public final class CameraController: NSObject, CameraControlling {
     }
 
     public func start() async {
+        if let starting {
+            await starting.value
+            return
+        }
+        let task = Task { await performStart() }
+        starting = task
+        await task.value
+        starting = nil
+    }
+
+    private func performStart() async {
         guard isAvailable else { return }
         guard await AVCaptureDevice.requestAccess(for: .video) else { return }
         // Asked for with the camera rather than on the first hold: the
@@ -115,11 +149,55 @@ public final class CameraController: NSObject, CameraControlling {
         // `attachMicrophone`), and a hold is too late to be asking anything.
         let hearsMicrophone = await AVCaptureDevice.requestAccess(for: .audio)
 
+        // Handed to the preview before it is configured, as Apple's own
+        // capture sample does: the layer shows nothing until frames flow, and
+        // the view keeps it transparent until `isPreviewReady`.
         let session = self.session ?? AVCaptureSession()
         self.session = session
-        Self.configureAudioSession(for: session)
 
-        if input == nil {
+        let plan = SessionPlan(
+            session: session,
+            output: output,
+            movieOutput: movieOutput,
+            position: position,
+            addsCamera: input == nil,
+            addsMicrophone: hearsMicrophone && audioInput == nil
+        )
+        let built = await onSessionQueue { Self.build(plan) }
+        if let camera = built.camera { input = camera }
+        if let microphone = built.microphone { audioInput = microphone }
+        if let keeps = built.keepsMovieOutput { keepsMovieOutput = keeps }
+        // `startRunning` returns once the session is live, which is within a
+        // frame or so of the first buffer reaching the preview layer. The fade
+        // the view applies covers that remainder.
+        isPreviewReady = built.isRunning
+    }
+
+    /// What `build` needs from the controller, carried to the session queue.
+    private struct SessionPlan: @unchecked Sendable {
+        let session: AVCaptureSession
+        let output: AVCapturePhotoOutput
+        let movieOutput: AVCaptureMovieFileOutput
+        let position: AVCaptureDevice.Position
+        let addsCamera: Bool
+        let addsMicrophone: Bool
+    }
+
+    /// What `build` made, carried back to be recorded on the main actor.
+    private struct SessionBuilt: @unchecked Sendable {
+        var camera: AVCaptureDeviceInput?
+        var microphone: AVCaptureDeviceInput?
+        var keepsMovieOutput: Bool?
+        var isRunning = false
+    }
+
+    /// Configures the session and starts it. Runs on `sessionQueue` only.
+    private nonisolated static func build(_ plan: SessionPlan) -> SessionBuilt {
+        let session = plan.session
+        var built = SessionBuilt()
+        configureAudioSession(for: session)
+
+        if plan.addsCamera {
             session.beginConfiguration()
             // 1080p rather than `.photo`, for two reasons that happen to be the
             // same decision. It is natively 16:9, which is the shape Instant
@@ -128,44 +206,40 @@ public final class CameraController: NSObject, CameraControlling {
             // the shutter and having a photo. The pipeline downscales to 1080
             // wide regardless, so nothing survives to the wire that this gives up.
             session.sessionPreset = .hd1920x1080
-            if let device = Self.camera(at: position),
+            if let device = camera(at: plan.position),
                let deviceInput = try? AVCaptureDeviceInput(device: device),
                session.canAddInput(deviceInput) {
                 session.addInput(deviceInput)
-                input = deviceInput
+                built.camera = deviceInput
             }
-            if session.canAddOutput(output) {
-                session.addOutput(output)
-                attachMovieOutputIfFree(to: session)
-                configureForResponsiveness()
+            if session.canAddOutput(plan.output) {
+                session.addOutput(plan.output)
+                built.keepsMovieOutput = attachMovieOutputIfFree(
+                    plan.movieOutput, beside: plan.output, to: session
+                )
+                configureForResponsiveness(plan.output)
             }
-            if hearsMicrophone { attachMicrophone(to: session) }
+            if plan.addsMicrophone { built.microphone = attachMicrophone(to: session) }
             session.commitConfiguration()
-            configureMovieConnection()
-        } else if hearsMicrophone, audioInput == nil {
+            configureMovieConnection(of: plan.movieOutput, mirrored: plan.position == .front)
+        } else if plan.addsMicrophone {
             // Allowed since the session was built — in Settings, say. Added
             // now, while nothing is recording, rather than when a hold begins.
             session.beginConfiguration()
-            attachMicrophone(to: session)
+            built.microphone = attachMicrophone(to: session)
             session.commitConfiguration()
         }
 
-        guard !session.isRunning else {
-            isPreviewReady = true
-            return
-        }
+        if !session.isRunning { session.startRunning() }
+        built.isRunning = session.isRunning
+        return built
+    }
+
+    /// Runs `work` on `sessionQueue` and waits for it.
+    private func onSessionQueue<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
         await withCheckedContinuation { continuation in
-            // startRunning blocks; keeping it off the main actor stops the
-            // camera page from hitching as it appears.
-            DispatchQueue.global(qos: .userInitiated).async {
-                session.startRunning()
-                continuation.resume()
-            }
+            sessionQueue.async { continuation.resume(returning: work()) }
         }
-        // startRunning returns once the session is live, which is within a frame
-        // or so of the first buffer reaching the preview layer. The fade the
-        // view applies covers that remainder.
-        isPreviewReady = session.isRunning
     }
 
     /// The rest of the shutter-lag story, and it has to run while the session is
@@ -177,7 +251,7 @@ public final class CameraController: NSObject, CameraControlling {
     /// whatever happened a beat *after* the button went down, which is the
     /// complaint. The other two let a second shot begin while the first is
     /// still being processed, so the shutter never feels locked.
-    private func configureForResponsiveness() {
+    private nonisolated static func configureForResponsiveness(_ output: AVCapturePhotoOutput) {
         if output.isZeroShutterLagSupported {
             output.isZeroShutterLagEnabled = true
         }
@@ -197,16 +271,20 @@ public final class CameraController: NSObject, CameraControlling {
     /// Keeps the movie output attached only when the photo output still
     /// offers zero shutter lag beside it. Nothing reports the loss: the photo
     /// just goes back to being of the moment after the press.
-    private func attachMovieOutputIfFree(to session: AVCaptureSession) {
+    /// Returns whether it stayed, or nil when it could not be added at all.
+    private nonisolated static func attachMovieOutputIfFree(
+        _ movieOutput: AVCaptureMovieFileOutput,
+        beside output: AVCapturePhotoOutput,
+        to session: AVCaptureSession
+    ) -> Bool? {
         let hadZeroShutterLag = output.isZeroShutterLagSupported
-        guard session.canAddOutput(movieOutput) else { return }
+        guard session.canAddOutput(movieOutput) else { return nil }
         session.addOutput(movieOutput)
         if hadZeroShutterLag, !output.isZeroShutterLagSupported {
             session.removeOutput(movieOutput)
-            keepsMovieOutput = false
-        } else {
-            keepsMovieOutput = true
+            return false
         }
+        return true
     }
 
     /// The microphone is on the session for as long as the camera is, not
@@ -218,20 +296,19 @@ public final class CameraController: NSObject, CameraControlling {
     /// microphone used to be added. The cost is the microphone indicator
     /// whenever the camera is open, which is what every camera app that
     /// records sound shows.
-    private func attachMicrophone(to session: AVCaptureSession) {
-        guard audioInput == nil,
-              let microphone = AVCaptureDevice.default(for: .audio),
+    private nonisolated static func attachMicrophone(to session: AVCaptureSession) -> AVCaptureDeviceInput? {
+        guard let microphone = AVCaptureDevice.default(for: .audio),
               let input = try? AVCaptureDeviceInput(device: microphone),
               session.canAddInput(input)
-        else { return }
+        else { return nil }
         session.addInput(input)
-        audioInput = input
+        return input
     }
 
     /// Recording, and mixing with whatever else is playing. Left to itself the
     /// capture session takes the audio session over the moment it has a
     /// microphone, and opening the camera would stop the person's music.
-    private static func configureAudioSession(for session: AVCaptureSession) {
+    private nonisolated static func configureAudioSession(for session: AVCaptureSession) {
         session.automaticallyConfiguresApplicationAudioSession = false
         let audio = AVAudioSession.sharedInstance()
         try? audio.setCategory(
@@ -253,7 +330,10 @@ public final class CameraController: NSObject, CameraControlling {
     /// Unstabilised on purpose. Stabilisation crops the recorded frame, so a
     /// stabilised clip is a tighter picture than the viewport showed, and the
     /// viewport is the promise of what is sent.
-    private func configureMovieConnection() {
+    private nonisolated static func configureMovieConnection(
+        of movieOutput: AVCaptureMovieFileOutput,
+        mirrored: Bool
+    ) {
         guard let connection = movieOutput.connection(with: .video) else { return }
         // The movie output writes this as a transform on the track rather
         // than turning the pixels; `VideoPipeline.uprighted` settles it.
@@ -265,7 +345,6 @@ public final class CameraController: NSObject, CameraControlling {
         // the same side of the face.
         if connection.isVideoMirroringSupported {
             connection.automaticallyAdjustsVideoMirroring = false
-            let mirrored = position == .front
             if connection.isVideoMirrored != mirrored { connection.isVideoMirrored = mirrored }
         }
         if connection.isVideoStabilizationSupported, connection.preferredVideoStabilizationMode != .off {
@@ -276,9 +355,11 @@ public final class CameraController: NSObject, CameraControlling {
     public func stop() {
         if isRecording { cancelRecording() }
         isPreviewReady = false
-        guard let session, session.isRunning else { return }
-        DispatchQueue.global(qos: .userInitiated).async {
-            session.stopRunning()
+        guard let session else { return }
+        // Queued behind any start still building the session, so the stop
+        // cannot land first and leave a session running in the background.
+        sessionQueue.async {
+            if session.isRunning { session.stopRunning() }
         }
     }
 
@@ -324,18 +405,16 @@ public final class CameraController: NSObject, CameraControlling {
         // begin/commitConfiguration is slow enough to hitch the camera screen,
         // and yielding here is what lets the view put its freeze up before the
         // swap shows through.
-        let swapped: Bool = await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                session.beginConfiguration()
-                session.removeInput(current)
-                let accepted = session.canAddInput(replacement)
-                // Put the camera we had back if it is not, and stay on it:
-                // reporting a position the session is not actually on would
-                // mirror the preview the wrong way.
-                session.addInput(accepted ? replacement : current)
-                session.commitConfiguration()
-                continuation.resume(returning: accepted)
-            }
+        let swapped: Bool = await onSessionQueue {
+            session.beginConfiguration()
+            session.removeInput(current)
+            let accepted = session.canAddInput(replacement)
+            // Put the camera we had back if it is not, and stay on it:
+            // reporting a position the session is not actually on would
+            // mirror the preview the wrong way.
+            session.addInput(accepted ? replacement : current)
+            session.commitConfiguration()
+            return accepted
         }
         guard swapped else { return }
         input = replacement
@@ -346,7 +425,7 @@ public final class CameraController: NSObject, CameraControlling {
         setZoom(1)
         // The other camera faces the other way, so the clip's mirroring
         // changes with it — here, while nothing is recording.
-        configureMovieConnection()
+        Self.configureMovieConnection(of: movieOutput, mirrored: position == .front)
         await Self.settle(device)
     }
 
@@ -401,16 +480,13 @@ public final class CameraController: NSObject, CameraControlling {
         // as a clip starts.
         if !keepsMovieOutput {
             let movieOutput = movieOutput
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                DispatchQueue.global(qos: .userInitiated).async {
-                    session.beginConfiguration()
-                    if session.canAddOutput(movieOutput) { session.addOutput(movieOutput) }
-                    session.commitConfiguration()
-                    continuation.resume()
-                }
+            await onSessionQueue {
+                session.beginConfiguration()
+                if session.canAddOutput(movieOutput) { session.addOutput(movieOutput) }
+                session.commitConfiguration()
             }
         }
-        configureMovieConnection()
+        Self.configureMovieConnection(of: movieOutput, mirrored: position == .front)
 
         // A backstop a little past the limit. The model stops the recording at
         // five seconds itself; this is for a model that never got to.
@@ -475,13 +551,10 @@ public final class CameraController: NSObject, CameraControlling {
         if let device = input?.device { setTorch(false, on: device) }
         guard let session, !keepsMovieOutput else { return }
         let movieOutput = movieOutput
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            DispatchQueue.global(qos: .userInitiated).async {
-                session.beginConfiguration()
-                session.removeOutput(movieOutput)
-                session.commitConfiguration()
-                continuation.resume()
-            }
+        await onSessionQueue {
+            session.beginConfiguration()
+            session.removeOutput(movieOutput)
+            session.commitConfiguration()
         }
     }
 
@@ -493,8 +566,7 @@ public final class CameraController: NSObject, CameraControlling {
         device.unlockForConfiguration()
     }
 
-    /// Not isolated, so the flip can look a device up from the queue it
-    /// reconfigures the session on.
+    /// Not isolated, so the session can be built on `sessionQueue`.
     private nonisolated static func camera(at position: AVCaptureDevice.Position) -> AVCaptureDevice? {
         AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position)
     }
@@ -510,15 +582,20 @@ extension CameraController: AVCapturePhotoCaptureDelegate {
         Task { @MainActor [weak self] in
             guard let self, let continuation = pending else { return }
             pending = nil
-            if let data, let image = UIImage(data: data) {
-                // Selfies are mirrored on screen; capturing them unmirrored
-                // makes any caption the user positioned read backwards relative
-                // to what they framed.
-                continuation.resume(
-                    returning: Self.upright(image, mirrored: position == .front)
-                )
-            } else {
-                continuation.resume(throwing: CameraError.captureFailed)
+            JourneyLog.shared.mark(.capture, "processed")
+            // Selfies are mirrored on screen; capturing them unmirrored
+            // makes any caption the user positioned read backwards relative
+            // to what they framed.
+            let mirrored = position == .front
+            // Decoding the photo and drawing it upright is a full-frame pass,
+            // and it used to run here, on the main actor, while the screen was
+            // trying to draw the shutter.
+            Task.detached(priority: .userInitiated) {
+                guard let data, let image = UIImage(data: data) else {
+                    continuation.resume(throwing: CameraError.captureFailed)
+                    return
+                }
+                continuation.resume(returning: Self.upright(image, mirrored: mirrored))
             }
         }
     }
@@ -527,7 +604,7 @@ extension CameraController: AVCapturePhotoCaptureDelegate {
     ///
     /// One render pass rather than two: a selfie used to be normalized and then
     /// flipped, which is a full-frame redraw of a frame nobody ever saw.
-    static func upright(_ image: UIImage, mirrored: Bool) -> UIImage {
+    nonisolated static func upright(_ image: UIImage, mirrored: Bool) -> UIImage {
         guard mirrored else { return ImagePipeline.normalizingOrientation(image) }
         let size = image.size
         let format = UIGraphicsImageRendererFormat.preferred()

@@ -15,6 +15,9 @@ public protocol VideoPlaying: AnyObject {
     var onProgress: (@MainActor (Double) -> Void)? { get set }
     /// The end of a clip that does not loop.
     var onEnded: (@MainActor () -> Void)? { get set }
+    /// Once, when frames first actually move — the moment the timings call
+    /// a clip open, which `play()` returning is not.
+    var onPlaying: (@MainActor () -> Void)? { get set }
     func play()
     func pause()
     /// For good: the player lets go of the clip.
@@ -38,6 +41,7 @@ public final class AVVideoPlayback: VideoPlaying {
     public let player: AVPlayer
     public var onProgress: (@MainActor (Double) -> Void)?
     public var onEnded: (@MainActor () -> Void)?
+    public var onPlaying: (@MainActor () -> Void)?
 
     private let asset: AVURLAsset
     /// Held here because the resource loader holds its delegate weakly.
@@ -45,6 +49,7 @@ public final class AVVideoPlayback: VideoPlaying {
     private let looper: AVPlayerLooper?
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
+    private var playingObserver: NSKeyValueObservation?
     private static let loaderQueue = DispatchQueue(label: "instant.video.loader")
 
     public var isMuted: Bool {
@@ -92,6 +97,16 @@ public final class AVVideoPlayback: VideoPlaying {
                 self.onProgress?(min(1, max(0, time.seconds / duration.seconds)))
             }
         }
+        // `@Sendable` so it is not inferred to be main-actor isolated: KVO calls
+        // it on whichever thread the player changed on.
+        playingObserver = player.observe(\.timeControlStatus) { @Sendable [weak self] player, _ in
+            guard player.timeControlStatus == .playing else { return }
+            Task { @MainActor in
+                guard let self, let onPlaying = self.onPlaying else { return }
+                self.onPlaying = nil
+                onPlaying()
+            }
+        }
     }
 
     public func play() { player.play() }
@@ -105,8 +120,10 @@ public final class AVVideoPlayback: VideoPlaying {
         endObserver = nil
         looper?.disableLooping()
         player.replaceCurrentItem(with: nil)
+        playingObserver = nil
         onProgress = nil
         onEnded = nil
+        onPlaying = nil
     }
 
     public func frame(at fraction: Double) async -> UIImage? {
@@ -175,6 +192,7 @@ public final class StubVideoPlayback: VideoPlaying {
     public var isMuted = true
     public var onProgress: (@MainActor (Double) -> Void)?
     public var onEnded: (@MainActor () -> Void)?
+    public var onPlaying: (@MainActor () -> Void)?
     public private(set) var isPlaying = false
     public private(set) var isStopped = false
     public var still: UIImage?

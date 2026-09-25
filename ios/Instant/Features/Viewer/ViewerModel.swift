@@ -44,6 +44,8 @@ public final class ViewerModel {
     /// Not "once per render", not "once unless something re-entered" — once.
     private var hasStartedFetch = false
     private var hasSentReceipt = false
+    /// The receipt in flight. Nothing on screen waits for it; tests do.
+    private(set) var receiptDelivery: Task<Void, Never>?
     private var countdown: Task<Void, Never>?
     private var countdownTotal: Double = 0
     /// Seconds left as of `countdownStartedAt`. Updated on every pause.
@@ -108,11 +110,17 @@ public final class ViewerModel {
     public func start() async {
         guard !hasStartedFetch else { return }
         hasStartedFetch = true
+        journey("viewerStarted")
+        JourneyLog.shared.annotate(.openInstant, key: instant.id, [
+            "media": isVideo ? "video" : "photo",
+            "duration": instant.durationMode.rawValue,
+        ])
 
         guard let envelope = instant.envelope else {
             // Nothing here can ever open this. Tell the server so it stops
             // holding ciphertext no one can read.
             phase = .undecryptable
+            endJourney("undecryptable")
             try? await api.markUndecryptable(instantId: instant.id)
             return
         }
@@ -122,14 +130,18 @@ public final class ViewerModel {
             ciphertext = try await api.media(instantId: instant.id)
         } catch let error as APIError where error.isGone {
             phase = .gone("This instant was already opened somewhere else, or it expired.")
+            endJourney("gone")
             return
         } catch {
             // The server claimed the row before it read the object, so the
             // instant is spent either way — the same trade Snapchat makes, and
             // the reason a half-finished download loses the photo.
             phase = .failed("That instant could not be opened. It is gone either way.")
+            endJourney("downloadFailed")
             return
         }
+        journey("downloaded")
+        JourneyLog.shared.annotate(.openInstant, key: instant.id, ["kb": String(ciphertext.count / 1024)])
 
         let decoded: UIImage
         do {
@@ -144,17 +156,20 @@ public final class ViewerModel {
                 ),
                 device: device
             )
+            journey("decrypted")
             if isVideo {
                 await showVideo(plaintext)
                 return
             }
             guard let opened = UIImage(data: plaintext) else {
                 phase = .failed("That instant could not be displayed.")
+                endJourney("undisplayable")
                 return
             }
             decoded = opened
         } catch {
             phase = .undecryptable
+            endJourney("undecryptable")
             return
         }
         image = decoded
@@ -162,12 +177,16 @@ public final class ViewerModel {
         if await sensitivity.isSensitive(decoded) {
             isConcealed = true
             phase = .showing
+            endJourney("concealed")
             return
         }
+        journey("checked")
 
         phase = .showing
-        await sendReceipt()
+        journey("shown")
+        sendReceipt()
         startCountdown()
+        endJourney("shown")
     }
 
     /// The clip's counterpart of the photo path: the same check, the same
@@ -188,12 +207,15 @@ public final class ViewerModel {
         }
         // Closed while the frames were being read.
         guard !isFinished else { return }
+        journey("checked")
         phase = .showing
         if flagged {
             isConcealed = true
+            endJourney("concealed")
             return
         }
-        await sendReceipt()
+        journey("shown")
+        sendReceipt()
         startPlayback()
     }
 
@@ -207,8 +229,14 @@ public final class ViewerModel {
             guard let self, instant.durationMode != .loop else { return }
             finish()
         }
+        // The end is the picture moving, which is later than being asked to.
+        video.onPlaying = { [weak self] in
+            guard let self else { return }
+            endJourney("playing")
+        }
         // Revealed while a sheet was already up: it plays when the sheet goes.
         guard !isPaused else { return }
+        journey("playRequested")
         video.play()
     }
 
@@ -232,7 +260,7 @@ public final class ViewerModel {
     public func reveal() async {
         guard isConcealed, phase == .showing, !isFinished else { return }
         isConcealed = false
-        await sendReceipt()
+        sendReceipt()
         if video != nil {
             startPlayback()
         } else {
@@ -272,10 +300,26 @@ public final class ViewerModel {
 
     /// Sent once the image is actually on screen, not when the fetch began —
     /// a read receipt should mean "they saw it".
-    private func sendReceipt() async {
+    ///
+    /// Not awaited. The clock and the clip used to wait for it, which held a
+    /// timed photo's ring full, and a clip on its first frame, for a round trip
+    /// (0.2–0.35 s measured) that protects nothing: the sender's receipt is
+    /// the claim on the media, not this call (`wiki/decisions.md`). The flag
+    /// still flips here, synchronously, because `wasSeen` reads it.
+    private func sendReceipt() {
         guard !hasSentReceipt else { return }
         hasSentReceipt = true
-        try? await api.markViewed(instantId: instant.id)
+        receiptDelivery = Task { [api, instant] in
+            try? await api.markViewed(instantId: instant.id)
+        }
+    }
+
+    private func journey(_ mark: String) {
+        JourneyLog.shared.mark(.openInstant, key: instant.id, mark)
+    }
+
+    private func endJourney(_ outcome: String) {
+        JourneyLog.shared.end(.openInstant, key: instant.id, outcome: outcome)
     }
 
     private func startCountdown() {
@@ -313,6 +357,8 @@ public final class ViewerModel {
     /// Backgrounding closes the instant, matching the web client's
     /// `visibilitychange` handling: leaving the app should not pause the clock.
     public func finish() {
+        // Closed before anything was shown. Does nothing once it has been.
+        endJourney("closed")
         countdown?.cancel()
         countdown = nil
         video?.stop()

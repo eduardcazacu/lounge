@@ -110,6 +110,14 @@ the auto-responder, and the connection dies quietly.
 **Drain the inbox before connecting, not after.** Anything that arrived while
 the socket was down is otherwise missed.
 
+**A close code handed to `webSocketClose` may not be one you can send.** The
+runtime reports how a connection ended, including the codes RFC 6455 reserves
+for reporting and forbids on the wire: 1005, 1015, and 1006, which is what a
+phone that slept, lost signal or was killed ends with, so the common case.
+Echoing one back throws `InvalidAccessError: Invalid WebSocket close code`, and
+the log fills with errors that break nothing. `closeCodeToEcho` in
+`backend/src/websocket-close.ts` answers anything unsendable with 1000.
+
 **An open browser tab swallows the push.** The Worker pushes only when
 `deliver()` reached no socket (`backend/src/route/instant.ts`). While the web
 client is open anywhere, that tab receives the instant, so the phone gets no
@@ -282,6 +290,17 @@ no error, and the same model is fine on the Mac's own Core ML. A flat map is a
 Simulator, and its test fails on a flat map, since every other check passes
 one.
 
+**`withAnimation`'s `completion:` can run before anything is drawn.** The
+shutter dimmed the frame with one `withAnimation` and started the fade back
+from its `completion:`. On the phone and in the Simulator, the completion ran
+before a single frame of the dim was drawn, so the fade replaced it at once and
+nothing ever showed. There was no error, and the haptic on the same press still
+fired, so it looked like a timing that was merely too short. A screen recording
+of the Simulator (`xcrun simctl io <device> recordVideo`), measured frame by
+frame, showed no change at all. `CameraScreen.capture` starts the way back
+from a `Task.sleep` instead. Any two-step animation here should be sequenced
+the same way, or with `keyframeAnimator`, and checked in a recording.
+
 **Haptics are silent while the audio session records.** iOS drops them
 without an error, and with the microphone on the capture session for as long
 as the camera is open, that is all the time — the tap that says a clip has
@@ -304,6 +323,22 @@ clock lets go of itself first.
 **An iPhone can record HLG, and a browser shows it grey.** A clip tagged as HDR
 plays washed out on the web, with no error. `VideoPipeline` renders through a
 BT.709 composition and tags the file BT.709 whatever the camera chose.
+
+**Hyperdrive caches reads by default.** A configuration created without
+`--caching-disabled` answers repeated `SELECT`s from a 60-second cache. Nothing
+errors: the inbox just omits an instant that arrived within the last minute, a
+block takes a minute to apply, and a tapped notification's viewer waits on an
+instant the cache says is not there. `backend/wrangler.toml` and
+`wiki/operations.md` both say to create it with caching off. Check with
+`npx wrangler hyperdrive get <id>`.
+
+**A Release build run from Xcode never gets a notification.** Xcode signs it
+for development, so APNs issues a sandbox device token, but
+`PushRegistrar.isSandbox` is keyed on `#if DEBUG` and registers that token as
+`apns`. Apple answers `BadDeviceToken`, `backend/src/apns.ts` deletes the
+subscription as dead, and nothing reports an error. Only TestFlight and App
+Store builds, which are signed for distribution, pair production tokens with
+`apns`. Test anything involving notifications on one of those.
 
 **Install the `UNUserNotificationCenter` delegate at launch**, not after
 sign-in. iOS hands a notification tapped from a cold start to whatever delegate

@@ -20,6 +20,7 @@ person who joined this week.
 | [instant-runtime.md](instant-runtime.md) | Delivery, the one-shot media read, streaks, conversations, push |
 | [web-client.md](web-client.md) | The React app: blog, chat, admin, and Instant as a harness |
 | [ios-client.md](ios-client.md) | The SwiftUI app: camera, compose, inbox, widget, extension |
+| [ios-performance.md](ios-performance.md) | Where a tap's time goes on the way to a photo, and what could be cut |
 | [safety.md](safety.md) | Terms, blocks, reports, deletion — and what App Review asks for |
 | [operations.md](operations.md) | Deploying, every secret by name, and the config that lives only in a dashboard |
 | [parallel-implementations.md](parallel-implementations.md) | What must change in more than one place |

@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import type { InstantDelivery, InstantWireEvent } from "@blogging-app/common";
+import { closeCodeToEcho } from "./websocket-close";
 
 // One InstantInbox per user, addressed as `user:<id>`.
 //
@@ -131,7 +132,13 @@ export class InstantInbox extends DurableObject {
   }
 
   async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
-    // 1005 means "no status received" and may not be echoed back.
-    ws.close(code === 1005 ? 1000 : code, reason);
+    // Completing the close handshake. By the time a dropped connection (1006)
+    // reports here there is nobody left to answer, and the close can still
+    // throw; there is nothing to do about that but not log it as an error.
+    try {
+      ws.close(closeCodeToEcho(code), reason);
+    } catch {
+      // Already gone.
+    }
   }
 }
