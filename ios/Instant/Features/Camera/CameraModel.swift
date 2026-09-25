@@ -26,6 +26,10 @@ public final class CameraModel {
     public private(set) var stage: Stage = .live
     public private(set) var captured: Capture?
     public private(set) var isCapturing = false
+    /// From the shutter until the photo is handed over. The preview holds its
+    /// frame for exactly this long. Not `isCapturing`, which a recording sets
+    /// too, and a recording is the one time the frame must keep moving.
+    public private(set) var isTakingPhoto = false
 
     /// From the recording actually starting until its file is finished.
     public private(set) var isRecording = false
@@ -95,7 +99,11 @@ public final class CameraModel {
     public var needsLibraryFallback: Bool { !camera.isAvailable }
 
     public func start() async {
+        // On every running journey, because the setup holds the main actor
+        // whichever one it lands in the middle of.
+        JourneyLog.shared.markRunning("cameraStarting")
         await camera.start()
+        JourneyLog.shared.markRunning("cameraStarted")
         // Zoom limits are only knowable once a device is attached.
         syncFromCamera()
     }
@@ -159,12 +167,21 @@ public final class CameraModel {
     public func shoot() async {
         guard !isCapturing else { return }
         isCapturing = true
+        isTakingPhoto = true
         errorMessage = nil
-        defer { isCapturing = false }
+        defer {
+            isCapturing = false
+            isTakingPhoto = false
+        }
+        // Ends when the compose screen appears (`CameraScreen`).
+        JourneyLog.shared.begin(.capture, attributes: ["media": "photo"], restart: true)
         do {
-            adopt(try await camera.capture())
+            let photo = try await camera.capture()
+            JourneyLog.shared.mark(.capture, "captured")
+            adopt(photo)
         } catch {
             errorMessage = "Could not take that photo."
+            JourneyLog.shared.end(.capture, outcome: "failed")
         }
     }
 
@@ -174,6 +191,7 @@ public final class CameraModel {
     /// it at the limit.
     public func beginRecording() async {
         guard !isCapturing, !isRecording, !isStartingRecording, !isSwitching else { return }
+        JourneyLog.shared.begin(.recordStart, restart: true)
         isStartingRecording = true
         stopRequested = false
         cancelRequested = false
@@ -185,20 +203,24 @@ public final class CameraModel {
             // The prompt has had the moment; the next hold records.
             isStartingRecording = false
             isCapturing = false
+            JourneyLog.shared.end(.recordStart, outcome: "askedForMicrophone")
             return
         } catch {
             isStartingRecording = false
             isCapturing = false
             errorMessage = "Could not record that video."
+            JourneyLog.shared.end(.recordStart, outcome: "failed")
             return
         }
         if cancelRequested {
             cancelRequested = false
             camera.cancelRecording()
+            JourneyLog.shared.end(.recordStart, outcome: "cancelled")
             return
         }
         isStartingRecording = false
         isRecording = true
+        JourneyLog.shared.end(.recordStart, outcome: stopRequested ? "liftedWhileStarting" : "recording")
         recordingProgress = 0
         runRecordingClock()
         if stopRequested { await endRecording() }
@@ -215,14 +237,18 @@ public final class CameraModel {
         recordingClock?.cancel()
         recordingClock = nil
         defer { isCapturing = false }
+        // From the lift, or the limit, to the compose screen (`CameraScreen`).
+        JourneyLog.shared.begin(.capture, attributes: ["media": "video"], restart: true)
         do {
             let clip = try await camera.stopRecording()
+            JourneyLog.shared.mark(.capture, "fileFinished")
             recordingProgress = 1
             captured = .video(clip)
             stage = .composing
         } catch {
             recordingProgress = 0
             errorMessage = "Could not record that video."
+            JourneyLog.shared.end(.capture, outcome: "failed")
         }
     }
 
@@ -277,6 +303,8 @@ public final class CameraModel {
         if case .video(let clip) = captured {
             CaptureScratch.remove(clip.url)
         }
+        // Not a capture any send will ever be linked to.
+        JourneyLog.shared.forgetLink(to: .capture)
         reset()
     }
 

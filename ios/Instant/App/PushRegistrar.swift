@@ -38,7 +38,8 @@ public struct SystemNotificationAuthorizer: NotificationAuthorizing {
 @MainActor
 public final class PushRegistrar: NSObject {
     private let userAPI: UserAPIProtocol
-    private let onOpenInstant: @MainActor (String?) -> Void
+    /// The instant a tapped notification named, and who it said sent it.
+    private let onOpenInstant: @MainActor (_ instantId: String?, _ senderName: String?) -> Void
     /// Injected so a test can assert the prompt is actually requested. The gate
     /// that used to suppress it was invisible to every test precisely because
     /// this call went straight to the system.
@@ -58,7 +59,7 @@ public final class PushRegistrar: NSObject {
     public init(
         userAPI: UserAPIProtocol,
         notifications: NotificationAuthorizing = SystemNotificationAuthorizer(),
-        onOpenInstant: @escaping @MainActor (String?) -> Void
+        onOpenInstant: @escaping @MainActor (_ instantId: String?, _ senderName: String?) -> Void
     ) {
         self.userAPI = userAPI
         self.notifications = notifications
@@ -114,6 +115,12 @@ public final class PushRegistrar: NSObject {
     nonisolated static func instantId(from userInfo: [AnyHashable: Any]) -> String? {
         (userInfo["data"] as? [String: Any])?["instantId"] as? String
     }
+
+    /// Set by the same send, so the viewer can name the sender before the
+    /// instant itself has been fetched.
+    nonisolated static func senderName(from userInfo: [AnyHashable: Any]) -> String? {
+        (userInfo["data"] as? [String: Any])?["senderName"] as? String
+    }
 }
 
 /// Both of these are main-actor isolated, inherited from the class rather than
@@ -146,7 +153,14 @@ extension PushRegistrar: @preconcurrency UNUserNotificationCenterDelegate {
         // The unsent-instant reminder is about the camera's outbox, not about
         // anything waiting, so it opens the app where it normally opens.
         guard !OutboxReminder.isReminder(userInfo) else { return }
-        onOpenInstant(Self.instantId(from: userInfo))
+        let instantId = Self.instantId(from: userInfo)
+        if let instantId {
+            JourneyLog.shared.begin(.openInstant, key: instantId, attributes: [
+                "source": "notification",
+                "launch": JourneyLog.shared.hasEnteredBackground ? "warm" : "cold",
+            ])
+        }
+        onOpenInstant(instantId, Self.senderName(from: userInfo))
     }
 
     public func userNotificationCenter(

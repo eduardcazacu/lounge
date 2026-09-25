@@ -463,8 +463,14 @@ public final class Outbox {
         let render = Task.detached(priority: .userInitiated) {
             try await Self.render(draft)
         }
+        // How the photo was taken and how long it sat on the compose screen,
+        // so a send can be read end to end, shutter to server.
+        var attributes = JourneyLog.shared.takeLink(to: .capture)
+        attributes["media"] = draft.clip == nil ? "photo" : "video"
+        attributes["recipients"] = String(recipients.count)
         for recipient in recipients {
             let id = UUID()
+            JourneyLog.shared.begin(.send, key: id.uuidString, attributes: attributes)
             drafts[id] = draft
             renders[id] = render
             items.append(Item(id: id, recipient: recipient, phase: .sending))
@@ -510,9 +516,12 @@ public final class Outbox {
                 ephemeralPubKey: pending.ephemeralPubKey,
                 envelopes: pending.sealedEnvelopes
             )
+            JourneyLog.shared.end(.send, key: id.uuidString, outcome: "accepted")
             succeeded(id, recipientId: pending.recipientId)
             await onSent(pending.recipientId)
         } catch {
+            // A retry is not timed: it starts from a tap on the pill, not from Send.
+            JourneyLog.shared.end(.send, key: id.uuidString, outcome: "failed")
             failed(id, message: Self.message(for: error))
         }
     }
@@ -537,7 +546,10 @@ public final class Outbox {
         // millisecond before that point counts twice.
         async let lookup = api.keys(forUserId: recipient.userId)
         let encoded = try await render.value
+        JourneyLog.shared.mark(.send, key: id.uuidString, "encoded")
+        JourneyLog.shared.annotate(.send, key: id.uuidString, ["kb": String(encoded.data.count / 1024)])
         let devices = try await lookup.theirs
+        JourneyLog.shared.mark(.send, key: id.uuidString, "keysFetched")
         guard !devices.isEmpty else { throw InstantCrypto.CryptoError.noRecipientDevices }
         let sealedInstant = try InstantCrypto.seal(
             media: encoded.data,
@@ -559,7 +571,9 @@ public final class Outbox {
         guard items.contains(where: { $0.id == id }), userId == senderUserId else {
             throw OutboxError.lost
         }
+        JourneyLog.shared.mark(.send, key: id.uuidString, "sealed")
         store.save(pending)
+        JourneyLog.shared.mark(.send, key: id.uuidString, "saved")
         sealed[id] = pending
         if let index = items.firstIndex(where: { $0.id == id }) {
             items[index].isSaved = true

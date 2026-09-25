@@ -12,6 +12,7 @@ import { cors } from 'hono/cors'
 const app = new Hono<{
 	Bindings: {
 		DATABASE_URL?: string,
+		HYPERDRIVE?: Hyperdrive,
 		JWT_SECRET?: string,
 		ADMIN_EMAILS?: string,
 		RESEND_API_KEY?: string,

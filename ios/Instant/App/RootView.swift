@@ -25,6 +25,10 @@ struct RootView: View {
             // notification permission on the sign-in screen spends the one
             // prompt iOS gives you before the person has any reason to say yes.
             guard let userId = environment.session.currentUserId else { return }
+            // With `storeStarting` and `identityLoaded`, splits the half-second a
+            // notification launch spends before its identity into scheduling
+            // and Keychain (`wiki/ios-performance.md`).
+            JourneyLog.shared.markRunning("rootTaskStarted")
             // Side by side: neither needs the other, and the account is what
             // draws the avatar and decides the terms gate.
             // Anything a force quit left sealed goes now: the session is as
@@ -47,17 +51,37 @@ struct RootView: View {
         // `UNUserNotificationCenter` delegate instead, and both end up in
         // `openInbox`.
         .onOpenURL { environment.handle($0) }
+        .onAppear {
+            JourneyLog.shared.mark(.launch, "firstFrame")
+            JourneyLog.shared.annotate(.launch, [
+                "signedIn": String(environment.session.isSignedIn),
+                "inboxCached": String(environment.store.hasLoaded),
+            ])
+            // Nothing is fetched for somebody signed out, so the frame is the end.
+            if !environment.session.isSignedIn {
+                JourneyLog.shared.end(.launch, outcome: "signedOut")
+            }
+        }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .background:
                 environment.outbox.didEnterBackground()
+                JourneyLog.shared.didEnterBackground()
             case .active:
                 environment.outbox.didBecomeActive()
                 // Coming back from the background is exactly when a queued
                 // instant is most likely waiting, and when the socket most
                 // likely died.
                 guard environment.session.isSignedIn else { return }
-                Task { await environment.store.refreshAll() }
+                // A cold start's first `.active` belongs to the launch, which
+                // is timed on its own. Keyed per return, so a refresh that
+                // outlives one foreground cannot end the next one's journey.
+                let resume = JourneyLog.shared.hasEnteredBackground ? UUID().uuidString : nil
+                if let resume { JourneyLog.shared.begin(.resume, key: resume) }
+                Task {
+                    await environment.store.refreshAll()
+                    if let resume { JourneyLog.shared.end(.resume, key: resume) }
+                }
             default:
                 break
             }

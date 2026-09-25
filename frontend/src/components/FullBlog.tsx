@@ -7,36 +7,37 @@ import { MentionInput } from "./MentionInput";
 import { BACKEND_URL } from "../config";
 import { getAuthHeader, getCurrentUserId } from "../lib/auth";
 import { formatPostedTime } from "../lib/datetime";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { getThemePalette } from "../themes";
 import { extractFirstYouTubeEmbedUrl, getTransformedImageUrl, isImageLikeUrl, stripLeadingFirstYouTubeUrl, withStandaloneImagePreviewMarkdown } from "../lib/content";
 
 export const FullBlog = ({ blog }: { blog: Blog }) => {
-  const markdownComponents = {
-    img: (props: any) => {
-      if (!isImageLikeUrl(props.src)) {
+  const markdownComponents: Components = {
+    img: (props) => {
+      const src = typeof props.src === "string" ? props.src : undefined;
+      if (!src || !isImageLikeUrl(src)) {
         return null;
       }
       return (
         <a
-          href={props.src}
+          href={src}
           target="_blank"
           rel="noreferrer noopener"
           className="my-3 flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 no-underline"
         >
           <img
-            src={getTransformedImageUrl(props.src, { width: 520, fit: "cover", quality: 74 })}
+            src={getTransformedImageUrl(src, { width: 520, fit: "cover", quality: 74 })}
             alt="Linked image preview"
             loading="lazy"
             className="rounded-md object-cover"
             style={{ width: "96px", height: "96px", margin: 0, maxHeight: "96px", flexShrink: 0 }}
           />
-          <div className="text-xs text-slate-600 break-all">{props.src}</div>
+          <div className="text-xs text-slate-600 break-all">{src}</div>
         </a>
       );
     },
-    a: (props: any) => (
+    a: (props) => (
       <a
         href={props.href}
         target="_blank"

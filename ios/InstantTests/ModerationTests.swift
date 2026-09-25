@@ -27,7 +27,7 @@ struct ReportModelTests {
     /// Attaching the photo takes it out of end-to-end encryption, so having one
     /// to attach must never be the same thing as attaching it.
     @Test("The photo is not attached unless asked for")
-    func photoIsOptIn() async {
+    func photoIsOptIn() async throws {
         let api = FakeModerationAPI()
         let model = ReportModel(
             reportedUserId: 2, reportedName: "Ana", instantId: "i1", photo: photo, api: api,
@@ -40,12 +40,12 @@ struct ReportModelTests {
         #expect(!model.includesPhoto)
         #expect(await model.submit())
 
-        let sent = try? #require(api.reports.first)
-        #expect(sent?.evidence == nil)
-        #expect(sent?.reportedUserId == 2)
-        #expect(sent?.instantId == "i1")
-        #expect(sent?.reason == .nudity)
-        #expect(sent?.alsoBlock == true, "reporting blocks by default")
+        let sent = try #require(api.reports.first)
+        #expect(sent.evidence == nil)
+        #expect(sent.reportedUserId == 2)
+        #expect(sent.instantId == "i1")
+        #expect(sent.reason == .nudity)
+        #expect(sent.alsoBlock, "reporting blocks by default")
     }
 
     @Test("An attached photo is encoded and sent")

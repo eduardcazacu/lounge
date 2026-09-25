@@ -35,7 +35,9 @@ plaintext row is accepted once and silently upgraded on successful sign-in.
 
 ### Auth failures are 403, not 401
 
-Every client keys its refresh logic off **403**. A port that watches for 401
+Every client keys its refresh logic off **403**. The iOS app also refreshes a
+token it can see has expired before sending it (`APIClient.shouldRefreshFirst`),
+but that only skips the round trip; the 403 path still decides. A port that watches for 401
 will let the 15-minute token quietly end the session with no visible error.
 
 There is one deliberate exception: a wrong password on

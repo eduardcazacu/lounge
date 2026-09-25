@@ -1640,7 +1640,7 @@ final class RecordingAuthorizer: NotificationAuthorizing {
 @Suite("Push authorization")
 struct PushAuthorizationTests {
     private func registrar(_ authorizer: RecordingAuthorizer) -> PushRegistrar {
-        PushRegistrar(userAPI: FakeUserAPI(), notifications: authorizer) { _ in }
+        PushRegistrar(userAPI: FakeUserAPI(), notifications: authorizer) { _, _ in }
     }
 
     /// The regression this exists for: an `#if INSTANT_PUSH` that was defined in
@@ -1725,6 +1725,14 @@ struct PushRegistrarTests {
             "data": ["openUrl": "/instant", "instantId": "abc-123"],
         ]
         #expect(PushRegistrar.instantId(from: payload) == "abc-123")
+    }
+
+    /// What the viewer names while the instant itself is still being fetched.
+    @Test("Reads the sender's name out of the payload")
+    func extractsSenderName() {
+        let payload: [AnyHashable: Any] = ["data": ["instantId": "abc-123", "senderName": "Ana"]]
+        #expect(PushRegistrar.senderName(from: payload) == "Ana")
+        #expect(PushRegistrar.senderName(from: [:]) == nil)
     }
 
     @Test("A streak warning carries no instant, and that is fine")

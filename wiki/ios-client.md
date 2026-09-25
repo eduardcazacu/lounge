@@ -73,17 +73,27 @@ camera attached.
 
 ### The shutter
 
-Taking a photo covers the frame in black, from the press until the photo is on
-screen. Not a blink: a blink ends on a timer, and whatever is left between the
-end of it and the picture appearing is the live camera still moving under a
-frame captured a moment ago — which reads as the shutter having missed. The
-cover is drawn above both screens so that it outlasts the handover from one to
-the other, and the compose screen appearing is what lifts it.
+Taking a photo freezes the preview on **the frame of the press**
+(`CameraModel.isTakingPhoto`, the same hold a flip uses) until the compose
+screen replaces it with the photo. The freeze alone is fast but looked like the
+app had hung, so the held frame plays a shutter over it: it goes dark, stays
+down for a moment and comes back, with a light haptic (`CameraScreen.capture`).
+That takes under 0.2 s, well inside the time the camera spends processing the
+photo, so it adds nothing to the wait. Only the brightness moves. A version
+that also pressed the frame slightly inward read as the viewport shrinking. What must never be on
+screen in that window is the live camera still moving under a frame captured a
+moment ago, which reads as the shutter having missed. A frozen frame rules that
+out as well as a black one did, and shows the picture that was taken instead of
+nothing for the 0.37 s the camera spends processing it
+(`wiki/ios-performance.md`). Decoding the photo and turning it upright happen
+off the main actor (`CameraController.photoOutput`), so the blink is not held
+up behind them.
 
 A clip uses no cover: the frame keeps moving until the finger lifts, and
 compose's player takes over from it.
 
-That window is visible in full, so nothing is allowed to sit in it.
+That window is still time the person waits through, so nothing is allowed to
+sit in it.
 `ComposeModel.init` does no image work at all — it shows the photo exactly as it
 arrived. The display-sized copy is built on the first tap that needs one, and
 the strip's seven renders happen when the strip is first opened rather than on
@@ -93,7 +103,7 @@ every capture.
 
 A tap is a photo and a hold is a clip, up to five seconds, with a red ring
 filling round the shutter for the time left. **One `DragGesture` decides
-both** (`CameraScreen.shutter`): touch-down starts a 0.3 s timer, a lift before
+both** (`CameraScreen.shutter`): touch-down starts a 0.2 s timer (`CameraScreen.holdThreshold`), a lift before
 it fires is a photo, and the timer firing is the hold. A long press competing
 with a tap would be outranked-but-waited-on, and the recording would start on
 the lift (see [gotchas.md](gotchas.md)). The limit is enforced twice: by
@@ -112,6 +122,13 @@ records silent clips.
 
 **Unstabilised on purpose.** Stabilisation crops the recorded frame, so a
 stabilised clip is a tighter picture than the viewport showed.
+
+**Every change to the session runs on one serial queue**
+(`CameraController.sessionQueue`): building it, starting and stopping it, the
+flip, and adding the movie output for a recording. On the main actor, building
+it held up everything else at launch for about 650 ms, including a tapped
+notification's viewer (`wiki/ios-performance.md`). One queue rather than
+several, so a stop can never overtake the start it follows.
 
 **The audio session is the camera's.** `CameraController` sets
 `.playAndRecord` with `.mixWithOthers` itself rather than letting the capture
@@ -740,9 +757,13 @@ where to start.
   launching finishes, once — set it any later and the tap is dropped silently,
   and the app comes up on the camera.
 - A notification names its instant, and that instant is usually not in the inbox
-  yet when the tap arrives on a cold start: the cache predates it. So the id
-  stays **pending** until the startup fetch brings it in, rather than being
-  dropped on the first miss.
+  yet when the tap arrives, on a cold start or a warm one: the cache predates
+  it. The viewer opens **on the tap** anyway (`WaitingViewerScreen`), black,
+  with the sender's name from the push payload, and becomes the real viewer
+  when the instant lands. The id stays **pending** until the instant is in the
+  inbox *and* this device's identity is loaded, rather than being dropped on
+  the first miss. After eight seconds the waiting screen says why it might
+  never come (opened on another device) and offers to close.
 - Nothing about the photo itself can be fetched ahead of the tap. Reading
   destroys it (`GET /:id/media`), so the viewer's download is the one wait
   that cannot be moved earlier.
@@ -769,7 +790,9 @@ presented, so its Continue button goes back to Settings.
 
 `APIClient` mirrors the web's interceptors: cookie-enabled `URLSession` for the
 `refresh_token` cookie, one refresh and one retry on **403**, and a refusal to
-refresh while holding no token. `APIError` maps 403 to auth failure, 410 to
+refresh while holding no token. It also refreshes a token that has expired, or
+is within 30 seconds of it, before sending, because a cold start almost always
+holds a dead one. The 403 path is still the rule. `APIError` maps 403 to auth failure, 410 to
 gone, 501 to realtime-unsupported.
 
 Sign-in sends `authenticated: false` so its own 403s — bad credentials,
@@ -847,6 +870,13 @@ for you to tap Allow.
 What none of that covers is Apple accepting the request the backend sends;
 `backend/scripts/verify-apns.ts` checks the ES256 signing and request shape
 against a stubbed Apple instead. See [operations.md](operations.md).
+
+## Timings
+
+Settings → Timings shows how long the journeys a person waits on took on this
+phone (the launch, a tapped notification, the shutter, a send) and exports them.
+What is timed, how to read it, and why it stays on the phone are in
+[ios-performance.md](ios-performance.md).
 
 ## What it deliberately does not do
 

@@ -18,27 +18,12 @@ public struct WhatsNew: Equatable, Sendable {
     public let fixes: [Item]
 
     public static let current = WhatsNew(
-        version: "1.3",
+        version: "1.5",
         features: [
             Item(
-                symbol: "rotate.3d",
-                title: "Photos that wiggle",
-                detail: "Tap 3D after taking a photo and it becomes a short clip rocking between four angles, the way a Nishika print does. The phone works out what is near and what is far and moves them by different amounts, so what you get has depth rather than a shake. Send it as a loop, or once."
-            ),
-            Item(
-                symbol: "video.fill",
-                title: "Send a video",
-                detail: "Hold the shutter to record up to five seconds, with sound — the ring round the button shows how long you have left. Write and draw on it like a photo, then choose whether it plays once or loops. It disappears once it's been watched, just like a photo."
-            ),
-            Item(
-                symbol: "square.and.arrow.down",
-                title: "Keep a copy",
-                detail: "The arrow beside Send saves the instant to your own photos, with the look, the drawing and the captions already in the pixels — a 3D one goes as its clip. Only what you made: an instant somebody sent you still disappears."
-            ),
-            Item(
-                symbol: "slider.horizontal.3",
-                title: "Your settings stick",
-                detail: "How long a photo shows, whether a video loops, sound on or off, and your pen colour are remembered, so the next one starts the way you left the last."
+                symbol: "bolt.fill",
+                title: "Faster all round",
+                detail: "Tapping a notification opens the photo straight away instead of stopping at your conversations first. Sending takes about half as long, coming back to the app catches up sooner, and the camera no longer holds everything else up while it starts. The shutter shows the moment you press it, and holding it starts a video sooner."
             ),
         ],
         fixes: []

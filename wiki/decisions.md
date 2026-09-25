@@ -773,3 +773,65 @@ subject, which is copied from the background beside it.
 
 **Would reopen if** iOS gets a public depth-estimation or spatial-scene API,
 or camera depth stops restricting zoom.
+
+---
+
+## Timings stay on the phone
+
+**Chosen** `JourneyLog` writes each timed journey to a file in Application
+Support and to the unified log. The only way off the phone is a person pressing
+the share button in Settings → Timings, or plugging the phone into a Mac.
+
+**Rejected** sending timings to the backend, and third-party analytics or
+crash SDKs. Each would change the App Privacy answers in `ios/APP_STORE.md` and
+`PrivacyInfo.xcprivacy`, from collecting no diagnostics to collecting
+performance data. A third-party SDK would also be the first code on the phone
+that this repository did not write. Also rejected: MetricKit's `mxSignpost`
+alone. It reports once a day, only as histograms, and only for builds
+distributed through TestFlight or the App Store, which is too slow and too
+coarse to connect one change to the timings it produced.
+
+**Because** the app has a handful of users, and the person asking the question
+owns one of the phones. A file they can AirDrop answers the question without
+the app sending anything anywhere.
+
+**Cost paid** timings from other people's phones only arrive if those people
+export them.
+
+**Would reopen if** there are enough users that one phone no longer represents
+them, or a regression needs to be caught before anyone thinks to look.
+
+---
+
+## Postgres through Hyperdrive, with caching off
+
+**Chosen** Cloudflare Hyperdrive in front of Postgres on Workers (`HYPERDRIVE`
+in `backend/wrangler.toml`, read by `getConfig` in `backend/src/env.ts`), with
+its query cache disabled. Prisma is unchanged: `@prisma/adapter-pg` runs on
+`pg`, which Hyperdrive supports, and a client built per request, as
+`backend/src/prisma.ts` already does, is the pattern Hyperdrive expects.
+
+**Rejected** leaving it as it was. The journey timings measured every API call
+at 0.2–1 s, with no relation to payload size: `GET /keys/:userId`, a few
+hundred bytes of JSON and four queries in a row, took 0.8–1.0 s. The cost is
+opening a connection, not moving bytes, and every request opened its own
+(`wiki/ios-performance.md`). Also rejected: Smart Placement alone, which puts the
+Worker nearer the database but still pays for a new connection on every
+request; Prisma Accelerate, which is a paid service beyond a small free tier and
+a second vendor between the Worker and the data; and moving to D1, which lost
+to Postgres for reasons that still hold (see "Postgres rather than D1").
+Hyperdrive's **cache** is rejected too: its default serves reads up to 60
+seconds stale, and this app's reads are its inbox, its blocks and its receipts.
+
+**Because** Hyperdrive is included in the Workers Free plan, and it removes the
+connection setup without changing the ORM, the schema or a line of any query.
+
+**Cost paid** the Free plan allows 100,000 Hyperdrive queries a day, resetting
+at 00:00 UTC, and past it queries fail rather than slow down. One request is
+several queries, so this is reached before the 100,000-request Workers limit.
+At the Lounge's size that is a long way off.
+
+**Would reopen if** the daily query count approaches the limit (the Cloudflare
+dashboard shows it per configuration), or the database moves to a provider
+whose own pooler sits close enough to Cloudflare to make the difference small.
+

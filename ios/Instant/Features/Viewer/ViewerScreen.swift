@@ -213,6 +213,68 @@ struct ViewerScreen: View {
     }
 }
 
+/// The viewer before there is an instant to view: a notification was tapped,
+/// and what it named has not been fetched yet.
+///
+/// Drawn as the viewer's own loading state — black, the sender's name where
+/// the viewer puts it — so the instant arriving changes the least it can.
+struct WaitingViewerScreen: View {
+    let senderName: String?
+    let onClose: () -> Void
+
+    /// After this long the wait is worth explaining. An instant opened on
+    /// another device never arrives here at all.
+    static let patience: Duration = .seconds(8)
+    @State private var isOverdue = false
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            VStack(spacing: 16) {
+                ProgressView().tint(.white)
+                if isOverdue {
+                    Text("Still looking for this instant. If it was opened on another device, it's gone.")
+                        .font(.callout)
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(Color(white: 0.85))
+                        .padding(.horizontal, 36)
+                        .transition(.opacity)
+                }
+            }
+            VStack {
+                HStack {
+                    if let senderName {
+                        Text(senderName)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(.ultraThinMaterial, in: Capsule())
+                            .environment(\.colorScheme, .dark)
+                    }
+                    Spacer()
+                }
+                Spacer()
+                Text("Tap to close")
+                    .font(.footnote)
+                    .foregroundStyle(Color(white: 0.75))
+                    .padding(.bottom, 24)
+                    .opacity(isOverdue ? 1 : 0)
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 12)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { onClose() }
+        .statusBarHidden()
+        .accessibilityIdentifier("viewer.waiting")
+        .task {
+            try? await Task.sleep(for: Self.patience)
+            withAnimation(.easeOut(duration: 0.2)) { isOverdue = true }
+        }
+    }
+}
+
 /// `AVPlayerLayer` has no SwiftUI equivalent. Aspect-fit, like the photo.
 struct PlayerLayerView: UIViewRepresentable {
     let player: AVPlayer

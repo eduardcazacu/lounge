@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import Synchronization
 import Testing
 import UIKit
 @testable import Instant
@@ -54,6 +55,32 @@ struct ViewerModelTests {
 
         #expect(model.phase == .showing)
         #expect(model.image != nil)
+        await model.receiptDelivery?.value
+        #expect(api.viewedIds == ["i1"])
+    }
+
+    /// The receipt is a round trip, and the clock used to wait for it with the
+    /// photo already on screen.
+    @Test("The countdown starts without waiting for the receipt")
+    func countdownDoesNotWaitForReceipt() async throws {
+        let (delivery, ciphertext, device) = try sealedInstant()
+        let api = FakeInstantAPI()
+        api.mediaResult = .success(ciphertext)
+        let (held, release) = AsyncStream<Void>.makeStream()
+        api.viewedGate = { for await _ in held {} }
+
+        let model = ViewerModel(
+            instant: delivery, api: api, device: device, time: TestTime().source
+        )
+        await model.start()
+
+        #expect(model.phase == .showing)
+        #expect(model.showsCountdown)
+        #expect(model.wasSeen, "seen the moment it is shown, whatever the network is doing")
+        #expect(api.viewedIds.isEmpty, "the receipt is still in flight")
+
+        release.finish()
+        await model.receiptDelivery?.value
         #expect(api.viewedIds == ["i1"])
     }
 
@@ -73,6 +100,7 @@ struct ViewerModelTests {
         await model.start()
 
         #expect(api.mediaFetchCount == 1)
+        await model.receiptDelivery?.value
         #expect(api.viewedIds == ["i1"])
     }
 
@@ -257,6 +285,7 @@ struct ViewerModelTests {
 
         await model.reveal()
         #expect(!model.isConcealed)
+        await model.receiptDelivery?.value
         #expect(api.viewedIds == ["i1"])
         #expect(model.wasSeen)
     }
@@ -274,6 +303,7 @@ struct ViewerModelTests {
         await model.start()
 
         #expect(!model.isConcealed)
+        await model.receiptDelivery?.value
         #expect(api.viewedIds == ["i1"])
     }
 
@@ -1330,13 +1360,15 @@ struct RecipientOrderingTests {
     func readsHistoryLate() async {
         let userAPI = FakeUserAPI()
         userAPI.usersResult = users([2, 3])
-        var history: [InstantConversationSummary] = []
+        // Changed after the model has captured the closure, which is the point
+        // of the test.
+        let history = Mutex<[InstantConversationSummary]>([])
 
         let model = SendToModel(
             userAPI: userAPI, instantAPI: FakeInstantAPI(),
-            history: { history }, currentUserId: 1
+            history: { history.withLock { $0 } }, currentUserId: 1
         )
-        history = [.fixture(userId: 3)]
+        history.withLock { $0 = [.fixture(userId: 3)] }
         await model.load()
 
         #expect(order(model.candidates) == [3, 2])

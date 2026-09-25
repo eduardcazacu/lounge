@@ -1,21 +1,30 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Signup } from './pages/Signup'
 import { Signin } from './pages/Signin'
-import { Blog } from './pages/Blog'
-import { Blogs } from './pages/Blogs'
-import { Publish } from './pages/Publish'
-import { Account } from './pages/Account'
-import { Instant } from './pages/Instant'
-import { Admin } from './pages/Admin'
-import { VerifyEmail } from './pages/VerifyEmail'
-import { ForgotPassword } from './pages/ForgotPassword'
-import { ResetPassword } from './pages/ResetPassword'
-import { Privacy, Support, Terms } from './pages/Legal'
 import { getAuthHeader, refreshAccessToken } from './lib/auth'
 import { enablePushIfPermissionGranted } from './lib/push'
 import { NotificationPrompt } from './components/NotificationPrompt'
 import { ChatDrawer } from './components/ChatDrawer'
+
+// Every page but the two a signed-out visitor lands on is fetched the first
+// time it is opened. Bundled together the app was one file of over 600 kB,
+// and somebody signing in was downloading the admin panel, the editor and
+// Instant's camera and crypto before seeing a form. A page's code arrives
+// with its first visit instead; `vite:preloadError` in `main.tsx` covers a tab
+// left open across a deploy, whose old chunk names no longer exist.
+const Blog = lazy(() => import('./pages/Blog').then((m) => ({ default: m.Blog })))
+const Blogs = lazy(() => import('./pages/Blogs').then((m) => ({ default: m.Blogs })))
+const Publish = lazy(() => import('./pages/Publish').then((m) => ({ default: m.Publish })))
+const Account = lazy(() => import('./pages/Account').then((m) => ({ default: m.Account })))
+const Instant = lazy(() => import('./pages/Instant').then((m) => ({ default: m.Instant })))
+const Admin = lazy(() => import('./pages/Admin').then((m) => ({ default: m.Admin })))
+const VerifyEmail = lazy(() => import('./pages/VerifyEmail').then((m) => ({ default: m.VerifyEmail })))
+const ForgotPassword = lazy(() => import('./pages/ForgotPassword').then((m) => ({ default: m.ForgotPassword })))
+const ResetPassword = lazy(() => import('./pages/ResetPassword').then((m) => ({ default: m.ResetPassword })))
+const Privacy = lazy(() => import('./pages/Legal').then((m) => ({ default: m.Privacy })))
+const Terms = lazy(() => import('./pages/Legal').then((m) => ({ default: m.Terms })))
+const Support = lazy(() => import('./pages/Legal').then((m) => ({ default: m.Support })))
 
 function RootRedirect() {
   const [targetPath, setTargetPath] = useState<string | null>(null);
@@ -85,6 +94,9 @@ function App() {
   return (
     <>
       <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        {/* Nothing while a page's code arrives: a placeholder in either
+            theme would flash against Instant's black or the blog's light. */}
+        <Suspense fallback={null}>
         <Routes>
           <Route path="/" element={<RootRedirect />} />
           <Route path="/signup" element={<Signup />} />
@@ -102,6 +114,7 @@ function App() {
           <Route path="/terms" element={<Terms />} />
           <Route path="/support" element={<Support />} />
         </Routes>
+        </Suspense>
         <NotificationPrompt />
         <ChatDrawer />
       </BrowserRouter>

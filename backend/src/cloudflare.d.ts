@@ -6,6 +6,12 @@
 // This follows the existing convention of describing bindings inline (see the
 // BLOG_IMAGES shape that used to live in src/index.ts).
 
+// A Hyperdrive binding. The connection string points at Hyperdrive's pool,
+// which sits next to the Worker, rather than at the database itself.
+interface Hyperdrive {
+  connectionString: string;
+}
+
 interface R2HTTPMetadata {
   contentType?: string;
   cacheControl?: string;

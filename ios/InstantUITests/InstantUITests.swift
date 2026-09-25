@@ -6,6 +6,11 @@ import XCTest
 /// test: `GET /:id/media` is destructive, so the second run of "open an instant"
 /// would always fail. Only the API and camera seams are replaced — every screen,
 /// view model, navigation path and the real decrypt run exactly as shipped.
+///
+/// `@MainActor` because `XCUIApplication` and `XCUIElement` are, and XCTest
+/// already runs these synchronous tests on the main thread: it tells the
+/// compiler what was already true, and changes nothing about how they run.
+@MainActor
 final class InstantUITests: XCTestCase {
     override func setUp() {
         super.setUp()

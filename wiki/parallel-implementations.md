@@ -125,7 +125,13 @@ implement the same three rules independently:
 - **Never refresh while holding no token** — see [accounts.md](accounts.md) for
   what happens otherwise.
 
-A third client would have to reimplement all three. They are in
+A third client would have to reimplement all three. The iOS client also
+refreshes a token that has expired, or is within 30 seconds of it, **before**
+sending (`APIClient.shouldRefreshFirst`), because a cold start from a
+notification almost always holds a dead one. The web client does not need to:
+a tab rarely sends its first request long after its token was minted. The
+403 path stays in both as the rule; the early refresh is only a shortcut past
+one round trip. They are in
 [gotchas.md](gotchas.md) because each one fails silently.
 
 ## Also worth knowing
@@ -144,6 +150,11 @@ A third client would have to reimplement all three. They are in
   ceiling the send endpoint enforces. So must the video bitrate ladder in
   `ios/Instant/Core/Media/VideoPipeline.swift`, whose `byteBudget` is that
   ceiling restated, less a margin.
+- **Which journey outcomes count as success** is `JourneyLog.successes` in
+  `ios/Instant/Core/Diagnostics/JourneyLog.swift`, and it is repeated in
+  `ios/tools/journey-report.swift`, which runs as a script and cannot import
+  the app. If a new outcome is added to one and not the other, the Mac report
+  and Settings → Timings disagree about the same file.
 - **The `instant://` deep link** is built by the widget extension and parsed by
   the app, which is exactly why it lives once in `ios/Shared/DeepLink.swift`
   rather than being spelled out twice. Keep it that way.

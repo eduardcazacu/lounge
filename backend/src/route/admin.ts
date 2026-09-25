@@ -13,6 +13,7 @@ import { resolveReportInput } from "@blogging-app/common";
 type AdminEnv = {
   Bindings: {
     DATABASE_URL?: string;
+    HYPERDRIVE?: Hyperdrive;
     JWT_SECRET?: string;
     ADMIN_EMAILS?: string;
     RESEND_API_KEY?: string;
@@ -601,6 +602,7 @@ adminRouter.post("/instant/sweep", async (c) => {
   try {
     const report = await runInstantSweep({
       DATABASE_URL: c.env?.DATABASE_URL ?? process.env.DATABASE_URL,
+      HYPERDRIVE: c.env?.HYPERDRIVE,
       VAPID_PUBLIC_KEY: c.env?.VAPID_PUBLIC_KEY ?? process.env.VAPID_PUBLIC_KEY,
       VAPID_PRIVATE_KEY: c.env?.VAPID_PRIVATE_KEY ?? process.env.VAPID_PRIVATE_KEY,
       VAPID_SUBJECT: c.env?.VAPID_SUBJECT ?? process.env.VAPID_SUBJECT,

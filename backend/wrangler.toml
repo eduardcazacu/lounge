@@ -14,6 +14,21 @@ enabled = true
 head_sampling_rate = 1
 
 
+# Hyperdrive: pooled Postgres connections next to the Worker. Without it every
+# request opened its own connection to the database, which was most of what
+# each API call cost. Create it with caching DISABLED — a cached inbox would
+# hide a new instant for up to a minute (wiki/gotchas.md):
+#
+#   npx wrangler hyperdrive create lounge-db \
+#     --connection-string="<DATABASE_URL>" --caching-disabled
+#
+# then uncomment this block and paste the id it printed. Until then the Worker
+# falls back to DATABASE_URL (src/env.ts). `npm run dev:worker` with the block
+# enabled needs a local connection string; see backend/README.md.
+[[hyperdrive]]
+binding = "HYPERDRIVE"
+id = "a806fedd74ac45ceaac2e5752a8e73ec"
+
 # [[kv_namespaces]]
 # binding = "MY_KV_NAMESPACE"
 # id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"

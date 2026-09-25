@@ -105,16 +105,24 @@ public final class APIClient: APIClientProtocol, @unchecked Sendable {
     private let refresher = RefreshCoordinator()
     /// Called when refresh fails and the session is genuinely over.
     private let onSessionExpired: @Sendable () -> Void
+    private let now: @Sendable () -> Date
+
+    /// How close to its expiry a token is refreshed before use rather than
+    /// sent. Wide enough to cover the request's own flight and a phone clock
+    /// that runs a little behind the server's.
+    static let expiryMargin: TimeInterval = 30
 
     public init(
         config: AppConfig = .production,
         tokens: TokenStoring,
         session: URLSession? = nil,
+        now: @escaping @Sendable () -> Date = { Date() },
         onSessionExpired: @escaping @Sendable () -> Void = {}
     ) {
         self.config = config
         self.tokens = tokens
         self.onSessionExpired = onSessionExpired
+        self.now = now
         self.session = session ?? Self.makeSession()
     }
 
@@ -189,6 +197,16 @@ public final class APIClient: APIClientProtocol, @unchecked Sendable {
     // MARK: - Sending
 
     public func data(for request: APIRequest) async throws -> Data {
+        // A token read off the Keychain on a cold start has usually aged out:
+        // it lives fifteen minutes, and a notification is rarely tapped that
+        // soon after the last launch. Sending it anyway costs a 403 round trip
+        // before the refresh that was always going to happen — measured at
+        // 0.6–1.3 s on the path to a photo (wiki/ios-performance.md). A failed
+        // refresh here is not the end of the session: the request goes out as
+        // it would have, and the 403 path below decides.
+        if shouldRefreshFirst(request) {
+            _ = await refreshAccessToken()
+        }
         do {
             return try await perform(request)
         } catch let error as APIError where shouldRetryAfterRefresh(error, for: request) {
@@ -217,6 +235,16 @@ public final class APIClient: APIClientProtocol, @unchecked Sendable {
         error.isAuthFailure && request.authenticated && tokens.token != nil
     }
 
+    /// Only a token this client holds and can read an expiry from. The rule in
+    /// `shouldRetryAfterRefresh` applies here too: no token, no refresh.
+    func shouldRefreshFirst(_ request: APIRequest) -> Bool {
+        guard request.authenticated,
+              let token = tokens.token,
+              let expiry = SessionStore.expiry(ofJWT: token)
+        else { return false }
+        return expiry.timeIntervalSince(now()) < Self.expiryMargin
+    }
+
     private func perform(_ request: APIRequest) async throws -> Data {
         let (data, response) = try await session.data(for: urlRequest(for: request))
         guard let http = response as? HTTPURLResponse else { throw TransportError.notHTTP }
@@ -229,6 +257,10 @@ public final class APIClient: APIClientProtocol, @unchecked Sendable {
     func refreshAccessToken() async -> Bool {
         await refresher.refresh { [weak self] in
             guard let self else { return false }
+            // Everything running is held up by this, which is what makes an
+            // expired token visible in the timings.
+            JourneyLog.shared.markRunning("tokenRefreshStarted")
+            defer { JourneyLog.shared.markRunning("tokenRefreshed") }
             var request = URLRequest(
                 url: config.apiBaseURL.appendingPathComponent("api/v1/user/refresh")
             )
