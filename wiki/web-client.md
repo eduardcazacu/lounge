@@ -14,6 +14,15 @@ URL to get wrong.
 `frontend/src/pages/`, wired flat in `frontend/src/App.tsx`. `RootRedirect` tries
 `refreshAccessToken()` and sends you to `/blogs` or `/signin`.
 
+Every page except `Signin` and `Signup` is loaded with `React.lazy`, so its
+code arrives the first time it is opened. Bundled as one file, the app was over
+600 kB, and someone signing in downloaded the admin panel and Instant's camera
+and crypto before seeing a form. A page's `export const` stays as it is;
+`App.tsx` maps it to the default `lazy` wants. A tab left open across a deploy
+still names the old build's chunks, which Vercel no longer serves.
+`vite:preloadError` in `frontend/src/main.tsx` reloads the page instead of
+failing to open it.
+
 | Page | What it is |
 |---|---|
 | `Blogs.tsx` | The feed. Author filter via `UsersStrip`, paged, and the page background is tinted from the selected author's palette |
