@@ -18,7 +18,7 @@ public struct WhatsNew: Equatable, Sendable {
     public let fixes: [Item]
 
     public static let current = WhatsNew(
-        version: "1.3",
+        version: "1.4",
         features: [
             Item(
                 symbol: "rotate.3d",
