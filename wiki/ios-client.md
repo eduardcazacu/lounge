@@ -160,7 +160,9 @@ and a couple of matrices leaning in roughly its direction — a film emulation
 is a measurement, and a table says it in one step with no intermediate stage
 to go wrong in the wrong colour space. What the look *is* is nobody's
 business but whoever chose the table: the tests check that it ships and that
-it is applied, not what it does to a grey. It is drawn
+it is applied, not what it does to a grey. The camera feeds it at a locked
+white balance rather than auto (see [decisions.md](decisions.md)), so the table
+always starts from the same neutral. It is drawn
 when the compose screen appears rather than in `ComposeModel.init`, which runs
 inside the black the shutter holds up. They are chosen on the compose screen, **after**
 the shot, and that is a property of the preview rather than a preference:

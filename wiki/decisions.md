@@ -835,3 +835,25 @@ At the Lounge's size that is a long way off.
 dashboard shows it per configuration), or the database moves to a provider
 whose own pooler sits close enough to Cloudflare to make the difference small.
 
+
+## The iOS camera shoots at a fixed white balance
+
+**Chosen** both cameras locked to 5400K, tint +5
+(`CameraController.whiteBalance`), set whenever a camera becomes the session's
+input.
+
+**Rejected** auto white balance, which the camera had before.
+
+**Because** the film look is a `.cube` measured off Portra, and a table assumes
+the neutral its stock was balanced for. Auto white balance neutralises each
+scene first, differently every time, so the table was warming a picture that had
+just been cooled for it. Locked, every capture reaches the table from the same
+place — a touch warm of daylight — and indoor light keeps its colour, as it
+would on film.
+
+**Cost paid** the other seven filters get the same unneutralised picture: a
+tungsten room is amber under "original" too. The web client's camera stays on
+the browser's auto, which `getUserMedia` does not reliably let a page override.
+
+**Would reopen if** the filters stopped being film-first, or a capture needed
+to look neutral before it was graded.

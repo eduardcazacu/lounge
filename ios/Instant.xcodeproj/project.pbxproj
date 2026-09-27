@@ -447,6 +447,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Instant/Resources/Instant.entitlements;
 				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 9;
 				DEVELOPMENT_TEAM = 844S7255R5;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Instant-Info.plist";
@@ -464,6 +465,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				MARKETING_VERSION = 1.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.eduardcazacu.instant;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -523,6 +525,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = InstantWidget/InstantWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 9;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "InstantWidget-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = Instant;
@@ -532,6 +535,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
+				MARKETING_VERSION = 1.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.eduardcazacu.instant.widget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -603,6 +607,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = InstantWidget/InstantWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 9;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "InstantWidget-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = Instant;
@@ -612,6 +617,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
+				MARKETING_VERSION = 1.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.eduardcazacu.instant.widget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -655,6 +661,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Instant/Resources/Instant.entitlements;
 				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 9;
 				DEVELOPMENT_TEAM = 844S7255R5;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Instant-Info.plist";
@@ -672,6 +679,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				MARKETING_VERSION = 1.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.eduardcazacu.instant;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;

@@ -356,7 +356,7 @@ struct CameraScreen: View {
     /// Long enough that a quick press is never read as a hold, short enough
     /// that a deliberate one does not feel ignored. A tap lasts about 50–150 ms;
     /// 300 ms felt like too long a wait before a clip began.
-    static let holdThreshold: Duration = .milliseconds(50)
+    static let holdThreshold: Duration = .milliseconds(200)
 
     /// The shutter's dimming, over a frame that has already stopped.
     ///

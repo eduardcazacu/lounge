@@ -210,6 +210,7 @@ public final class CameraController: NSObject, CameraControlling {
                let deviceInput = try? AVCaptureDeviceInput(device: device),
                session.canAddInput(deviceInput) {
                 session.addInput(deviceInput)
+                lockWhiteBalance(of: device)
                 built.camera = deviceInput
             }
             if session.canAddOutput(plan.output) {
@@ -419,6 +420,7 @@ public final class CameraController: NSObject, CameraControlling {
         guard swapped else { return }
         input = replacement
         position = target
+        Self.lockWhiteBalance(of: device)
         // The front and back cameras have different limits, so carrying a zoom
         // across the flip would either clamp oddly or jump.
         zoomFactor = 1
@@ -556,6 +558,37 @@ public final class CameraController: NSObject, CameraControlling {
             session.removeOutput(movieOutput)
             session.commitConfiguration()
         }
+    }
+
+    /// The white point every capture is taken at, on both cameras.
+    ///
+    /// The film look is a `.cube` measured off Portra, and a table measured
+    /// off a stock assumes the stock's own neutral: auto white balance chases
+    /// every scene back to grey first, so the table was warming a picture that
+    /// had just been cooled for it, by a different amount each time. Locked,
+    /// the table always starts from the same place — a touch warm of daylight,
+    /// the light Portra is balanced for — and a tungsten room comes out amber,
+    /// as it would on film.
+    nonisolated static let whiteBalance = AVCaptureDevice.WhiteBalanceTemperatureAndTintValues(
+        temperature: 5500,
+        tint: 5
+    )
+
+    /// Leaves the camera on auto if it cannot lock to custom gains.
+    private nonisolated static func lockWhiteBalance(of device: AVCaptureDevice) {
+        guard device.isLockingWhiteBalanceWithCustomDeviceGainsSupported,
+              (try? device.lockForConfiguration()) != nil
+        else { return }
+        var gains = device.deviceWhiteBalanceGains(for: whiteBalance)
+        // A gain outside 1...max raises an Objective-C exception, which Swift
+        // cannot catch, and the conversion from a temperature is not promised
+        // to land inside it.
+        let ceiling = device.maxWhiteBalanceGain
+        gains.redGain = min(max(gains.redGain, 1), ceiling)
+        gains.greenGain = min(max(gains.greenGain, 1), ceiling)
+        gains.blueGain = min(max(gains.blueGain, 1), ceiling)
+        device.setWhiteBalanceModeLocked(with: gains, completionHandler: nil)
+        device.unlockForConfiguration()
     }
 
     private func setTorch(_ on: Bool, on device: AVCaptureDevice) {
