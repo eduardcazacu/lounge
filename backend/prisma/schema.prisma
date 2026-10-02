@@ -23,6 +23,14 @@ model User {
   passwordResetTokenHash       String?   @map("password_reset_token_hash")
   passwordResetExpiresAt       DateTime? @map("password_reset_expires_at")
   notificationsEnabled         Boolean   @default(true) @map("notifications_enabled")
+  // Books' three kinds of notification, each switchable on its own under the
+  // account's master switch above (which still governs everything, Instant
+  // included). Replies in a review's discussion; book club notes that have
+  // become readable; and friends starting or finishing a book you want to
+  // read or are reading.
+  notifyBookDiscussion         Boolean   @default(true) @map("notify_book_discussion")
+  notifyBookClub               Boolean   @default(true) @map("notify_book_club")
+  notifyBookActivity           Boolean   @default(true) @map("notify_book_activity")
   profilePictureKey            String?   @map("profile_picture_key")
   groupId                      Int       @map("group_id")
   // When the person agreed to the Community Guidelines. Null means the app
@@ -48,6 +56,7 @@ model User {
   shelfEntries     ShelfEntry[]
   progressLogs     ProgressLog[]
   shelfReviewComments ShelfReviewComment[]
+  notificationsSent   NotificationSent[]
 
   @@index([groupId])
   @@map("users")
@@ -473,4 +482,21 @@ model ShelfReviewComment {
 
   @@index([reviewId])
   @@map("shelf_review_comments")
+}
+
+// One row per notification sent under a throttle: a key ("club:<item id>")
+// per person per day. A book club that is busy all evening notifies each
+// reader once, and the insert itself is the check, so two notes arriving at
+// once cannot both get through. Kept a week, for the sweep to clear.
+model NotificationSent {
+  userId    Int      @map("user_id")
+  key       String
+  sentOn    DateTime @map("sent_on") @db.Date
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, key, sentOn])
+  @@index([sentOn])
+  @@map("notifications_sent")
 }

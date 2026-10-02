@@ -1077,3 +1077,26 @@ sees notes near their place a little late.
 **Would reopen if** the catalog gained reliable per-edition page counts and
 Start learned which edition the reader holds.
 
+---
+
+## Book club notifications use the club's own gate, once a day per book
+
+**Chosen** a push only for a note the reader can already read, decided by the
+same `partitionClubNotes` as the club screen, throttled to one per book per
+reader per day by the `notifications_sent` row. Three switches on the account
+for Books, under the existing master switch.
+
+**Rejected** notifying every member of a club about every note, which is a
+spoiler on the lock screen for anyone behind. Also rejected: a push to a reader
+when their own logging unlocks notes. They are in the app at that moment, so
+the log response says so instead (`unlockedNotes`). Also rejected: one switch
+for all of Books, which makes someone who wants replies but not a chatty club
+choose between both and neither.
+
+**Cost paid** a busy club's later notes that day arrive silently, and the
+notification can only quote the first. Someone who finished the book hears
+nothing more from its club.
+
+**Would reopen if** people asked for a daily digest instead, which would need
+the cron to send at a time of day per person.
+

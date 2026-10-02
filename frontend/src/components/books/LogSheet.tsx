@@ -31,6 +31,8 @@ export function LogSheet({ run, item, onClose }: { run: Run; item: Item; onClose
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reachedEnd, setReachedEnd] = useState(false);
+  // Notes in the book club this log made readable, shown before closing.
+  const [unlocked, setUnlocked] = useState(0);
   // The copy's length as changed here, ahead of the next refetch.
   const [copy, setCopy] = useState<{ pages: number | null; confirmed: boolean }>({
     pages: run.totalUnits,
@@ -68,7 +70,7 @@ export function LogSheet({ run, item, onClose }: { run: Run; item: Item; onClose
     const day = new Date();
     if (yesterday) day.setDate(day.getDate() - 1);
     try {
-      const result = await shelfSend<{ reachedEnd: boolean }>("post", `/runs/${run.id}/log`, {
+      const result = await shelfSend<{ reachedEnd: boolean; unlockedNotes: number }>("post", `/runs/${run.id}/log`, {
         // Pages read are sent as pages read, so a log from another device in
         // the meantime is added to rather than overwritten. A note with no
         // pages is a log that stays where the bookmark is.
@@ -78,6 +80,7 @@ export function LogSheet({ run, item, onClose }: { run: Run; item: Item; onClose
       });
       invalidateShelf();
       if (result.reachedEnd) setReachedEnd(true);
+      else if (result.unlockedNotes > 0) setUnlocked(result.unlockedNotes);
       else onClose();
     } catch (e) {
       setError(errorMessage(e));
@@ -97,6 +100,32 @@ export function LogSheet({ run, item, onClose }: { run: Run; item: Item; onClose
       setError(errorMessage(e));
       setBusy(false);
     }
+  }
+
+  if (unlocked > 0) {
+    return (
+      <Sheet title="Logged" onClose={onClose}>
+        <p className="pb-2 text-[15px] text-slate-600">
+          You've reached {unlocked === 1 ? "a note" : `${unlocked} notes`} in the {item.title} book club.
+        </p>
+        <div className="flex gap-2 py-3">
+          <button type="button" onClick={onClose} className="flex-1 rounded-full border border-slate-300 py-3 font-medium text-slate-700">
+            Later
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onClose();
+              navigate(`/books/club/${item.id}`);
+            }}
+            className="flex-1 rounded-full py-3 font-semibold text-white"
+            style={{ background: palette.accent }}
+          >
+            Read {unlocked === 1 ? "it" : "them"}
+          </button>
+        </div>
+      </Sheet>
+    );
   }
 
   if (reachedEnd) {

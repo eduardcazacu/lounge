@@ -21,7 +21,33 @@ type Profile = {
   notificationsEnabled: boolean;
   isAdmin: boolean;
   profilePictureUrl?: string | null;
+  bookNotifications?: BookNotifications;
 };
+
+// Books' notifications, each switchable on its own beneath the account's
+// master switch. See backend/src/shelf-notify.ts.
+type BookNotifications = { discussion: boolean; club: boolean; activity: boolean };
+
+const BOOK_NOTIFICATION_OPTIONS: { key: keyof BookNotifications; field: string; label: string; detail: string }[] = [
+  {
+    key: "discussion",
+    field: "bookDiscussion",
+    label: "Replies about books",
+    detail: "Someone comments on your review, or in a discussion you're part of.",
+  },
+  {
+    key: "club",
+    field: "bookClub",
+    label: "Book club notes",
+    detail: "A note in a book you're reading — only ones you've read far enough to see. At most one a day per book.",
+  },
+  {
+    key: "activity",
+    field: "bookActivity",
+    label: "Friends' reading",
+    detail: "A friend starts a book you want to read, or finishes one you're reading.",
+  },
+];
 
 const PROFILE_PICTURE_MAX_WIDTH = 512;
 const PROFILE_PICTURE_MAX_HEIGHT = 512;
@@ -78,6 +104,16 @@ export const Account = () => {
   const [bio, setBio] = useState("");
   const [themeKey, setThemeKey] = useState<ThemeKey>(DEFAULT_THEME_KEY);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [bookNotifications, setBookNotifications] = useState<BookNotifications>({ discussion: true, club: true, activity: true });
+  const [savingBookNotification, setSavingBookNotification] = useState<keyof BookNotifications | null>(null);
+
+  // Books links here as /account#notifications. The router does not scroll to
+  // a hash, and the section only exists once the profile has loaded.
+  useEffect(() => {
+    if (!loading && window.location.hash === "#notifications") {
+      document.getElementById("notifications")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [loading]);
   const [pushSupported, setPushSupported] = useState(false);
   const [pushPermission, setPushPermission] = useState<NotificationPermission>("default");
   const [deviceSubscribed, setDeviceSubscribed] = useState(false);
@@ -125,6 +161,7 @@ export const Account = () => {
         setProfile(user);
         setBio(user?.bio ?? "");
         setNotificationsEnabled(Boolean(user?.notificationsEnabled));
+        if (user?.bookNotifications) setBookNotifications(user.bookNotifications);
         setProfilePictureUrl(user?.profilePictureUrl ?? null);
         const selectedTheme = THEME_PALETTES.find((theme) => theme.key === user?.themeKey)?.key ?? DEFAULT_THEME_KEY;
         setThemeKey(selectedTheme);
@@ -363,6 +400,32 @@ export const Account = () => {
     );
   }
 
+  async function toggleBookNotification(key: keyof BookNotifications, field: string, checked: boolean) {
+    setSavingBookNotification(key);
+    setError(null);
+    setSuccess(null);
+    const previous = bookNotifications;
+    setBookNotifications({ ...bookNotifications, [key]: checked });
+    try {
+      const response = await axios.put(
+        `${BACKEND_URL}/api/v1/user/me/notifications`,
+        { [field]: checked },
+        { headers: { Authorization: getAuthHeader() } }
+      );
+      if (response.data?.bookNotifications) setBookNotifications(response.data.bookNotifications as BookNotifications);
+    } catch (e) {
+      setBookNotifications(previous);
+      if (axios.isAxiosError(e) && isAuthErrorStatus(e.response?.status)) {
+        clearAuthStorage();
+        setAuthExpired(true);
+        return;
+      }
+      setError("Could not update notification settings");
+    } finally {
+      setSavingBookNotification(null);
+    }
+  }
+
   async function toggleNotificationSetting(checked: boolean) {
     if (!pushSupported) {
       setError("Push notifications are not supported on this device.");
@@ -524,11 +587,11 @@ export const Account = () => {
                   </div>
                 </div>
 
-                <div className="pt-6 border-t border-slate-200">
+                <div id="notifications" className="pt-6 border-t border-slate-200">
                   <label className="mb-2 block text-sm font-semibold text-gray-900">
                     Notifications
                   </label>
-                  <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-3">
                     <input
                       type="checkbox"
                       checked={notificationsEnabled}
@@ -538,8 +601,29 @@ export const Account = () => {
                       }}
                     />
                     <span className="text-sm text-slate-700">
-                      Notify me when someone posts a new blog
+                      Send me notifications — new posts in the Lounge, Instant, and the Books ones below
                     </span>
+                  </label>
+
+                  <div className={`mt-4 rounded-lg border border-slate-200 p-3 ${notificationsEnabled ? "" : "opacity-50"}`}>
+                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Books</div>
+                    <div className="mt-2 flex flex-col gap-3">
+                      {BOOK_NOTIFICATION_OPTIONS.map((option) => (
+                        <label key={option.key} className="flex items-start gap-3">
+                          <input
+                            type="checkbox"
+                            className="mt-1"
+                            checked={bookNotifications[option.key]}
+                            disabled={!notificationsEnabled || savingBookNotification !== null}
+                            onChange={(e) => void toggleBookNotification(option.key, option.field, e.target.checked)}
+                          />
+                          <span className="text-sm text-slate-700">
+                            {option.label}
+                            <span className="block text-xs text-slate-500">{option.detail}</span>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
                   </div>
                   <div className="mt-2 text-xs text-slate-500">
                     {pushSupported

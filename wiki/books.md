@@ -213,9 +213,35 @@ the review therefore edits the card, and the post's own title and content are
 only a plain-text fallback. The card opens `/books/review/:id`, where the
 discussion is. Deleting a run deletes its Lounge post first.
 
-Replies in a discussion push to the reviewer and earlier commenters through
-`sendPushToUsers` **without `apnsConfig`**. That makes them Web Push only,
-because the iOS app has no books.
+## Notifications
+
+Three kinds, each with its own switch under the account's master switch
+(`notifyBookDiscussion`, `notifyBookClub`, `notifyBookActivity` on `User`; the
+Books section of Account settings):
+
+- **Replies**: a comment on your review, or in a discussion you are in.
+- **Book club notes**: `notifyBookClubNote` in `backend/src/shelf-notify.ts`
+  runs the same gate as the club screen (`partitionClubNotes`) for every
+  current reader. A notification therefore never shows anyone more than the
+  club would, and the note's text can be in it. At most one per book per
+  reader per day: the `notifications_sent` row is both the record and the
+  check. Readers who finished the book are not told; their club has moved on.
+  A reader whose own logging unlocks notes is told in the app instead
+  (`unlockedNotes` on the log response). They are already looking at it, and
+  a push to yourself is noise.
+- **Friends' reading**: someone starting a book you want to read, or finishing
+  one you are reading. Never from an import or a backfilled read, which would
+  replay years of someone's history at everyone at once. A finish carries no
+  rating, because a rating is the beginning of a spoiler.
+
+All of them go through `sendPushToUsers` **without `apnsConfig`**, so Web Push
+only: the iOS app is Instant and cannot open Books. Blocks are honoured both
+ways.
+
+Books asks for permission itself, from a row in the avatar menu and a card
+that appears once a reading has been logged. The Lounge's banner is kept off
+`/books`, and on an iPhone each home-screen web app has its own permission;
+see [gotchas.md](gotchas.md).
 
 ## The standalone app
 

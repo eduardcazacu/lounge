@@ -6,6 +6,7 @@ import type { Home, HomeReading } from "./api";
 import { AccountButton } from "./BooksApp";
 import { LogSheet } from "./LogSheet";
 import { CopyPagesSheet } from "./CopyPagesSheet";
+import { dismissNotificationsCard, isNotificationsCardDismissed, usePushState } from "./notifications";
 import { Card, Cover, EmptyNote, ProgressBar, SectionTitle, Spinner } from "./ui";
 import { byline, percentText, usePalette } from "./format";
 
@@ -98,6 +99,51 @@ function ReadingCard({ reading, onLog }: { reading: HomeReading; onLog: () => vo
   );
 }
 
+/**
+ * Asks once, after the first reading is logged — when there is a book club to
+ * hear from — rather than on the first visit, when the question means
+ * nothing yet. "Not now" is final for this card; the avatar menu still has
+ * the switch.
+ */
+function NotificationsCard({ home }: { home: Home }) {
+  const palette = usePalette();
+  const { state, busy, error, turnOn } = usePushState();
+  const [dismissed, setDismissed] = useState(isNotificationsCardDismissed);
+  const hasRead = home.highlights.pagesThisWeek > 0 || home.highlights.streak > 0 || home.reading.some((reading) => reading.run.position > 0);
+  if (dismissed || state !== "off" || !hasRead) return null;
+
+  const close = () => {
+    dismissNotificationsCard();
+    setDismissed(true);
+  };
+  return (
+    <Card className="mt-3">
+      <p className="text-[15px] font-medium text-slate-900">Hear from your book clubs?</p>
+      <p className="mt-1 text-sm text-slate-600">
+        A note when someone's thoughts are ready for you to read, and when a friend starts a book you want to read. Never
+        anything past where you are.
+      </p>
+      {error ? <p className="mt-1 text-xs text-rose-600">{error}</p> : null}
+      <div className="mt-3 flex gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={async () => {
+            if (await turnOn()) close();
+          }}
+          className="rounded-full px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+          style={{ background: palette.accent }}
+        >
+          {busy ? "Turning on…" : "Turn on"}
+        </button>
+        <button type="button" onClick={close} className="rounded-full px-4 py-2 text-sm font-medium text-slate-600">
+          Not now
+        </button>
+      </div>
+    </Card>
+  );
+}
+
 function Highlights({ home }: { home: Home }) {
   const navigate = useNavigate();
   const palette = usePalette();
@@ -174,6 +220,8 @@ export function HomeScreen() {
                 ))}
               </div>
             )}
+
+            <NotificationsCard home={home} />
 
             <SectionTitle>This year</SectionTitle>
             <Highlights home={home} />

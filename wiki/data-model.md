@@ -19,7 +19,8 @@ Table names are snake_case via `@map`; Prisma model names are not.
 
 **Shelf** (`/books`) — `CatalogItem`, `ShelfEntry`, `ShelfRun`, `ProgressLog`,
 `ShelfReview`, `ShelfReviewComment`, `CatalogSearchCache` (a day of search
-answers), and `Post.shelfReviewId` for a review cross-posted to the Lounge.
+answers), `NotificationSent` (the once-a-day notification throttle), and
+`Post.shelfReviewId` for a review cross-posted to the Lounge.
 
 ## Invariants the schema cannot state
 
