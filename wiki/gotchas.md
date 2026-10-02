@@ -126,6 +126,14 @@ known and has been left as it is.
 
 ## Books
 
+**On an iPhone, each home-screen web app has its own notification
+permission.** Allowing notifications in the Lounge's icon does nothing for the
+Books icon, even though both are the same site. Someone who uses only Books
+never hears anything unless Books asks for itself. That is why
+`frontend/src/components/books/notifications.ts` exists, and why a Safari
+*tab* is told to add Books to the home screen first: Safari offers push only
+to a home-screen web app.
+
 **A run created without `unitsConfirmed` is treated as unconfirmed, safely.**
 Every path that creates a run decides whether its length is the reader's own:
 Start with a length, an import row with a page count, and the edition edit set

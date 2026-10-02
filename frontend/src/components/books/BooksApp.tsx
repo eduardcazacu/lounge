@@ -3,6 +3,7 @@ import { Link, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { Avatar } from "../BlogCard";
 import { getCachedProfile } from "../../lib/auth";
 import { Sheet } from "./ui";
+import { usePushState } from "./notifications";
 import { usePalette } from "./format";
 import { HomeScreen } from "./HomeScreen";
 import { AddScreen } from "./AddScreen";
@@ -133,11 +134,39 @@ export function AccountButton() {
             <SheetLink to="/books/add?intent=finished" label="Add a book you've already read" onClick={() => setOpen(false)} />
             <SheetLink to="/books/stats" label="Your reading stats" onClick={() => setOpen(false)} />
             <SheetLink to="/books/import" label="Import from Goodreads" onClick={() => setOpen(false)} />
+            <NotificationsRow onNavigate={() => setOpen(false)} />
             <SheetLink to="/account" label="Account settings" />
           </nav>
         </Sheet>
       ) : null}
     </>
+  );
+}
+
+/** Turning notifications on for this app, or the way to choose which arrive. */
+function NotificationsRow({ onNavigate }: { onNavigate: () => void }) {
+  const { state, busy, error, turnOn } = usePushState();
+  if (state === "unsupported") return null;
+  if (state === "on") return <SheetLink to="/account#notifications" label="Notification settings" onClick={onNavigate} />;
+  return (
+    <div className="border-b border-slate-100 py-3.5">
+      {state === "off" ? (
+        <button type="button" onClick={() => void turnOn()} disabled={busy} className="flex w-full items-center justify-between text-left text-[15px] text-slate-800">
+          {busy ? "Turning on…" : "Turn on notifications"}
+          <span className="text-slate-400">›</span>
+        </button>
+      ) : (
+        <p className="text-[15px] text-slate-800">Notifications</p>
+      )}
+      <p className="mt-0.5 text-xs text-slate-500">
+        {state === "off"
+          ? "Replies to your reviews, new notes in your book clubs, and friends starting books you want to read."
+          : state === "blocked"
+            ? "They're blocked for this app. Allow them in your browser's or phone's settings."
+            : "On iPhone, add Books to your Home Screen (Share → Add to Home Screen) and open it from there."}
+      </p>
+      {error ? <p className="mt-1 text-xs text-rose-600">{error}</p> : null}
+    </div>
   );
 }
 

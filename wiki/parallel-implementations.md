@@ -134,6 +134,15 @@ a tab rarely sends its first request long after its token was minted. The
 one round trip. They are in
 [gotchas.md](gotchas.md) because each one fails silently.
 
+## Notification settings — the iOS app reads half of them
+
+`PUT /api/v1/user/me/notifications` takes `notificationsEnabled` and the Books
+switches, all optional. The iOS app sends `notificationsEnabled` alone and
+decodes `notificationsEnabled` from the answer (`NotificationsUpdate` and
+`NotificationsResponse` around `ios/Instant/Core/Networking/UserAPI.swift`).
+Both must stay as they are. The Books switches ride beside them as
+`bookNotifications`, which Swift ignores.
+
 ## Books has one side
 
 `/books` is web only: no Swift type mirrors the shelf schemas in

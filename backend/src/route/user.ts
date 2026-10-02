@@ -180,9 +180,31 @@ const pushUnsubscribeInput = z.object({
 	endpoint: z.string().optional(),
 });
 
-const notificationSettingsInput = z.object({
-	notificationsEnabled: z.boolean(),
-});
+// Every field optional, so one switch can change alone. The iOS app sends
+// `notificationsEnabled` by itself and decodes `notificationsEnabled` from the
+// answer (NotificationsUpdate and NotificationsResponse in DTOs.swift); both
+// stay exactly as they were.
+const notificationSettingsInput = z
+	.object({
+		notificationsEnabled: z.boolean().optional(),
+		bookDiscussion: z.boolean().optional(),
+		bookClub: z.boolean().optional(),
+		bookActivity: z.boolean().optional(),
+	})
+	.refine((value) => Object.values(value).some((field) => field !== undefined), {
+		message: "Nothing to change.",
+	});
+
+const notificationSettingsSelect = {
+	notificationsEnabled: true,
+	notifyBookDiscussion: true,
+	notifyBookClub: true,
+	notifyBookActivity: true,
+} as const;
+
+function bookNotificationsView(user: { notifyBookDiscussion: boolean; notifyBookClub: boolean; notifyBookActivity: boolean }) {
+	return { discussion: user.notifyBookDiscussion, club: user.notifyBookClub, activity: user.notifyBookActivity };
+}
 
 const testNotificationInput = z.object({
 	title: z.string().min(1).max(120).optional(),
@@ -894,14 +916,16 @@ userRouter.put("/me/notifications", async (c) => {
 			where: { id: userId },
 			data: {
 				notificationsEnabled: parsed.data.notificationsEnabled,
+				notifyBookDiscussion: parsed.data.bookDiscussion,
+				notifyBookClub: parsed.data.bookClub,
+				notifyBookActivity: parsed.data.bookActivity,
 			},
-			select: {
-				id: true,
-				notificationsEnabled: true,
-			},
+			select: notificationSettingsSelect,
 		});
 
-		if (!parsed.data.notificationsEnabled) {
+		// Only the master switch turning off forgets this person's devices; a
+		// Books switch only changes what is sent to them.
+		if (parsed.data.notificationsEnabled === false) {
 			await prisma.userPushSubscription.deleteMany({
 				where: {
 					userId,
@@ -909,7 +933,10 @@ userRouter.put("/me/notifications", async (c) => {
 			});
 		}
 
-		return c.json({ notificationsEnabled: updatedUser.notificationsEnabled });
+		return c.json({
+			notificationsEnabled: updatedUser.notificationsEnabled,
+			bookNotifications: bookNotificationsView(updatedUser),
+		});
 	} catch (e) {
 		console.error(e);
 		c.status(500);
@@ -1050,7 +1077,7 @@ userRouter.get("/me", async (c) => {
 				name: true,
 				bio: true,
 				themeKey: true,
-				notificationsEnabled: true,
+				...notificationSettingsSelect,
 				profilePictureKey: true,
 				termsAcceptedAt: true,
 			}
@@ -1059,14 +1086,16 @@ userRouter.get("/me", async (c) => {
 			c.status(404);
 			return c.json({ msg: "User not found" });
 		}
+		const { notifyBookDiscussion: _discussion, notifyBookClub: _club, notifyBookActivity: _activity, ...profileFields } = user;
 		const isAdmin = isAdminEmail(user.email, getAdminEmails(c));
 		const profilePictureUrl = buildPublicImageUrl(r2PublicBaseUrl, user.profilePictureKey);
 		return c.json({
 			user: {
-				...user,
+				...profileFields,
 				termsAcceptedAt: user.termsAcceptedAt ? user.termsAcceptedAt.toISOString() : null,
 				isAdmin,
 				profilePictureUrl,
+				bookNotifications: bookNotificationsView(user),
 			},
 		});
 	} catch (e) {

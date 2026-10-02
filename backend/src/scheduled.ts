@@ -154,8 +154,8 @@ export async function scheduled(
   ctx.waitUntil(runShelfSweep(env).catch((error) => console.error("[shelf] sweep failed", error)));
 }
 
-// Books' hourly upkeep: covers a request did not get to copy, and search
-// answers older than a day. Separate from the Instant sweep so a failure in
+// Books' hourly upkeep: covers a request did not get to copy, search answers
+// older than a day, and old rows of the notification throttle. Separate from the Instant sweep so a failure in
 // one never stops the other.
 export async function runShelfSweep(env: SweepEnv, now: Date = new Date()) {
   const { databaseUrl, r2PublicBaseUrl } = getConfig({ env } as unknown as Context<any>);
@@ -164,5 +164,10 @@ export async function runShelfSweep(env: SweepEnv, now: Date = new Date()) {
   const cache = await prisma.catalogSearchCache.deleteMany({
     where: { createdAt: { lt: new Date(now.getTime() - SEARCH_CACHE_TTL_MS) } },
   });
-  return { ...covers, expiredSearches: cache.count };
+  // The once-a-day notification throttle only ever looks at today; a week
+  // of history is plenty to read when something seems not to have arrived.
+  const sent = await prisma.notificationSent.deleteMany({
+    where: { sentOn: { lt: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) } },
+  });
+  return { ...covers, expiredSearches: cache.count, expiredNotifications: sent.count };
 }

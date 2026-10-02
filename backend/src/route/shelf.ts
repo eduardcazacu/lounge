@@ -23,6 +23,8 @@ import { CatalogUnavailable, SEARCH_CACHE_TTL_MS, searchCatalog } from "../catal
 import { findBook, freshSourceState, manualCandidate, type SourceState } from "../catalog/match-book";
 import { findKnownBook, rememberIsbns, resolveCandidate } from "../catalog/store";
 import { copyCovers, deleteCover } from "../covers";
+import { notifyBookClubNote, notifyFinishedReading, notifyStartedReading, type NotifyConfig } from "../shelf-notify";
+import { blockedUserIds } from "../blocks";
 import type { CatalogCandidate, ImportRowInput, ImportRowResult } from "@blogging-app/common";
 import {
   addDays,
@@ -314,6 +316,17 @@ function catalogOptions(config: ReturnType<typeof getConfig>) {
   };
 }
 
+/** What the Books notifications need to send: see src/shelf-notify.ts. */
+function notifyConfig(c: Context<ShelfEnv>): NotifyConfig {
+  const config = getConfig(c);
+  return {
+    databaseUrl: config.databaseUrl,
+    vapidPublicKey: config.vapidPublicKey,
+    vapidPrivateKey: config.vapidPrivateKey,
+    vapidSubject: config.vapidSubject,
+  };
+}
+
 /** Copies new covers into R2 after the response, one after another. */
 function scheduleCoverCopies(c: Context<ShelfEnv>, prisma: PrismaClient, itemIds: number[]) {
   if (itemIds.length === 0) return;
@@ -340,6 +353,8 @@ shelfRouter.post("/entries", async (c) => {
   const externalId = candidate.source === "manual" ? `manual:${crypto.randomUUID()}` : candidate.externalId;
 
   let needsCover: number | null = null;
+  // Set when this request began a read, so friends who want the book hear.
+  let startedItemId: number | null = null;
   const result = await prisma.$transaction(async (tx) => {
     const item = await resolveCandidate(tx, { ...candidate, externalId });
     if (item.coverUrl && !item.coverKey) needsCover = item.id;
@@ -377,6 +392,7 @@ shelfRouter.post("/entries", async (c) => {
         },
         select: { id: true },
       });
+      startedItemId = item.id;
       return { entryId: entry.id, runId: run.id };
     }
 
@@ -418,6 +434,9 @@ shelfRouter.post("/entries", async (c) => {
   });
 
   if (needsCover !== null) scheduleCoverCopies(c, prisma, [needsCover]);
+  if (startedItemId !== null) {
+    scheduleBackgroundWork(c, notifyStartedReading(prisma, notifyConfig(c), { actorId: userId, itemId: startedItemId }));
+  }
   return c.json(result);
 });
 
@@ -456,6 +475,7 @@ shelfRouter.post("/entries/:id/reread", async (c) => {
     where: { id: entryId },
     select: {
       userId: true,
+      itemId: true,
       item: { select: { totalUnits: true } },
       runs: { orderBy: { id: "desc" }, select: { id: true, status: true, totalUnits: true } },
     },
@@ -479,6 +499,7 @@ shelfRouter.post("/entries/:id/reread", async (c) => {
     await tx.shelfEntry.update({ where: { id: entryId }, data: { wantedAt: null } });
     return created;
   });
+  scheduleBackgroundWork(c, notifyStartedReading(prisma, notifyConfig(c), { actorId: userId, itemId: entry.itemId }));
   return c.json({ runId: run.id });
 });
 
@@ -821,6 +842,41 @@ shelfRouter.get("/runs/:id", async (c) => {
   });
 });
 
+/**
+ * How many of other people's book club notes became readable when this
+ * reader's run moved forward from `from` to where it is now. The same gate as
+ * the club screen, asked twice: once as the reader was, once as they are.
+ */
+async function notesUnlocked(prisma: PrismaClient, userId: number, itemId: number, runId: number, from: number) {
+  const groupId = await getUserGroupId(prisma, userId);
+  if (groupId === null) return 0;
+  const [item, myRuns, notes] = await Promise.all([
+    prisma.catalogItem.findUnique({ where: { id: itemId }, select: { totalUnits: true } }),
+    prisma.shelfRun.findMany({
+      where: { entry: { itemId, userId } },
+      select: { id: true, status: true, position: true, totalUnits: true, unitsConfirmed: true },
+    }),
+    prisma.progressLog.findMany({
+      where: { note: { not: null }, userId: { not: userId }, user: { groupId }, run: { entry: { itemId } } },
+      select: { id: true, userId: true, toPosition: true, run: { select: { totalUnits: true, unitsConfirmed: true } } },
+    }),
+  ]);
+  if (!item || notes.length === 0) return 0;
+  const gated = notes.map((note) => ({
+    id: note.id,
+    userId: note.userId,
+    toPosition: note.toPosition,
+    runTotalUnits: note.run.totalUnits,
+    runUnitsConfirmed: note.run.unitsConfirmed,
+  }));
+  const before = readerReach(myRuns.map((run) => (run.id === runId ? { ...run, position: from } : run)), item.totalUnits);
+  const after = readerReach(myRuns, item.totalUnits);
+  return (
+    partitionClubNotes(gated, userId, after, item.totalUnits).visible.length -
+    partitionClubNotes(gated, userId, before, item.totalUnits).visible.length
+  );
+}
+
 shelfRouter.post("/runs/:id/log", async (c) => {
   const runId = idParam(c, "id");
   if (!runId) return notFound(c);
@@ -855,7 +911,13 @@ shelfRouter.post("/runs/:id/log", async (c) => {
     return created;
   });
 
+  if (note) scheduleBackgroundWork(c, notifyBookClubNote(prisma, notifyConfig(c), log.id));
+  const unlockedNotes = to > from ? await notesUnlocked(prisma, userId, run.entry.itemId, runId, from) : 0;
+
   return c.json({
+    // Notes in the book club this move made readable. Shown right away by
+    // the logging sheet; the reader is in the app, so it is not a push.
+    unlockedNotes,
     log: {
       id: log.id,
       loggedOn: dayOf(log.loggedOn),
@@ -987,6 +1049,11 @@ shelfRouter.post("/runs/:id/finish", async (c) => {
       },
     });
   });
+  // Only a finish, not a DNF: "Ben gave up on Circe" is not news anyone needs
+  // halfway through it.
+  if (finishing) {
+    scheduleBackgroundWork(c, notifyFinishedReading(prisma, notifyConfig(c), { actorId: userId, itemId: run.entry.itemId }));
+  }
   return c.json({ run: runView(updated, run.entry.item.totalUnits) });
 });
 
@@ -1352,12 +1419,21 @@ shelfRouter.post("/reviews/:id/comments", async (c) => {
     select: { id: true, content: true, createdAt: true, editedAt: true, author: { select: personSelect } },
   });
 
-  // The reviewer, and everyone already in the discussion, minus the person
-  // writing. Web Push only — no apnsConfig — because the iOS app has no books
-  // and an iPhone banner would open an app that cannot show this.
-  const recipients = [
+  // The reviewer and everyone already in the discussion, minus the person
+  // writing, who want to hear about it (notifyBookDiscussion) and are not on
+  // either side of a block with the writer. Web Push only — no apnsConfig —
+  // because the iOS app has no books and an iPhone banner would open an app
+  // that cannot show this.
+  const candidates = [
     ...new Set([review.run.entry.userId, ...review.comments.map((other) => other.authorId)]),
   ].filter((id) => id !== userId);
+  const [willing, blocked] = candidates.length
+    ? await Promise.all([
+        prisma.user.findMany({ where: { id: { in: candidates }, notifyBookDiscussion: true }, select: { id: true } }),
+        blockedUserIds(prisma, userId),
+      ])
+    : [[], new Set<number>()];
+  const recipients = willing.map((user) => user.id).filter((id) => !blocked.has(id));
   if (recipients.length > 0) {
     const name = comment.author.name?.trim() || "Someone";
     scheduleBackgroundWork(
