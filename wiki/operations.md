@@ -35,6 +35,8 @@ Worker secrets, by name only — set with `npx wrangler secret put <NAME>`:
 | `R2_PUBLIC_BASE_URL` | Public image URLs (also set as a plain var in `wrangler.toml`) |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Web Push |
 | `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_PRIVATE_KEY`, `APNS_BUNDLE_ID` | APNs |
+| `GOOGLE_BOOKS_API_KEY` | Books' second source, for search and for imports when Open Library refuses. Restrict it to the Books API but give it **no** application (referrer or IP) restriction — see [gotchas.md](gotchas.md). Without it the shared keyless quota answers 429 and Books leans on Open Library alone |
+| `OPEN_LIBRARY_URL`, `GOOGLE_BOOKS_URL` | Local testing only: point the book catalog at a stand-in, to rehearse rate limits without provoking the real ones. Never set in production |
 
 Until **all four** `APNS_*` secrets exist, the APNs branch reports itself
 unconfigured rather than throwing. The backend records whatever tokens it is
@@ -83,6 +85,8 @@ cd backend
 npx tsx scripts/verify-conversations.ts   # the conversations query, against an in-memory fake
 npx tsx scripts/verify-apns.ts            # ES256 signing and request shape, against a stubbed Apple
 npx tsx scripts/verify-push-routing.ts    # who still gets Web Push when the app was reached
+npx tsx scripts/verify-shelf.ts           # Books: re-reads, backfills, streaks, the spoiler gate, import matching
+npx tsx ../frontend/scripts/verify-goodreads.ts  # Books: reading a Goodreads export
 ```
 
 `verify-apns.ts` generates a throwaway P-256 key, checks the JWT against its own
@@ -111,7 +115,9 @@ matters more than any of these.
 
 Cron triggers fire under neither `npm run dev` nor `wrangler dev`, so the sweep
 is also reachable as `POST /api/v1/admin/instant/sweep` (admin only). It runs
-exactly the same function the schedule does.
+exactly the same function the schedule does. The same cron also runs Books'
+`runShelfSweep` (cover copies, expired searches). It has no admin route; it is
+harmless to wait an hour for.
 
 ## Local development
 

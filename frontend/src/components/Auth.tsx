@@ -1,13 +1,25 @@
 import { ChangeEvent, useEffect, useState } from "react"
-import { Link, useNavigate } from "react-router-dom"
+import { Link, useNavigate, useSearchParams } from "react-router-dom"
 import { APP_NAME, BACKEND_URL } from "../config"
 import axios from "axios"
 import { SigninInput, SignupInput, signinInput, signupInput } from "@blogging-app/common"
 import { getAuthHeader, persistTokenFromResponse } from "../lib/auth"
 
+// Where to go after signing in, from `?next=`. Only a path on this site: an
+// absolute URL or a protocol-relative "//host" would make the sign-in page an
+// open redirect. The installed /books app signs in through here and must land
+// back in itself rather than on the blog.
+function safeNextPath(next: string | null) {
+  if (!next || !next.startsWith("/") || next.startsWith("//") || next.startsWith("/\\")) {
+    return null;
+  }
+  return next;
+}
+
 export const Auth = ({type}: {type: "signup" | "signin"}) => {
 
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [postInputs, setPostInputs] = useState<SignupInput & SigninInput>({
     name: "",
     email: "",
@@ -80,7 +92,7 @@ export const Auth = ({type}: {type: "signup" | "signin"}) => {
         localStorage.removeItem("profilePictureUrl");
       }
       window.dispatchEvent(new Event("profile-picture-changed"));
-      navigate("/blogs")
+      navigate(safeNextPath(searchParams.get("next")) ?? "/blogs")
     } catch (e: unknown){
       if (axios.isAxiosError(e)) {
         const msg = e.response?.data?.msg || "Auth request failed";

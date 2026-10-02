@@ -2,6 +2,8 @@ import type { Context } from "hono";
 import { getConfig } from "./env";
 import { getPrismaClient } from "./prisma";
 import { sendPushToUsers } from "./push";
+import { sweepCovers } from "./covers";
+import { SEARCH_CACHE_TTL_MS } from "./catalog";
 import {
   expireLapsedStreaks,
   findStreaksAtRisk,
@@ -14,6 +16,7 @@ import {
 const OPENED_ROW_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 // Cap the work one tick can do, so a backlog can never blow the CPU budget.
 const SWEEP_BATCH_SIZE = 200;
+
 
 export type SweepEnv = {
   DATABASE_URL?: string;
@@ -148,4 +151,18 @@ export async function scheduled(
       console.error("[instant] sweep failed", error);
     })
   );
+  ctx.waitUntil(runShelfSweep(env).catch((error) => console.error("[shelf] sweep failed", error)));
+}
+
+// Books' hourly upkeep: covers a request did not get to copy, and search
+// answers older than a day. Separate from the Instant sweep so a failure in
+// one never stops the other.
+export async function runShelfSweep(env: SweepEnv, now: Date = new Date()) {
+  const { databaseUrl, r2PublicBaseUrl } = getConfig({ env } as unknown as Context<any>);
+  const prisma = getPrismaClient(databaseUrl);
+  const covers = await sweepCovers(prisma, env?.BLOG_IMAGES, r2PublicBaseUrl);
+  const cache = await prisma.catalogSearchCache.deleteMany({
+    where: { createdAt: { lt: new Date(now.getTime() - SEARCH_CACHE_TTL_MS) } },
+  });
+  return { ...covers, expiredSearches: cache.count };
 }

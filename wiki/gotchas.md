@@ -124,6 +124,61 @@ client is open anywhere, that tab receives the instant, so the phone gets no
 notification and its widget does not update until the app next opens. This is
 known and has been left as it is.
 
+## Books
+
+**A run created without `unitsConfirmed` is treated as unconfirmed, safely.**
+Every path that creates a run decides whether its length is the reader's own:
+Start with a length, an import row with a page count, and the edition edit set
+it; everything else leaves it false. A new path that copies a length from
+somewhere and marks it confirmed makes the spoiler gate trust a median, and
+notes start showing early.
+
+**A book-club note compared by page leaks the ending.** Editions differ, so
+page 200 can be the last page of one and the middle of another. Gating goes
+through `partitionClubNotes` in `backend/src/shelf-logic.ts`, by fraction of
+each reader's own edition; a new query that filters notes by `toPosition`
+directly shows spoilers and looks correct.
+
+**A finished run without its closing log vanishes from page stats.** It still
+counts as a book. Every path that finishes a run, or backfills one, writes the
+`closing` log, and so must any new one. See [books.md](books.md).
+
+**A refused lookup looks like a missing book.** Open Library answers a rate
+limit with 429 or 403, and a fetch helper that turns every non-200 into "no
+results" makes a busy catalog indistinguishable from an absent book. That once
+filed whole imports as hand-made books. `fetchProvider` in
+`backend/src/catalog/books.ts` keeps the two apart; a new caller must
+handle `CatalogUnavailable` rather than catch everything.
+
+**A Google key restricted to websites refuses every server request.** Google
+answers `403 Requests from referer <empty> are blocked`, which reads like a
+rate limit from outside: search quietly loses its fallback, and imports wait
+on Open Library alone. The key needs **no** application restriction (only an
+API restriction to the Books API), since the Worker sends no referrer and has
+no fixed IP. `fetchProvider` logs Google's reason with the status.
+
+**Anything that creates a catalog item must go through `resolveCandidate`.**
+Saving a candidate directly makes a second work whenever the same book was
+first filed from the other source, and its readers stop seeing each other's
+notes. Nothing fails; the book club is just quieter.
+
+**Open Library does not answer the same way twice.** It goes down for
+minutes at a time and ranks results differently between calls. Anything that
+matches the same book twice can get two different works and so two shelf
+entries. The Goodreads import avoids it by finding a row's entry by
+`importId` before matching; anything new that re-matches must do the same.
+
+**Goodreads ISBNs are Excel formulas.** `="9780439023481"`, or `=""` when
+missing, which most Kindle editions are. Read as-is, every ISBN is invalid and
+every book falls through to a title search. `isbn` in
+`frontend/src/components/books/goodreads.ts` unwraps them.
+
+**`prisma dev` cannot run `/books` locally.** Its PGlite server takes one
+connection, and the shelf's parallel queries interleave on it:
+`bind message supplies 3 parameters, but prepared statement "" requires 4`.
+Use a real Postgres (`docker run -p 55432:5432 -e POSTGRES_PASSWORD=pg
+postgres:16-alpine`).
+
 ## The web client
 
 **React StrictMode double-invokes an impure state updater.** Dedup bookkeeping
@@ -182,6 +237,15 @@ decode, and a `<video>` that cannot decode simply shows nothing — by then the
 clip is gone on the server and was never seen. The viewer
 asks `canPlayType(instant.mediaType)` first, and a no leaves the instant
 untouched in the inbox.
+
+**Phone inputs are 16px `!important`.** `index.css` holds every input at 16px
+on small screens so iOS does not zoom on focus. A deliberately large input
+(Books' page counter) is silently 16px unless an inline `!important` sets its
+size, which `LogSheet.tsx` does with `style.setProperty`.
+
+**A `fixed` sheet inside a `backdrop-filter` is positioned against it.** The
+filter makes the element the containing block, so a sheet opened from a sticky
+blurred header draws inside the header. Books' `Sheet` portals to the body.
 
 **`loadImageElement` revokes the object URL it loaded from.** The element keeps
 its decoded bitmap, so the image still draws — but `element.src` is a dead

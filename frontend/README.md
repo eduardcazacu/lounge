@@ -1,6 +1,6 @@
 # Frontend
 
-The Eddie's Lounge web app — blog, chatroom, admin console, legal pages, and the
+The Eddie's Lounge web app — blog, Books, admin console, legal pages, and the
 web client for Instant. React 18 + TypeScript + Vite + Tailwind, deployed to
 Vercel as a static SPA.
 
@@ -48,7 +48,8 @@ src/
   pages/            one file per route; Legal.tsx exports three
   components/       shared UI
     instant/        capture, composer, viewer, key setup, safety number
-  hooks/            useBlog, useBlogs, useUsers, useChat, and useInstant
+    books/          the /books app: shelf, logging, reviews, book club, stats
+  hooks/            useBlog, useBlogs, useUsers, and useInstant
   lib/              auth, crypto, keystore, images, markdown, push
   themes.ts         the eight palettes, applied as inline styles
   config.ts         the one backend URL

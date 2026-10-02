@@ -12,13 +12,14 @@ Table names are snake_case via `@map`; Prisma model names are not.
 
 **Blog** — `Post`, `Comment`, `PostLike`, `CommentLike`.
 
-**Chat** — `ChatMessage`, and `ChatSetting`, a singleton row with `id = 1`
-holding `retentionHours` (default 24).
-
 **Instant** — `InstantDeviceKey`, `Instant`, `InstantKeyEnvelope`,
 `InstantStreak`.
 
 **Safety** — `UserBlock`, `ContentReport`.
+
+**Shelf** (`/books`) — `CatalogItem`, `ShelfEntry`, `ShelfRun`, `ProgressLog`,
+`ShelfReview`, `ShelfReviewComment`, `CatalogSearchCache` (a day of search
+answers), and `Post.shelfReviewId` for a review cross-posted to the Lounge.
 
 ## Invariants the schema cannot state
 
@@ -76,6 +77,16 @@ Unblocking removes only the caller's own row.
 defined in three other places, in two other languages, and must stay in sync:
 see [parallel-implementations.md](parallel-implementations.md).
 
+### A re-read is a run, and a finished run ends in a closing log
+
+`ShelfRun` is one read-through; reading a book again adds a row and never
+resets one. A finished run always has a `ProgressLog` marked `closing` for the
+pages nobody logged, on the finish day, so books and pages stay consistent.
+`CatalogItem` is the one shelf table that does not cascade from `User`, because
+it is shared. `import_id` on an entry and a run ties them to the row of a
+Goodreads export they came from, and is how a second import recognises them.
+The rest, and the spoiler rule, are in [books.md](books.md).
+
 ### Admin is not in the database
 
 There is no admin column and no role table. Administrators are an allowlist of
@@ -109,3 +120,5 @@ structure:
   `sunset` to `boring-grey` and backfilled every existing `sunset` row.
 - `20260914090000_groups` seeded `main` and `testing` and put every account that
   existed before groups did into `main`.
+- `20261001100000_drop_chat` dropped `chat_messages` and `chat_settings` with
+  the chat room. See [decisions.md](decisions.md).

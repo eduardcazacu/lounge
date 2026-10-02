@@ -487,7 +487,7 @@ inside a background job.
 **Cost paid** Apple accepts a notification even when iOS will not show it, so
 someone who switched Instant's notifications off in iOS Settings gets no
 browser banner either. Only instant and streak pushes are app-first; blog and
-chat pushes go to the browser regardless, because the app has no blog or chat.
+Books pushes go to the browser regardless, because the app has neither.
 
 **Would reopen if** the web client stopped being a harness, or the app
 reported its notification permission to the server.
@@ -857,3 +857,223 @@ the browser's auto, which `getUserMedia` does not reliably let a page override.
 
 **Would reopen if** the filters stopped being film-first, or a capture needed
 to look neutral before it was graded.
+
+---
+
+## One generic shelf rather than book tables
+
+**Chosen** `CatalogItem`, `ShelfEntry`, `ShelfRun`, `ProgressLog` and
+`ShelfReview`, with a `kind` column, behind `backend/src/route/shelf.ts`.
+
+**Rejected** `books`, `reading_logs` and `book_reviews`.
+
+**Because** films and music were asked about on day one. A second kind with
+book-shaped tables means a second copy of the feed, the discussion and the
+stats. Here it means a catalog provider and an enum value.
+
+**Cost paid** names that read less naturally, and "units" meaning pages.
+
+**Would reopen if** another kind needed a model that a run cannot express,
+such as a series with episodes watched out of order.
+
+---
+
+## Book search goes through the backend
+
+**Chosen** `GET /api/v1/shelf/catalog/search`, which asks Open Library and
+Google Books from the Worker.
+
+**Rejected** calling Open Library from the browser, which is faster by one hop
+and needs no key.
+
+**Because** the next kind's provider (TMDB) needs a key that cannot be shipped
+to a client, and one normaliser on the server beats one per client. Google
+Books, too, wants `GOOGLE_BOOKS_API_KEY` for a quota of its own.
+
+---
+
+## A reading day is the reader's day
+
+**Chosen** `ProgressLog.loggedOn` is the client's local date, sent as
+`YYYY-MM-DD`.
+
+**Rejected** the UTC day, which Instant's streaks use.
+
+**Because** "pages read today" is asked at night, in the reader's timezone. A
+UTC day splits a late evening's reading across two days and breaks streaks for
+anyone east or west of Greenwich.
+
+**Cost paid** a client with a wrong clock logs on the wrong day, and the server
+cannot tell.
+
+---
+
+## Book-club notes are gated by fraction, not page
+
+**Chosen** each run's own `totalUnits`, and reach as a fraction
+(`readerReach` in `backend/src/shelf-logic.ts`).
+
+**Rejected** comparing page numbers.
+
+**Because** editions differ by hundreds of pages, and a page comparison shows
+the ending of a short edition to someone in the middle of a long one. Nothing
+would report it: the spoiler is simply read.
+
+---
+
+## /books is a second HTML entry, not a swapped manifest
+
+**Chosen** `frontend/books.html` with its own `<link rel="manifest">`, routed
+by `vercel.json`, with `scope: "/"`.
+
+**Rejected** replacing the manifest link from script when `/books` mounts, and
+`scope: "/books"`.
+
+**Because** browsers take the manifest from the page as first loaded, and "Add
+to Home Screen" does not reliably see a later change. A `/books` scope would
+open "Back to the Lounge" in the browser's out-of-scope bar.
+
+**Would reopen if** the build ever stopped being one bundle for both pages.
+
+---
+
+## Genres are a fixed list, not the providers' subjects
+
+**Chosen** `cleanGenres` in `backend/src/catalog/books.ts` maps every subject
+onto about thirty-five genres and drops the rest.
+
+**Rejected** the providers' own strings, lightly filtered, which is what
+shipped first.
+
+**Because** genre stats are only as good as the genres. Open Library tagged
+The Hobbit "Arkenstone" and "Battle of Five Armies", and spelled science
+fiction three ways. The stats ranked the first as a favourite genre and split
+the second across three rows.
+
+**Cost paid** a book in a genre missing from the list gets a broader genre or
+none, and the list is English-only.
+
+**Would reopen if** a provider with a clean genre taxonomy replaced Open
+Library, or people want to set a book's genres by hand.
+
+---
+
+## No chat room
+
+**Chosen** no chat. The Lounge's single room, its drawer and its retention
+setting were removed, and `20261001100000_drop_chat` drops `chat_messages` and
+`chat_settings`.
+
+**Rejected** keeping it behind a less prominent button, and leaving the code in
+place with no way to open it.
+
+**Because** Books took the app bar's slot, and a feature nobody can reach is
+code that still has to be kept compiling, migrated and described in the privacy
+policy. Messages expired after a day anyway, so nothing of lasting value was in
+the tables.
+
+**Would reopen if** the group wants a shared real-time room again. Instant
+covers one-to-one, and a review's discussion covers talking about a book.
+
+---
+
+## An import is recognised by its source id, and reads once
+
+**Chosen** `importId` on the shelf entry and run (`goodreads:<Book Id>`),
+looked up before any catalog matching. A book comes across as one read, on
+the export's one date. Imported reviews are flagged and kept out of the feed.
+
+**Rejected** matching every row again on every import, one run per Goodreads
+`Read Count`, and imported reviews in the feed like any other.
+
+**Because** Open Library's answers vary between runs, so re-matching produced
+duplicate books in testing. Only the last read has a date, and invented dates
+would put books in the wrong years. Hundreds of old reviews arriving at once
+would bury the group's current ones.
+
+**Cost paid** a re-read is undercounted for anyone who reread on Goodreads,
+and someone wanting their old reviews in the feed cannot have them there.
+
+**Would reopen if** an export carried a date per read, or people asked to
+share a chosen few imported reviews.
+
+---
+
+## Open Library is cached, paced and copied, and a refusal is never "not found"
+
+**Chosen** search answers cached for a day; imports that ask our own catalog
+first and pace Open Library to about a request a second; covers copied into
+R2; and `CatalogUnavailable` kept strictly apart from an empty answer, so an
+import waits out a rate limit instead of filing books from the export's own
+details. `POST /entries/:id/rematch` repairs books already filed that way.
+
+**Rejected** calling Open Library from the browser, which would spread
+requests across every reader's IP. It lost for the same reason search went
+through the backend (a later kind's provider needs a key), and covers would
+still have been hotlinked. Also rejected: a global rate limiter (a Durable
+Object or Cloudflare's rate-limiting binding). Imports are driven by one
+client one batch at a time, so pacing inside an isolate is enough, and a
+limiter is machinery to keep for a problem the cache mostly removes. Also
+rejected: re-matching hand-made books automatically in the cron, which would
+spend Open Library's patience on books that are mostly really absent.
+
+**Because** Open Library blocked us by IP during testing. The import, built
+to fall back on the export's details when a lookup failed, turned the block
+into permanent hand-made copies of real books: no cover, no genres, and a
+book club split from everyone else reading the same book.
+
+**Cost paid** a large import takes about a second a book. A day-old search
+may miss a book Open Library added since. Every cover is stored twice.
+
+**Would reopen if** Open Library offered keys with their own quota, or the
+Lounge grew enough that one isolate's pacing no longer described the traffic.
+
+---
+
+## Google Books backs Open Library up, and the first source of a book wins
+
+**Chosen** Google Books as the second source for import and the repair,
+asked only when Open Library refuses or lacks a book. A book already on file
+from either source is the one everybody lands on (`resolveCandidate`).
+
+**Rejected** asking both at once and merging, which spends Google's daily
+quota on every row to improve books Open Library already describes well, and
+makes a book's identity depend on which answer arrived first. Also rejected:
+Google as the first source. Its covers are small thumbnails, and Open Library's
+work ids group a book's editions, which Google's volume ids do not.
+
+**Because** with a key, Google's quota is large enough to carry imports through
+Open Library's rate limits, and pausing an import for minutes is worse than a
+smaller cover.
+
+**Cost paid** a book first filed from Google keeps Google's thumbnail cover and
+its metadata for everyone. Title-and-author matching across sources would take
+two different books with the same title by authors sharing a surname for one.
+
+**Would reopen if** Google's quota ran out in practice, or the cross-source
+match merged two books someone noticed.
+
+---
+
+## The reader's copy is asked for at Start, and unconfirmed lengths get a margin
+
+**Chosen** "Pages in your copy", prefilled, on every Start. `unitsConfirmed` on
+each run, and a 10% margin per unconfirmed side in the book club's spoiler gate
+(`UNCONFIRMED_MARGIN` in `backend/src/shelf-logic.ts`).
+
+**Rejected** trusting the catalog's page count, which is a median across
+editions, and asking only when someone thinks to press "Different edition?",
+which nobody does. Also rejected: an ISBN per run to look the edition's length
+up, which costs a catalog request per Start and still fails for the many
+editions with no page count on file.
+
+**Because** the book club compares readers by fraction of their own copy. A
+length off by a quarter shows notes a quarter of the book early, and nothing
+reports it. The reader just reads the spoiler.
+
+**Cost paid** Start is two taps instead of one. A reader who never confirms
+sees notes near their place a little late.
+
+**Would reopen if** the catalog gained reliable per-edition page counts and
+Start learned which edition the reader holds.
+

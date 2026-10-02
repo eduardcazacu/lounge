@@ -1,0 +1,25 @@
+<!doctype html>
+<!--
+  The same app as index.html, served for /books so that the page a phone adds
+  to its home screen names Lounge Books' manifest and icon. Browsers read the
+  manifest link from the page as it first loads; swapping it in from script
+  afterwards is not reliably what "Add to Home Screen" sees. See wiki/books.md.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/books-apple-touch-icon.png" />
+    <link rel="manifest" href="/books.webmanifest" />
+    <meta name="apple-mobile-web-app-title" content="Books" />
+    <meta name="theme-color" content="#f8fafc" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Lounge Books</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

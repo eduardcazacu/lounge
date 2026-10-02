@@ -18,7 +18,7 @@ no invite tree, no referral. The member list fits on one screen and is meant to.
 
 That single fact decides a surprising amount of the architecture. A directory
 of every user can be fetched whole (`GET /api/v1/user/list`). The feed has no
-ranking, because there is nothing to rank away. The chat is one room. A photo
+ranking, because there is nothing to rank away. A photo
 goes to people ticked by name from that list — one, several, or everyone with
 Instant set up — never to a saved audience, and each of them gets an instant of
 their own.
@@ -26,11 +26,14 @@ their own.
 ## What is in it
 
 - **Posts** — markdown, one image each, comments, likes, @-mentions.
-- **Chat** — a single room with a retention window, default 24 hours.
 - **Instant** — a photo or a clip of up to five seconds, optionally captioned or
   drawn on, sealed to the recipient's devices, viewable once and then gone. Only
   the iPhone app records video; the web plays it. Streaks count consecutive days two
   people send to each other.
+- **Books** — a reading log with one-tap page logging, a want-to-read list,
+  re-reads, DNFs, stats, reviews with a discussion under each, and a book club
+  that shows other readers' notes only up to where you are. A standalone app at
+  `/books`. See [books.md](books.md).
 - **Themes** — each person picks a palette that follows them around the app, so
   you can tell whose post you are looking at before reading the name.
 - **Groups** — every account belongs to exactly one, and a group is a sealed-off

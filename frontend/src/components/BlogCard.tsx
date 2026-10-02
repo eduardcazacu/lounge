@@ -1,5 +1,6 @@
 import { Link, useNavigate } from "react-router-dom"
-import { Comment } from "../hooks";
+import { Comment, type ShelfReviewCard } from "../hooks";
+import { ShelfReviewEmbed } from "./ShelfReviewEmbed";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { getThemePalette } from "../themes";
@@ -23,6 +24,7 @@ interface BlogCardProps{
     commentCount?: number;
     themeKey?: string | null;
     authorProfilePictureUrl?: string | null;
+    shelfReview?: ShelfReviewCard | null;
 }
 
 export const BlogCard = ({
@@ -37,7 +39,8 @@ export const BlogCard = ({
     topComments = [],
     commentCount = 0,
     themeKey,
-    authorProfilePictureUrl
+    authorProfilePictureUrl,
+    shelfReview
 }: BlogCardProps) => {
   const [postLikeCount, setPostLikeCount] = useState(likeCount);
   const [postLikedByMe, setPostLikedByMe] = useState(likedByMe);
@@ -67,6 +70,8 @@ export const BlogCard = ({
 
   const navigate = useNavigate();
   const theme = getThemePalette(themeKey);
+  // A review cross-posted from Books opens in Books, where its discussion is.
+  const cardTarget = shelfReview ? `/books/review/${shelfReview.id}` : `/blog/${id}`;
   const firstYouTubeEmbedUrl = extractFirstYouTubeEmbedUrl(content);
   const standaloneImagePreviewUrls = extractStandaloneImagePreviewUrls(content, 2).filter((url) => url !== imageUrl);
   const excerptData = (() => {
@@ -147,12 +152,12 @@ export const BlogCard = ({
   return ( 
   <div
     className="rounded-xl bg-white p-4 w-full max-w-screen-md cursor-pointer shadow-sm hover:shadow-md transition-shadow sm:p-4"
-    onClick={() => navigate(`/blog/${id}`)}
+    onClick={() => navigate(cardTarget)}
     role="link"
     tabIndex={0}
     onKeyDown={(e) => {
       if (e.key === "Enter" || e.key === " ") {
-        navigate(`/blog/${id}`);
+        navigate(cardTarget);
       }
     }}
   >
@@ -181,6 +186,10 @@ export const BlogCard = ({
             </button>
            </div>
         </div>
+        {shelfReview ? (
+          <ShelfReviewEmbed review={shelfReview} />
+        ) : (
+        <>
         <div className="text-2xl font-semibold pt-2">
             {title}
         </div>
@@ -250,7 +259,9 @@ export const BlogCard = ({
             </Link>
           </div>
         ) : null}
-        {showReadTime ? (
+        </>
+        )}
+        {showReadTime && !shelfReview ? (
           <div className="text-slate-400 text-sm pt-3">
             {`${estimatedReadMinutes} min read`}
           </div>

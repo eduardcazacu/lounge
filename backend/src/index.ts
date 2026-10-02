@@ -2,9 +2,9 @@ import { Hono } from 'hono'
 import { userRouter } from './route/user'
 import { blogRouter } from './route/blog'
 import { adminRouter } from './route/admin'
-import { chatRouter } from './route/chat'
 import { instantRouter } from './route/instant'
 import { moderationRouter } from './route/moderation'
+import { shelfRouter } from './route/shelf'
 import type { InstantInbox } from './instant-inbox'
 import { cors } from 'hono/cors'
 
@@ -22,6 +22,7 @@ const app = new Hono<{
 		VAPID_PRIVATE_KEY?: string,
 		VAPID_SUBJECT?: string,
 		R2_PUBLIC_BASE_URL?: string,
+		GOOGLE_BOOKS_API_KEY?: string,
 		// Declared in src/cloudflare.d.ts. Instant needs get/delete as well as
 		// put, so the binding is typed properly rather than inline here.
 		BLOG_IMAGES?: R2Bucket,
@@ -50,9 +51,9 @@ app.use('/*', (c, next) => {
 app.route("api/v1/user", userRouter)
 app.route("api/v1/blog", blogRouter)
 app.route("api/v1/admin", adminRouter)
-app.route("api/v1/chat", chatRouter)
 app.route("api/v1/instant", instantRouter)
 app.route("api/v1/moderation", moderationRouter)
+app.route("api/v1/shelf", shelfRouter)
 
 app.use('/message/*', async (c, next) => {
   await next()

@@ -1,7 +1,7 @@
 # The web client
 
 `frontend/` — React 18, Vite 5, TypeScript, Tailwind 3, react-router 6, axios.
-It is the whole Lounge: blog, chat, admin, legal pages, and Instant. Deployed to
+It is the whole Lounge: blog, Books, admin, legal pages, and Instant. Deployed to
 Vercel as a static SPA with the rewrite in `vercel.json`.
 
 One configuration knob, `frontend/src/config.ts`: `BACKEND_URL` (or
@@ -30,6 +30,7 @@ failing to open it.
 | `Publish.tsx` | Compose a post. Markdown plus one image, WebP-encoded client-side; the draft is kept in `localStorage` under `publishPostDraft` |
 | `Account.tsx` | Display name, bio, profile picture, theme picker, notification toggle, logout |
 | `Instant.tsx` | The Instant client — see below |
+| `Books.tsx` | Lounge Books, a standalone app at `/books/*` — see [books.md](books.md) |
 | `Admin.tsx` | Approvals, push broadcast, markdown email broadcast with preview, stats, and the report queue |
 | `Signin.tsx` / `Signup.tsx` | The `Auth` form beside `Quotes` |
 | `VerifyEmail.tsx`, `ForgotPassword.tsx`, `ResetPassword.tsx` | The token flows from [accounts.md](accounts.md) |
@@ -216,8 +217,7 @@ The same eight palettes exist in three other places. See
 | `push.ts` | VAPID subscription and prompt suppression |
 | `datetime.ts` | `formatPostedTime` |
 
-`frontend/src/hooks/index.ts` holds `useBlog`, `useBlogs`, `useUsers` and
-`useChat` (polled, visibility-aware, deduped by max id).
+`frontend/src/hooks/index.ts` holds `useBlog`, `useBlogs` and `useUsers`.
 
 Images are optimised client-side before upload and served through Cloudflare
 transformations (`/cdn-cgi/image/width=...`), which keeps R2 egress inside the
@@ -225,6 +225,12 @@ free tier. Encrypted bytes cannot be transformed, which is why the Instant
 composer owns its whole bandwidth budget and encodes to roughly 250 KB.
 
 ## PWA
+
+Two installable apps from one build. `index.html` names
+`frontend/public/manifest.webmanifest`; `books.html` names
+`books.webmanifest`, and `vercel.json` rewrites `/books/*` to it. Both load
+`src/main.tsx`. `Auth.tsx` honours `?next=` (same-site paths only), so a
+sign-in from either app returns to it. [books.md](books.md) has why.
 
 `frontend/public/manifest.webmanifest` and a hand-written service worker,
 `frontend/public/sw.js`, handling `push` and notification clicks. Registered in

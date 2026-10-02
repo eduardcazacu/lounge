@@ -296,6 +296,7 @@ export const Blogs = () => {
                  title={blog.title}
                  content={blog.content}
                  imageUrl={blog.imageUrl || undefined}
+                 shelfReview={blog.shelfReview ?? null}
                  likeCount={blog.likeCount || 0}
                  likedByMe={Boolean(blog.likedByMe)}
                  publishedDate={formatPostedTime(blog.createdAt)}
