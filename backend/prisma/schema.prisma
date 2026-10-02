@@ -36,7 +36,6 @@ model User {
   commentLikes CommentLike[]
   sessions   Session[]
   pushSubscriptions UserPushSubscription[]
-  chatMessages ChatMessage[] @relation("ChatAuthor")
   instantDeviceKeys InstantDeviceKey[]
   instantsSent     Instant[] @relation("InstantSender")
   instantsReceived Instant[] @relation("InstantRecipient")
@@ -46,12 +45,15 @@ model User {
   blocksReceived   UserBlock[]     @relation("BlockBlocked")
   reportsMade      ContentReport[] @relation("ReportReporter")
   reportsReceived  ContentReport[] @relation("ReportReported")
+  shelfEntries     ShelfEntry[]
+  progressLogs     ProgressLog[]
+  shelfReviewComments ShelfReviewComment[]
 
   @@index([groupId])
   @@map("users")
 }
 
-// Groups partition the app: a user only ever sees people, posts, chat messages
+// Groups partition the app: a user only ever sees people, posts, reviews
 // and instants from their own group. "main" holds the real community; "testing"
 // holds the App Store review accounts. See backend/README.md.
 model Group {
@@ -91,10 +93,15 @@ model Post {
   createdAt DateTime  @default(now()) @map("created_at")
   editedAt  DateTime? @map("edited_at")
   authorId  Int       @map("author_id")
+  // Set when the post is a review cross-posted from /books. The card is drawn
+  // from the review through this relation, so editing the review edits the
+  // card; title and content are only a plain-text fallback.
+  shelfReviewId Int?  @unique @map("shelf_review_id")
 
   author    User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
   comments  Comment[]
   likes     PostLike[]
+  shelfReview ShelfReview? @relation(fields: [shelfReviewId], references: [id], onDelete: SetNull)
 
   @@map("posts")
 }
@@ -151,26 +158,6 @@ model Session {
   user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("sessions")
-}
-
-model ChatMessage {
-  id        Int      @id @default(autoincrement())
-  content   String
-  authorId  Int      @map("author_id")
-  createdAt DateTime @default(now()) @map("created_at")
-
-  author    User     @relation("ChatAuthor", fields: [authorId], references: [id], onDelete: Cascade)
-
-  @@index([createdAt])
-  @@map("chat_messages")
-}
-
-model ChatSetting {
-  id             Int      @id @default(1)
-  retentionHours Int      @default(24) @map("retention_hours")
-  updatedAt      DateTime @updatedAt @map("updated_at")
-
-  @@map("chat_settings")
 }
 
 // ---------------------------------------------------------------------------
@@ -309,4 +296,181 @@ model ContentReport {
 
   @@index([status, createdAt])
   @@map("content_reports")
+}
+
+// ---------------------------------------------------------------------------
+// Shelf — /books, and whatever kind comes after it.
+//
+// Nothing here says "book" except the `kind` value. A movie or an album is a
+// CatalogItem of another kind, a watch or a listen is a ShelfRun, and the
+// feed, reviews and stats need no new tables. See wiki/books.md.
+// ---------------------------------------------------------------------------
+
+model CatalogItem {
+  id         Int      @id @default(autoincrement())
+  // "book"
+  kind       String
+  // "openlibrary" | "google" | "manual"
+  source     String
+  // The provider's own id. A manual entry gets a random one, so two people
+  // adding "the same" book by hand get two items rather than a guess.
+  externalId String   @map("external_id")
+  title      String
+  creators   String[]
+  year       Int?
+  // Where the provider serves the cover. Shown only until `coverKey` is set.
+  coverUrl   String?  @map("cover_url")
+  // The cover copied into R2 (`covers/<id>.<ext>`), served from our own
+  // bucket through Cloudflare's resizing. Open Library limits cover requests
+  // per viewer's IP, and is sometimes down; a copy is neither. See
+  // backend/src/covers.ts.
+  coverKey   String?  @map("cover_key")
+  // ISBNs known to be editions of this work, collected as imports match
+  // them. The next import of the same edition, by anyone, is found here
+  // instead of costing Open Library a request.
+  isbns      String[] @default([])
+  // Pages, for a book. The edition the catalog found; each run keeps its own.
+  totalUnits Int?     @map("total_units")
+  genres     String[]
+  metadata   Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  entries ShelfEntry[]
+
+  @@unique([kind, source, externalId])
+  @@index([isbns], type: Gin)
+  @@map("catalog_items")
+}
+
+// Answers to book searches, kept for a day. A group reads the same books, so
+// most searches have been made before, and every one served from here is one
+// Open Library does not see. Only answers Open Library gave are kept; one
+// assembled from the fallback alone would outlive the outage it came from.
+model CatalogSearchCache {
+  kind      String
+  // Lower-cased, whitespace collapsed.
+  query     String
+  results   Json
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@id([kind, query])
+  @@index([createdAt])
+  @@map("catalog_search_cache")
+}
+
+model ShelfEntry {
+  id        Int       @id @default(autoincrement())
+  userId    Int       @map("user_id")
+  itemId    Int       @map("item_id")
+  // Non-null while it is on the want list.
+  wantedAt  DateTime? @map("wanted_at")
+  // The book this entry was imported as ("goodreads:<book id>"). A second
+  // import finds the entry by this, never by matching the catalog again:
+  // Open Library does not answer the same way twice, and a different match
+  // would be a duplicate book.
+  importId  String?   @map("import_id")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  item CatalogItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  runs ShelfRun[]
+
+  @@unique([userId, itemId])
+  @@unique([userId, importId])
+  @@map("shelf_entries")
+}
+
+// One read-through. A re-read is a second run, never a reset of the first.
+model ShelfRun {
+  id         Int       @id @default(autoincrement())
+  entryId    Int       @map("entry_id")
+  // "active" | "finished" | "dnf". At most one active run per entry, enforced
+  // in backend/src/route/shelf.ts.
+  status     String    @default("active")
+  startedOn  DateTime? @map("started_on") @db.Date
+  finishedOn DateTime? @map("finished_on") @db.Date
+  // This reader's edition. Book-club gating divides by it, never compares raw
+  // pages across people.
+  totalUnits Int?      @map("total_units")
+  // Whether the reader confirmed `totalUnits` is their own copy's length,
+  // rather than the catalog's median across editions. The book club's spoiler
+  // gate adds a margin when it is not (UNCONFIRMED_MARGIN in
+  // src/shelf-logic.ts).
+  unitsConfirmed Boolean @default(false) @map("units_confirmed")
+  position   Int       @default(0)
+  // Where an imported run came from ("goodreads:<book id>"), so importing an
+  // updated export again skips what is already here.
+  importId   String?   @map("import_id")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  entry  ShelfEntry    @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  logs   ProgressLog[]
+  review ShelfReview?
+
+  @@unique([entryId, importId])
+  @@index([entryId])
+  @@index([status])
+  @@map("shelf_runs")
+}
+
+model ProgressLog {
+  id           Int      @id @default(autoincrement())
+  runId        Int      @map("run_id")
+  // Denormalised from the run so stats need no join.
+  userId       Int      @map("user_id")
+  // The reader's own calendar day, sent by the client.
+  loggedOn     DateTime @map("logged_on") @db.Date
+  fromPosition Int      @map("from_position")
+  toPosition   Int      @map("to_position")
+  // A book-club message, shown to others only once they have read this far.
+  note         String?
+  // The log a finished run closes with: the pages nobody logged, or a whole
+  // backfilled book, put on the finish day. It counts as pages read but not as
+  // a reading day, or one remembered book would be the year's best day.
+  closing      Boolean  @default(false)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  run  ShelfRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  user User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
+  @@index([userId, loggedOn])
+  @@map("progress_logs")
+}
+
+model ShelfReview {
+  id        Int       @id @default(autoincrement())
+  runId     Int       @unique @map("run_id")
+  // Half stars: 1..10.
+  rating    Int?
+  recommend Boolean?
+  body      String?
+  // Brought in from another service. Kept out of the review feed: an import
+  // is years of reviews arriving at once, and would bury everyone's recent
+  // ones. It shows on the reader's library and the book's page.
+  imported  Boolean   @default(false)
+  createdAt DateTime  @default(now()) @map("created_at")
+  editedAt  DateTime? @map("edited_at")
+
+  run        ShelfRun             @relation(fields: [runId], references: [id], onDelete: Cascade)
+  comments   ShelfReviewComment[]
+  loungePost Post?
+
+  @@index([createdAt])
+  @@map("shelf_reviews")
+}
+
+model ShelfReviewComment {
+  id        Int       @id @default(autoincrement())
+  reviewId  Int       @map("review_id")
+  authorId  Int       @map("author_id")
+  content   String
+  createdAt DateTime  @default(now()) @map("created_at")
+  editedAt  DateTime? @map("edited_at")
+
+  review ShelfReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  author User        @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([reviewId])
+  @@map("shelf_review_comments")
 }

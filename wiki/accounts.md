@@ -93,8 +93,8 @@ their own group.
 ## Groups
 
 Every user belongs to exactly one group, and a group is a **sealed-off copy of
-the community**. People see only the users, posts, comments, likes, chat
-messages and Instant key directories of their own group, and can only mention,
+the community**. People see only the users, posts, comments, likes, Books
+reviews and notes, and Instant key directories of their own group, and can only mention,
 like, comment on or send instants to their own group. Anything outside answers
 **404**, as though it did not exist.
 

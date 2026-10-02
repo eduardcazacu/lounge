@@ -74,13 +74,12 @@ export const Appbar = () => {
             <circle cx="12" cy="13" r="4" />
           </svg>
         </Link>
-        <button
-          type="button"
-          onClick={() => window.dispatchEvent(new Event("toggle-chat"))}
+        <Link
+          to={"/books"}
           className="rounded-full p-2 text-slate-600 hover:bg-slate-100 focus:outline-none focus:ring-2"
           style={{ outlineColor: currentTheme.accent }}
-          aria-label="Open chat"
-          title="Lounge Chat"
+          aria-label="Open Books"
+          title="Books"
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -92,9 +91,9 @@ export const Appbar = () => {
             strokeLinejoin="round"
             className="h-5 w-5 sm:h-6 sm:w-6"
           >
-            <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+            <path d="M2 5.5C4.5 4 8 4 12 6c4-2 7.5-2 10-.5V19c-2.5-1.5-6-1.5-10 .5-4-2-7.5-2-10-.5zM12 6v13.5" />
           </svg>
-        </button>
+        </Link>
         <Link to={"/publish"}>
           <button
             type="button"

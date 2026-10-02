@@ -2,7 +2,7 @@
 
 `ios/` — a native SwiftUI client for Instant, and only Instant. It signs in
 against the same backend as the web app and speaks the same protocol, byte for
-byte. It does not do the blog or the chat.
+byte. It does not do the blog or Books.
 
 This is the endpoint the design was aimed at: a signed binary that does not
 re-download its logic on every visit, with the private key in the Secure

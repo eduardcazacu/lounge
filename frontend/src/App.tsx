@@ -1,11 +1,10 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { Signup } from './pages/Signup'
 import { Signin } from './pages/Signin'
 import { getAuthHeader, refreshAccessToken } from './lib/auth'
 import { enablePushIfPermissionGranted } from './lib/push'
 import { NotificationPrompt } from './components/NotificationPrompt'
-import { ChatDrawer } from './components/ChatDrawer'
 
 // Every page but the two a signed-out visitor lands on is fetched the first
 // time it is opened. Bundled together the app was one file of over 600 kB,
@@ -18,6 +17,7 @@ const Blogs = lazy(() => import('./pages/Blogs').then((m) => ({ default: m.Blogs
 const Publish = lazy(() => import('./pages/Publish').then((m) => ({ default: m.Publish })))
 const Account = lazy(() => import('./pages/Account').then((m) => ({ default: m.Account })))
 const Instant = lazy(() => import('./pages/Instant').then((m) => ({ default: m.Instant })))
+const Books = lazy(() => import('./pages/Books').then((m) => ({ default: m.Books })))
 const Admin = lazy(() => import('./pages/Admin').then((m) => ({ default: m.Admin })))
 const VerifyEmail = lazy(() => import('./pages/VerifyEmail').then((m) => ({ default: m.VerifyEmail })))
 const ForgotPassword = lazy(() => import('./pages/ForgotPassword').then((m) => ({ default: m.ForgotPassword })))
@@ -58,6 +58,16 @@ function RootRedirect() {
   }
 
   return <Navigate to={targetPath} replace />;
+}
+
+// The Lounge's push banner, kept off /books, which is a standalone app with
+// its own way back (wiki/books.md): the banner would sit over its bottom tabs.
+function LoungeChrome() {
+  const location = useLocation();
+  if (location.pathname === "/books" || location.pathname.startsWith("/books/")) {
+    return null;
+  }
+  return <NotificationPrompt />;
 }
 
 function App() {
@@ -108,6 +118,7 @@ function App() {
           <Route path="/publish" element={<Publish />} />
           <Route path="/account" element={<Account />} />
           <Route path="/instant" element={<Instant />} />
+          <Route path="/books/*" element={<Books />} />
           <Route path="/admin" element={<Admin />} />
           <Route path="/verify-email" element={<VerifyEmail />} />
           <Route path="/privacy" element={<Privacy />} />
@@ -115,8 +126,7 @@ function App() {
           <Route path="/support" element={<Support />} />
         </Routes>
         </Suspense>
-        <NotificationPrompt />
-        <ChatDrawer />
+        <LoungeChrome />
       </BrowserRouter>
     </>
   )

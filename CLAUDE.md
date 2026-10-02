@@ -1,10 +1,10 @@
 # Working in this repository
 
-Eddie's Lounge is a private, invite-only hangout — a blog, a chatroom, and
-Instant, which is expiring end-to-end encrypted 1:1 photos and five-second
-videos. Four codebases: `backend/` (Hono on Cloudflare Workers, Prisma over
-Postgres), `frontend/` (React + Vite on Vercel), `common/` (shared Zod
-schemas), `ios/` (SwiftUI, and Instant only).
+Eddie's Lounge is a private, invite-only hangout — a blog, Books (a reading
+log with reviews and a book club), and Instant, which is expiring end-to-end
+encrypted 1:1 photos and five-second videos. Four codebases: `backend/` (Hono
+on Cloudflare Workers, Prisma over Postgres), `frontend/` (React + Vite on
+Vercel), `common/` (shared Zod schemas), `ios/` (SwiftUI, and Instant only).
 
 ## Read the wiki first
 

@@ -134,6 +134,13 @@ a tab rarely sends its first request long after its token was minted. The
 one round trip. They are in
 [gotchas.md](gotchas.md) because each one fails silently.
 
+## Books has one side
+
+`/books` is web only: no Swift type mirrors the shelf schemas in
+`common/src/index.ts`, and nothing in `ios/` reads them. Its one shared
+surface is the blog. `shelfReview` rides on `/blog/bulk` and `/blog/:id`, which
+iOS does not call.
+
 ## Also worth knowing
 
 - **`PrivacyInfo.xcprivacy` and the App Privacy table in `ios/APP_STORE.md`**

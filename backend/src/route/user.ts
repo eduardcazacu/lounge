@@ -1170,7 +1170,7 @@ userRouter.post("/me/delete", async (c) => {
 		}
 
 		// Cascades take sessions, device keys, instants, streaks, posts, comments,
-		// likes, chat messages, push subscriptions and blocks. Reports survive
+		// likes, shelves and reviews, push subscriptions and blocks. Reports survive
 		// with this side set to null.
 		await prisma.user.delete({ where: { id: userId } });
 		clearRefreshTokenCookie(c);

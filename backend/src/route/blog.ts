@@ -67,6 +67,44 @@ function buildPublicImageUrl(baseUrl: string | undefined, key: string) {
   return `${normalizedBase}/${key}`;
 }
 
+// A post cross-posted from /books carries its review, and the card is drawn
+// from that rather than from the post's own text, so editing the review on
+// /books edits the card here too. See wiki/books.md.
+const shelfReviewCardSelect = {
+  select: {
+    id: true,
+    rating: true,
+    recommend: true,
+    body: true,
+    run: {
+      select: {
+        status: true,
+        entry: { select: { item: { select: { title: true, creators: true, coverUrl: true, kind: true } } } },
+      },
+    },
+  },
+} as const;
+
+function shelfReviewCard(
+  review: {
+    id: number;
+    rating: number | null;
+    recommend: boolean | null;
+    body: string | null;
+    run: { status: string; entry: { item: { title: string; creators: string[]; coverUrl: string | null; kind: string } } };
+  } | null
+) {
+  if (!review) return null;
+  return {
+    id: review.id,
+    rating: review.rating,
+    recommend: review.recommend,
+    body: review.body,
+    status: review.run.status,
+    item: review.run.entry.item,
+  };
+}
+
 blogRouter.use("/*", async (c, next) => {
     try {
         const authHeader = c.req.header("Authorization") || "";
@@ -627,6 +665,7 @@ blogRouter.post('/:id/comments/:commentId/likes/toggle', async (c) => {
             imageKey: true,
             createdAt: true,
             editedAt: true,
+            shelfReview: shelfReviewCardSelect,
             author: {
               select: {
                 id: true,
@@ -698,6 +737,7 @@ blogRouter.post('/:id/comments/:commentId/likes/toggle', async (c) => {
           imageUrl: blog.imageKey ? buildPublicImageUrl(r2PublicBaseUrl, blog.imageKey) : null,
           createdAt: blog.createdAt.toISOString(),
           editedAt: blog.editedAt ? blog.editedAt.toISOString() : null,
+          shelfReview: shelfReviewCard(blog.shelfReview),
           author: {
             id: blog.author.id,
             name: blog.author.name,
@@ -749,6 +789,7 @@ blogRouter.post('/:id/comments/:commentId/likes/toggle', async (c) => {
         imageKey: true,
         createdAt: true,
         editedAt: true,
+        shelfReview: shelfReviewCardSelect,
         author: {
           select: {
             id: true,
@@ -820,6 +861,7 @@ blogRouter.post('/:id/comments/:commentId/likes/toggle', async (c) => {
               imageUrl: blog.imageKey ? buildPublicImageUrl(r2PublicBaseUrl, blog.imageKey) : null,
               createdAt: blog.createdAt.toISOString(),
               editedAt: blog.editedAt ? blog.editedAt.toISOString() : null,
+              shelfReview: shelfReviewCard(blog.shelfReview),
               author: {
                 id: blog.author.id,
                 name: blog.author.name,

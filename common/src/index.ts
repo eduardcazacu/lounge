@@ -61,18 +61,6 @@ export const updateBlogInput = z.object({
 
 export type UpdateBlogInput = z.infer<typeof updateBlogInput>
 
-export const createChatMessageInput = z.object({
-    content: z.string().trim().min(1).max(1000),
-})
-
-export type CreateChatMessageInput = z.infer<typeof createChatMessageInput>
-
-export const chatSettingsInput = z.object({
-    retentionHours: z.number().int().min(1).max(720), // 1h .. 30d
-})
-
-export type ChatSettingsInput = z.infer<typeof chatSettingsInput>
-
 // ---------------------------------------------------------------------------
 // Instant — expiring, end-to-end encrypted 1:1 photos.
 //
@@ -256,3 +244,169 @@ export const deleteAccountInput = z.object({
 })
 
 export type DeleteAccountInput = z.infer<typeof deleteAccountInput>
+
+// ---------------------------------------------------------------------------
+// Shelf — /books today. Every shape carries a `kind` or hangs off something
+// that does, so movies or music arrive as a new value here rather than a new
+// set of endpoints. Web only: iOS has no shelf, so nothing mirrors these.
+// ---------------------------------------------------------------------------
+
+export const shelfKinds = ["book"] as const;
+
+export const shelfKind = z.enum(shelfKinds);
+
+export type ShelfKind = z.infer<typeof shelfKind>;
+
+export const catalogSources = ["openlibrary", "google", "manual"] as const;
+
+// A calendar day in the reader's own timezone. Reading is logged by the day
+// it happened to the reader, not by the UTC day the server sees.
+const localDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+// What /catalog/search returns and /entries takes back. The client hands the
+// chosen candidate back whole rather than an id, so adding a book costs no
+// second round trip to the provider.
+export const catalogCandidate = z.object({
+    kind: shelfKind,
+    source: z.enum(catalogSources),
+    externalId: z.string().trim().min(1).max(200),
+    title: z.string().trim().min(1).max(300),
+    creators: z.array(z.string().trim().min(1).max(200)).max(10),
+    year: z.number().int().min(-3000).max(3000).nullable(),
+    coverUrl: z.string().url().max(500).nullable(),
+    totalUnits: z.number().int().positive().max(100000).nullable(),
+    genres: z.array(z.string().trim().min(1).max(80)).max(8),
+})
+
+export type CatalogCandidate = z.infer<typeof catalogCandidate>
+
+export const addShelfEntryInput = z.object({
+    // A candidate from search. For a manual entry the client sends source
+    // "manual" and the server mints the externalId.
+    candidate: catalogCandidate,
+    // "finished" and "dnf" are backfills of something read, or abandoned,
+    // before it was on the shelf, and need the day it ended.
+    intent: z.enum(["want", "start", "finished", "dnf"]),
+    startedOn: localDay.optional(),
+    finishedOn: localDay.optional(),
+    // For a "dnf" backfill: the page it was put down at, if remembered.
+    stoppedAt: z.number().int().min(0).max(100000).optional(),
+    // Pages in the reader's own copy, confirmed at Start. Absent, the
+    // catalog's figure is used and marked unconfirmed.
+    totalUnits: z.number().int().positive().max(100000).optional(),
+    today: localDay,
+})
+
+export type AddShelfEntryInput = z.infer<typeof addShelfEntryInput>
+
+// Either how many pages were read (`amount`) or where the reader is now
+// (`position`). Exactly one.
+export const logProgressInput = z.object({
+    amount: z.number().int().positive().max(100000).optional(),
+    position: z.number().int().min(0).max(100000).optional(),
+    note: z.string().trim().max(2000).optional(),
+    loggedOn: localDay,
+}).refine((value) => (value.amount === undefined) !== (value.position === undefined), {
+    message: "Send either amount or position.",
+})
+
+export type LogProgressInput = z.infer<typeof logProgressInput>
+
+export const updateProgressLogInput = z.object({
+    toPosition: z.number().int().min(0).max(100000).optional(),
+    note: z.string().trim().max(2000).nullable().optional(),
+})
+
+export type UpdateProgressLogInput = z.infer<typeof updateProgressLogInput>
+
+export const finishRunInput = z.object({
+    status: z.enum(["finished", "dnf"]),
+    finishedOn: localDay,
+})
+
+export type FinishRunInput = z.infer<typeof finishRunInput>
+
+// Starting (or re-starting) a read of a book already on the shelf.
+export const startRunInput = z.object({
+    today: localDay.optional(),
+    totalUnits: z.number().int().positive().max(100000).optional(),
+})
+
+export type StartRunInput = z.infer<typeof startRunInput>
+
+export const updateRunInput = z.object({
+    totalUnits: z.number().int().positive().max(100000).optional(),
+    startedOn: localDay.nullable().optional(),
+    finishedOn: localDay.optional(),
+})
+
+export type UpdateRunInput = z.infer<typeof updateRunInput>
+
+// Every field optional, and null clears it: a review can be a bare thumbs-up.
+export const upsertReviewInput = z.object({
+    // Half stars: 1 is ½★, 10 is ★★★★★.
+    rating: z.number().int().min(1).max(10).nullable().optional(),
+    recommend: z.boolean().nullable().optional(),
+    body: z.string().trim().max(10000).nullable().optional(),
+})
+
+export type UpsertReviewInput = z.infer<typeof upsertReviewInput>
+
+export const reviewCommentInput = z.object({
+    content: z.string().trim().min(1).max(2000),
+})
+
+export type ReviewCommentInput = z.infer<typeof reviewCommentInput>
+
+// One book from another service's export, already read out of its file by the
+// client — the file itself never leaves the browser. Shaped for what any
+// reading tracker exports rather than for Goodreads' columns, so a second
+// source is a second parser, not a second endpoint.
+export const importRowInput = z.object({
+    // The source's own id for the book, e.g. Goodreads' Book Id. Re-importing
+    // the same row is a no-op because of it.
+    ref: z.string().trim().min(1).max(100),
+    title: z.string().trim().min(1).max(300),
+    creators: z.array(z.string().trim().min(1).max(200)).max(10),
+    isbn13: z.string().regex(/^\d{13}$/).nullable(),
+    isbn10: z.string().regex(/^\d{9}[\dX]$/).nullable(),
+    totalUnits: z.number().int().positive().max(100000).nullable(),
+    year: z.number().int().min(-3000).max(3000).nullable(),
+    status: z.enum(["want", "reading", "finished", "dnf"]),
+    // The one finish date the export has. A book read several times is
+    // imported as one read, on this date.
+    finishedOn: localDay.nullable(),
+    addedOn: localDay.nullable(),
+    rating: z.number().int().min(1).max(10).nullable(),
+    review: z.string().trim().max(10000).nullable(),
+})
+
+export type ImportRowInput = z.infer<typeof importRowInput>
+
+// Small batches. Matching a row can take two Open Library requests, paced
+// about a second apart, two Google Books requests when Open Library refuses or
+// lacks the book, and a cover copy afterwards: five each, so eight rows stay
+// inside a Worker's limit of 50 outbound requests on the free plan.
+export const IMPORT_BATCH_SIZE = 8;
+
+export const importBatchInput = z.object({
+    source: z.enum(["goodreads"]),
+    rows: z.array(importRowInput).min(1).max(IMPORT_BATCH_SIZE),
+    today: localDay,
+})
+
+export type ImportBatchInput = z.infer<typeof importBatchInput>
+
+export type ImportRowResult = {
+    ref: string;
+    title: string;
+    // "retry": the book catalog refused (a rate limit or an outage), so
+    // nothing was written and the row should be sent again after
+    // `retryAfterSeconds`.
+    outcome: "added" | "skipped" | "failed" | "retry";
+    // How the book was found: by ISBN, by title and author, or not at all, in
+    // which case it was added from the export's own details. Null for a book
+    // an earlier import already brought in.
+    match: "isbn" | "title" | "manual" | null;
+    entryId: number | null;
+}

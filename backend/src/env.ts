@@ -12,6 +12,9 @@ export type AppEnv = {
   APNS_TEAM_ID?: string;
   APNS_PRIVATE_KEY?: string;
   APNS_BUNDLE_ID?: string;
+  GOOGLE_BOOKS_API_KEY?: string;
+  OPEN_LIBRARY_URL?: string;
+  GOOGLE_BOOKS_URL?: string;
 };
 
 export function getConfig(c: Context<any>) {
@@ -37,6 +40,14 @@ export function getConfig(c: Context<any>) {
   const apnsPrivateKey = c.env?.APNS_PRIVATE_KEY ?? process.env.APNS_PRIVATE_KEY;
   const apnsBundleId = c.env?.APNS_BUNDLE_ID ?? process.env.APNS_BUNDLE_ID;
 
+  // Optional. Without it Google Books is asked on the shared keyless quota,
+  // which answers 429 often enough that /books search leans on Open Library.
+  const googleBooksApiKey = c.env?.GOOGLE_BOOKS_API_KEY ?? process.env.GOOGLE_BOOKS_API_KEY;
+  // Local testing only: points the book catalog at a stand-in, so rate limits
+  // and outages can be rehearsed without provoking the real one.
+  const openLibraryUrl = c.env?.OPEN_LIBRARY_URL ?? process.env.OPEN_LIBRARY_URL;
+  const googleBooksUrl = c.env?.GOOGLE_BOOKS_URL ?? process.env.GOOGLE_BOOKS_URL;
+
   if (!databaseUrl) {
     throw new Error("DATABASE_URL is required");
   }
@@ -56,5 +67,8 @@ export function getConfig(c: Context<any>) {
     apnsTeamId,
     apnsPrivateKey,
     apnsBundleId,
+    googleBooksApiKey,
+    openLibraryUrl,
+    googleBooksUrl,
   };
 }

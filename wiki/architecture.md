@@ -46,9 +46,9 @@ Routers, all mounted under `/api/v1`:
 |---|---|---|
 | `backend/src/route/user.ts` | `/user` | Signup, signin, refresh, verification, password reset, profile, push subscriptions, account deletion, the user directory |
 | `backend/src/route/blog.ts` | `/blog` | Posts, comments, likes, mentions, image upload |
-| `backend/src/route/chat.ts` | `/chat` | The single chatroom and its retention setting |
 | `backend/src/route/instant.ts` | `/instant` | Device keys, WebSocket ticket and upgrade, send, inbox, the one-shot media read, conversations, streaks |
 | `backend/src/route/moderation.ts` | `/moderation` | Blocks and reports |
+| `backend/src/route/shelf.ts` | `/shelf` | Books: catalog search, the reading log, reviews and their discussion, the book club, stats ([books.md](books.md)) |
 | `backend/src/route/admin.ts` | `/admin` | Approvals, broadcasts, stats, the report queue, the on-demand sweep |
 
 ## Data and storage
@@ -63,14 +63,21 @@ Without the binding it falls back to `DATABASE_URL`, and every request pays for
 its own connection. See [decisions.md](decisions.md). The D1 and KV blocks in `wrangler.toml` are commented
 out and there is no D1 database.
 
-**One R2 bucket**, bound as `BLOG_IMAGES`, holding three unrelated things under
-three prefixes: post and profile images (public, read through Cloudflare image
-transformations), `instant/<uuid>` ciphertext (private, deleted on read), and
-`reports/` evidence (private, streamed only to admins).
+**One R2 bucket**, bound as `BLOG_IMAGES`, holding four unrelated things under
+four prefixes: post and profile images (public, read through Cloudflare image
+transformations), `covers/<item id>` book covers copied from Open Library
+(public, the same way; see [books.md](books.md)), `instant/<uuid>` ciphertext
+(private, deleted on read), and `reports/` evidence (private, streamed only to
+admins).
 
 **One Durable Object class**, `InstantInbox`, one instance per user. It holds no
 durable state and never touches Postgres — it is purely a socket relay. See
 [instant-runtime.md](instant-runtime.md).
+
+**Two outbound providers.** Book search calls Open Library and Google Books
+from `backend/src/catalog/` with plain `fetch`, so it runs under Node too.
+Open Library limits by IP, which shapes caching, pacing and cover copying. See
+[books.md](books.md).
 
 **No queues and no workflows.** Background work is either
 `scheduleBackgroundWork` in `backend/src/background.ts` (`waitUntil` on Workers,

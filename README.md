@@ -1,6 +1,7 @@
 # Eddie's Lounge
 
-A private, invite-only hangout: a blog, a chatroom, and **Instant** — expiring,
+A private, invite-only hangout: a blog, **Books** — a shared reading log with
+reviews and a spoiler-safe book club — and **Instant** — expiring,
 end-to-end encrypted 1:1 photos with a native iPhone app.
 
 It exists out of frustration with what social media became, and out of nostalgia

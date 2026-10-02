@@ -8,7 +8,7 @@ import { APP_NAME } from "../config";
 // readable by anyone, on anything, without the app around it.
 
 export const CONTACT_EMAIL = "hello@eduardcazacu.com";
-const EFFECTIVE_DATE = "14 September 2026";
+const EFFECTIVE_DATE = "1 October 2026";
 
 function LegalPage({ title, dated = true, children }: { title: string; dated?: boolean; children: ReactNode }) {
   return (
@@ -67,7 +67,8 @@ export const Privacy = () => (
       <Bullets
         items={[
           <><strong>Your account:</strong> email address, display name, password (stored only as a salted hash), bio, colour theme and profile picture, and when you agreed to the terms.</>,
-          <><strong>What you post on the website:</strong> posts, comments, likes and chat messages. Chat messages are deleted automatically after the retention period shown in the chat.</>,
+          <><strong>What you post on the website:</strong> posts, comments and likes.</>,
+          <><strong>Books:</strong> the books on your shelf, your reading progress and the days you logged it, notes you leave for the book club, and your ratings, reviews and the comments under them.</>,
           <><strong>Instant photos:</strong> end-to-end encrypted on your device before they are sent. We store only the encrypted file, which we cannot open, and delete it as soon as it has been opened or after 24 hours.</>,
           <><strong>Instant activity:</strong> who sent an instant to whom, when, its size and its timer setting. These records hold no photo and are deleted after 30 days. We also keep who you have exchanged instants with and when you last did, which is what powers your conversation list and streaks.</>,
           <><strong>Device information:</strong> each device's public encryption key and a description of the app or browser it was registered from, plus push notification tokens if you allow notifications.</>,
@@ -98,10 +99,11 @@ export const Privacy = () => (
     <Section title="Who processes it for us">
       <Bullets
         items={[
-          "Cloudflare — runs the service and stores files (profile pictures, post images and encrypted instants).",
+          "Cloudflare — runs the service and stores files (profile pictures, post images, book covers and encrypted instants).",
           "Prisma — hosts the database.",
           "Vercel — hosts the website.",
           "Resend — sends account emails (verification, password reset, approval).",
+          "Open Library and Google Books — receive the text of a book search to find covers and details. They are not told who searched.",
           "Apple Push Notification service — delivers notifications to iPhone.",
         ]}
       />
@@ -111,7 +113,8 @@ export const Privacy = () => (
     <Section title="Who can see what">
       <p>
         Your name, profile picture, bio and theme are visible to other members of your community group. Posts,
-        comments and chat are visible to your group. An instant can only be opened by the person you sent it
+        comments, your bookshelf, reviews and book club notes are visible to your group; a book club note is
+        shown to others only once they have read as far as you had. An instant can only be opened by the person you sent it
         to. Administrators can see account details and reports in order to run and moderate the service.
       </p>
     </Section>
@@ -119,7 +122,7 @@ export const Privacy = () => (
     <Section title="Deleting your data">
       <p>
         In the Instant app, open your account and choose <strong>Delete account</strong>. Your account is
-        deleted immediately, together with your profile, posts, comments, likes, chat messages, instants,
+        deleted immediately, together with your profile, posts, comments, likes, books and reviews, instants,
         devices, blocks and notification tokens. Reports you made are kept without your name so a moderation
         decision is not lost. You can also email <Mail /> and we will do it for you.
       </p>

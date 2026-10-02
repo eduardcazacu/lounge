@@ -18,7 +18,8 @@ person who joined this week.
 | [accounts.md](accounts.md) | Tokens, verification, admin approval, and groups |
 | [instant-protocol.md](instant-protocol.md) | The encryption contract, frozen, and what it does not defend against |
 | [instant-runtime.md](instant-runtime.md) | Delivery, the one-shot media read, streaks, conversations, push |
-| [web-client.md](web-client.md) | The React app: blog, chat, admin, and Instant as a harness |
+| [web-client.md](web-client.md) | The React app: blog, Books, admin, and Instant as a harness |
+| [books.md](books.md) | `/books`: the generic shelf, re-reads, spoiler-safe book club, the second installable app |
 | [ios-client.md](ios-client.md) | The SwiftUI app: camera, compose, inbox, widget, extension |
 | [ios-performance.md](ios-performance.md) | Where a tap's time goes on the way to a photo, and what could be cut |
 | [safety.md](safety.md) | Terms, blocks, reports, deletion — and what App Review asks for |
