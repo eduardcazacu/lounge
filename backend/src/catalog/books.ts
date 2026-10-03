@@ -17,7 +17,11 @@ import type { CatalogCandidate, CatalogEdition } from "@blogging-app/common";
 // with strangers, so it answers 429 often. GOOGLE_BOOKS_API_KEY, if set, gives
 // it a quota of its own; without it the search is Open Library alone.
 
-const USER_AGENT = "EddiesLounge/1.0 (https://lounge.eduardcazacu.com)";
+// Open Library gives "identified" requests, a User-Agent naming the app and a
+// contact email, a higher rate limit than anonymous ones, and a way to reach us
+// about a problem other than blocking the IP. Google receives it too and
+// ignores it.
+export const USER_AGENT = "EddiesLounge/1.0 (hello@eduardcazacu.com)";
 const RESULT_LIMIT = 10;
 const TIMEOUT_MS = 5000;
 

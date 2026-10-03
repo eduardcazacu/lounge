@@ -1,4 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
+import { USER_AGENT } from "./catalog/books";
 
 // Book covers, copied into our own R2 bucket.
 //
@@ -20,7 +21,6 @@ const MAX_BYTES = 2 * 1024 * 1024;
 // Smaller than any real cover: a 1×1 placeholder some providers send instead
 // of a 404.
 const MIN_BYTES = 1024;
-const USER_AGENT = "EddiesLounge/1.0 (https://lounge.eduardcazacu.com)";
 const SWEEP_BATCH = 20;
 
 const EXTENSIONS: Record<string, string> = {
