@@ -143,6 +143,8 @@ export type EntryDetail = {
 export type LibraryEntry = {
   id: number;
   wantedAt: string | null;
+  /** Where it stands on the want list once arranged, lowest first. Null sorts above every rank. */
+  wantRank: number | null;
   item: Item;
   runs: (Run & { review: Review | null })[];
 };

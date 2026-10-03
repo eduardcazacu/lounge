@@ -16,6 +16,7 @@ import {
   updateProgressLogInput,
   updateRunInput,
   upsertReviewInput,
+  wantOrderInput,
 } from "@blogging-app/common";
 import { getConfig } from "../env";
 import { getPrismaClient } from "../prisma";
@@ -521,7 +522,7 @@ shelfRouter.post("/entries", async (c) => {
 
     if (intent === "want") {
       if (!entry.wantedAt) {
-        await tx.shelfEntry.update({ where: { id: entry.id }, data: { wantedAt: new Date() } });
+        await tx.shelfEntry.update({ where: { id: entry.id }, data: { wantedAt: new Date(), wantRank: null } });
       }
       return { entryId: entry.id, runId: null as number | null };
     }
@@ -618,6 +619,35 @@ shelfRouter.delete("/entries/:id/want", async (c) => {
   } else {
     await prisma.shelfEntry.update({ where: { id: entryId }, data: { wantedAt: null } });
   }
+  return c.json({ ok: true });
+});
+
+/**
+ * The want list in the order the reader arranged it. Every entry on the list
+ * must be named, once: a list another device has changed since this one
+ * fetched it is refused, rather than ranking some books and not others. Only
+ * ranks that moved are written, so a drag rewrites the books between where it
+ * started and where it landed, not the whole list.
+ */
+shelfRouter.put("/want-order", async (c) => {
+  const parsed = wantOrderInput.safeParse(await readJson(c));
+  if (!parsed.success) return badRequest(c, "Inputs are incorrect.");
+  const userId = c.get("userId");
+  const { prisma } = db(c);
+  const { entryIds } = parsed.data;
+  const wanted = await prisma.shelfEntry.findMany({
+    where: { userId, wantedAt: { not: null } },
+    select: { id: true, wantRank: true },
+  });
+  const ranks = new Map(wanted.map((entry) => [entry.id, entry.wantRank]));
+  if (new Set(entryIds).size !== entryIds.length || entryIds.length !== wanted.length || !entryIds.every((id) => ranks.has(id))) {
+    return conflict(c, "Your want list changed somewhere else. Try again.");
+  }
+  await prisma.$transaction(
+    entryIds.flatMap((id, rank) =>
+      ranks.get(id) === rank ? [] : [prisma.shelfEntry.update({ where: { id }, data: { wantRank: rank } })]
+    )
+  );
   return c.json({ ok: true });
 });
 
@@ -726,6 +756,7 @@ shelfRouter.get("/entries", async (c) => {
       select: {
         id: true,
         wantedAt: true,
+        wantRank: true,
         item: { select: itemSelect },
         edition: { select: editionSelect },
         runs: {
@@ -753,6 +784,7 @@ shelfRouter.get("/entries", async (c) => {
     entries: entries.map((entry) => ({
       id: entry.id,
       wantedAt: entry.wantedAt ? entry.wantedAt.toISOString() : null,
+      wantRank: entry.wantRank,
       item: itemView(entry.item, entry.edition),
       runs: entry.runs.map((run) => ({
         ...runView(run, entry.item.totalUnits),
@@ -913,7 +945,8 @@ shelfRouter.get("/home", async (c) => {
     }),
     prisma.shelfEntry.findMany({
       where: { userId, wantedAt: { not: null } },
-      orderBy: { wantedAt: "desc" },
+      // The order the reader arranged; the library's Want tab sorts the same way.
+      orderBy: [{ wantRank: { sort: "asc", nulls: "first" } }, { wantedAt: "desc" }],
       take: 20,
       select: { id: true, item: { select: itemSelect }, edition: { select: editionSelect } },
     }),
@@ -2174,7 +2207,7 @@ async function importRow(context: RowContext, row: ImportRowInput): Promise<Impo
         if (runs > 0) return done("skipped");
         await tx.shelfEntry.update({
           where: { id: entry.id },
-          data: { wantedAt: row.addedOn ? dateFromDay(row.addedOn) : new Date() },
+          data: { wantedAt: row.addedOn ? dateFromDay(row.addedOn) : new Date(), wantRank: null },
         });
         return done("added");
       }

@@ -409,6 +409,10 @@ model ShelfEntry {
   itemId    Int       @map("item_id")
   // Non-null while it is on the want list.
   wantedAt  DateTime? @map("wanted_at")
+  // Where it stands on the want list, lowest first, once the reader has
+  // arranged it. Null sorts above every rank, newest wish first, so a book
+  // just added lands at the top and a list nobody arranged keeps its old order.
+  wantRank  Int?      @map("want_rank")
   // The book this entry was imported as ("goodreads:<book id>"). A second
   // import finds the entry by this, never by matching the catalog again:
   // Open Library does not answer the same way twice, and a different match

@@ -1204,3 +1204,24 @@ call in its `api.json`. With 403, the reader sees "Unknown server error"
 instead of the message. The protocol is KOReader's, so its rules win inside
 `/kosync` and nowhere else.
 
+---
+
+## The want list is arranged by dragging, with dnd-kit
+
+**Chosen** a drag handle on each row of your own Want tab, plus "move to the
+top", built on `@dnd-kit/core` and `@dnd-kit/sortable`
+(`frontend/src/components/books/LibraryScreen.tsx`).
+
+**Rejected** native HTML5 drag and drop, which does nothing on a touchscreen,
+and the phone is where `/books` is used. Up and down buttons on every row lost
+too: moving a book ten places is ten taps.
+
+**Because** dnd-kit's pointer sensor handles mouse and touch alike, and its
+keyboard sensor gives the same moves to the arrow keys. The handle alone takes
+`touch-action: none`, so a thumb on the rest of the row still scrolls the page.
+
+**Cost paid** about 17 kB gzipped on the Books bundle (31 kB to 48 kB).
+
+**Would reopen if** arranging spread beyond one list, or dnd-kit stopped being
+maintained.
+

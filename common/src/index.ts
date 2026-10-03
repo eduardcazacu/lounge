@@ -311,6 +311,14 @@ export const setEditionInput = z.object({
 
 export type SetEditionInput = z.infer<typeof setEditionInput>
 
+// The whole want list, in the order the reader arranged it. The whole of it,
+// rather than one move, so a stale list is refused instead of half-applied.
+export const wantOrderInput = z.object({
+    entryIds: z.array(z.number().int().positive()).max(2000),
+})
+
+export type WantOrderInput = z.infer<typeof wantOrderInput>
+
 export const addShelfEntryInput = z.object({
     // A candidate from search. For a manual entry the client sends source
     // "manual" and the server mints the externalId.
