@@ -42,7 +42,10 @@ would count toward books finished but not toward pages, and the two numbers
 would disagree. The log is marked `closing`. That way its pages count, but its
 day is never a reading day, a best day or part of a streak: a remembered book
 was not read on 31 December. `PUT /runs/:id` moves the closing log when a
-finished run's length or date is corrected.
+finished run's length or date is corrected; a book's page offers the date as
+"Change date" on each past read. Only a log marked `closing` moves. A read
+logged to its last page has none, and its last log is a real reading day. A
+finish date cannot go before the run's start or its last real log.
 
 **Book-club gating is by fraction, never by page.** Each run keeps the length
 of its own edition (`ShelfRun.totalUnits`). Page 200 is the ending of a

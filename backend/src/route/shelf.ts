@@ -1377,6 +1377,18 @@ shelfRouter.put("/runs/:id", async (c) => {
   }
   if (parsed.data.finishedOn !== undefined) {
     if (run.status === "active") return conflict(c, "This read is not finished.");
+    // A read cannot end before it began, nor before a day the reader actually
+    // logged pages: the closing log would land ahead of real reading.
+    const startedOn = parsed.data.startedOn !== undefined ? parsed.data.startedOn : run.startedOn ? dayOf(run.startedOn) : null;
+    if (startedOn && parsed.data.finishedOn < startedOn) return badRequest(c, "That's before you started it.");
+    const lastRead = await prisma.progressLog.findFirst({
+      where: { runId, closing: false },
+      orderBy: { loggedOn: "desc" },
+      select: { loggedOn: true },
+    });
+    if (lastRead && parsed.data.finishedOn < dayOf(lastRead.loggedOn)) {
+      return badRequest(c, `You logged pages on ${dayOf(lastRead.loggedOn)}, after that.`);
+    }
     data.finishedOn = dateFromDay(parsed.data.finishedOn);
   }
   if (parsed.data.totalUnits !== undefined) {
@@ -1393,11 +1405,13 @@ shelfRouter.put("/runs/:id", async (c) => {
       const closing = await tx.progressLog.findFirst({
         where: { runId },
         orderBy: { id: "desc" },
-        select: { id: true, loggedOn: true },
+        select: { id: true, loggedOn: true, closing: true },
       });
       const closingData: Prisma.ProgressLogUpdateInput = {};
       if (closing && parsed.data.totalUnits !== undefined) closingData.toPosition = parsed.data.totalUnits;
-      if (closing && parsed.data.finishedOn !== undefined && run.finishedOn && dayOf(closing.loggedOn) === dayOf(run.finishedOn)) {
+      // Only a closing log follows the date. A read logged to the last page has
+      // none, and its last log is a real reading day that must stay put.
+      if (closing?.closing && parsed.data.finishedOn !== undefined) {
         closingData.loggedOn = dateFromDay(parsed.data.finishedOn);
       }
       if (closing && Object.keys(closingData).length > 0) {

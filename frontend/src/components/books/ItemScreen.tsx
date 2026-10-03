@@ -78,6 +78,56 @@ function EndSheet({ run, onClose }: { run: RunWithReview; onClose: () => void })
   );
 }
 
+/**
+ * Corrects when a read ended, mostly for books added or imported with the
+ * wrong date. The pages counted as read on that day move with it.
+ */
+function FinishDateSheet({ run, onClose }: { run: RunWithReview; onClose: () => void }) {
+  const palette = usePalette();
+  const [day, setDay] = useState(run.finishedOn ?? localDay());
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    setBusy(true);
+    setError(null);
+    try {
+      await shelfSend("put", `/runs/${run.id}`, { finishedOn: day });
+      invalidateShelf();
+      onClose();
+    } catch (e) {
+      setError(errorMessage(e));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Sheet title={run.status === "dnf" ? "When did you stop?" : "When did you finish?"} onClose={onClose}>
+      <label className="block pb-4 text-sm text-slate-600">
+        On
+        <input
+          type="date"
+          value={day}
+          min={run.startedOn ?? undefined}
+          max={localDay()}
+          onChange={(event) => setDay(event.target.value)}
+          className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2.5 text-[16px]"
+        />
+      </label>
+      {error ? <p className="pb-2 text-sm text-rose-600">{error}</p> : null}
+      <button
+        type="button"
+        disabled={busy || !day || day === run.finishedOn}
+        onClick={save}
+        className="mb-2 w-full rounded-full py-3.5 font-semibold text-white disabled:opacity-60"
+        style={{ background: palette.accent }}
+      >
+        Save
+      </button>
+    </Sheet>
+  );
+}
+
 function LogRow({ log, isLatest }: { log: ProgressLogRow; isLatest: boolean }) {
   const [editing, setEditing] = useState(false);
   const [note, setNote] = useState(log.note ?? "");
@@ -146,6 +196,7 @@ function LogRow({ log, isLatest }: { log: ProgressLogRow; isLatest: boolean }) {
 function PastRun({ run, isMine }: { run: RunWithReview; isMine: boolean }) {
   const palette = usePalette();
   const navigate = useNavigate();
+  const [editingDate, setEditingDate] = useState(false);
   const review = run.review;
   const hasReview = review && (review.rating !== null || review.recommend !== null || review.body);
 
@@ -187,11 +238,15 @@ function PastRun({ run, isMine }: { run: RunWithReview; isMine: boolean }) {
           <Link to={`/books/finish/${run.id}?edit=1`} className="font-medium" style={{ color: palette.accent }}>
             {hasReview ? "Edit review" : "Write a review"}
           </Link>
+          <button type="button" onClick={() => setEditingDate(true)} className="font-medium text-slate-500">
+            Change date
+          </button>
           <button type="button" onClick={remove} className="ml-auto text-slate-400">
             Delete
           </button>
         </div>
       ) : null}
+      {editingDate ? <FinishDateSheet run={run} onClose={() => setEditingDate(false)} /> : null}
     </Card>
   );
 }
