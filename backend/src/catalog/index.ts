@@ -2,7 +2,7 @@ import type { CatalogCandidate, ShelfKind } from "@blogging-app/common";
 import { searchBooks, type BookSearchOptions, type BookSearchResult } from "./books";
 
 export type CatalogSearchOptions = BookSearchOptions;
-export { CatalogUnavailable } from "./books";
+export { CatalogUnavailable, bookEditions } from "./books";
 
 // How long a search answer is reused, here and by the hourly sweep that
 // deletes older ones (src/scheduled.ts).

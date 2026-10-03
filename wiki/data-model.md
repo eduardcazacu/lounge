@@ -17,7 +17,8 @@ Table names are snake_case via `@map`; Prisma model names are not.
 
 **Safety** — `UserBlock`, `ContentReport`.
 
-**Shelf** (`/books`) — `CatalogItem`, `ShelfEntry`, `ShelfRun`, `ProgressLog`,
+**Shelf** (`/books`) — `CatalogItem`, `CatalogEdition` (a printing of a work, which a
+`ShelfEntry` can point at), `ShelfEntry`, `ShelfRun`, `ProgressLog`,
 `ShelfReview`, `ShelfReviewComment`, `CatalogSearchCache` (a day of search
 answers), `NotificationSent` (the once-a-day notification throttle), and
 `Post.shelfReviewId` for a review cross-posted to the Lounge. `ReaderSync` (a
@@ -85,8 +86,9 @@ see [parallel-implementations.md](parallel-implementations.md).
 `ShelfRun` is one read-through; reading a book again adds a row and never
 resets one. A finished run always has a `ProgressLog` marked `closing` for the
 pages nobody logged, on the finish day, so books and pages stay consistent.
-`CatalogItem` is the one shelf table that does not cascade from `User`, because
-it is shared. `import_id` on an entry and a run ties them to the row of a
+`CatalogItem` and `CatalogEdition` are the shelf tables that do not cascade
+from `User`, because they are shared. Deleting an edition only clears
+`ShelfEntry.editionId`. `import_id` on an entry and a run ties them to the row of a
 Goodreads export they came from, and is how a second import recognises them.
 `ProgressLog.source` is `"koreader"` on a log a sync wrote, which a later sync
 that day extends.

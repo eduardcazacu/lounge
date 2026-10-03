@@ -165,6 +165,17 @@ on Open Library alone. The key needs **no** application restriction (only an
 API restriction to the Books API), since the Worker sends no referrer and has
 no fixed IP. `fetchProvider` logs Google's reason with the status.
 
+**Open Library's work title and cover can be a translation's.** A search
+result's `title` and `cover_i` belong to the work, which is often filed under
+the first edition anybody catalogued: The Last Wish comes back as "Ostatnie
+Życzenie" with a Polish cover. `fromOpenLibrary` in
+`backend/src/catalog/books.ts` asks for an English edition (`lang=en` and the
+`editions.*` fields) and prefers it; a new caller that reads the work's fields
+directly brings the Polish cover back. Likewise anything that shows a reader's
+book must select the entry's `edition` beside its `item` and go through
+`itemView` in `backend/src/route/shelf.ts`, or that reader's chosen cover
+quietly disappears there.
+
 **Anything that creates a catalog item must go through `resolveCandidate`.**
 Saving a candidate directly makes a second work whenever the same book was
 first filed from the other source, and its readers stop seeing each other's

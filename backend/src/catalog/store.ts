@@ -1,5 +1,5 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
-import type { CatalogCandidate } from "@blogging-app/common";
+import type { CatalogCandidate, CatalogEdition } from "@blogging-app/common";
 import { bareTitle, sameBook, type BookToFind } from "./match-book";
 
 // The catalog we already have, asked before Open Library is.
@@ -113,4 +113,28 @@ export async function resolveCandidate(db: Db, candidate: CatalogCandidate, book
     }
   }
   return saveCandidate(db, candidate, book);
+}
+
+/**
+ * The row for an edition of a work, created the first time anybody picks it.
+ * Like a work, its first sighting fixes it.
+ */
+export async function saveEdition(db: Db, itemId: number, edition: CatalogEdition) {
+  return db.catalogEdition.upsert({
+    where: { itemId_source_externalId: { itemId, source: edition.source, externalId: edition.externalId } },
+    create: {
+      itemId,
+      source: edition.source,
+      externalId: edition.externalId,
+      title: edition.title,
+      language: edition.language,
+      publisher: edition.publisher,
+      year: edition.year,
+      format: edition.format,
+      coverUrl: edition.coverUrl,
+      totalUnits: edition.totalUnits,
+    },
+    update: {},
+    select: { id: true, coverUrl: true, coverKey: true },
+  });
 }

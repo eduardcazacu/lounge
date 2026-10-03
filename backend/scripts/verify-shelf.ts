@@ -17,7 +17,7 @@ import {
   readerReach,
   type StatsRun,
 } from "../src/shelf-logic";
-import { cleanGenres, parseRetryAfter } from "../src/catalog/books";
+import { cleanGenres, fromOpenLibrary, fromOpenLibraryEdition, parseRetryAfter, rankEditions } from "../src/catalog/books";
 import { sameBook } from "../src/catalog/match-book";
 import {
   authorsFrom,
@@ -310,6 +310,69 @@ console.log("KOReader sync");
   check("the stored hash accepts the right key", sameHash(hashReaderKey(readerKeyFor(password)), stored));
   check("and refuses another", !sameHash(hashReaderKey(readerKeyFor(`${password}x`)), stored));
   check("usernames are plain", usernameFrom("Ana María") === "anamaria" && usernameFrom("") === "reader");
+}
+
+console.log("Editions");
+{
+  // The Last Wish, as Open Library files it: a Polish work, an English edition.
+  const work = {
+    key: "/works/OL2577482W",
+    title: "Ostatnie Życzenie",
+    author_name: ["Andrzej Sapkowski"],
+    cover_i: 7360819,
+    number_of_pages_median: 342,
+  };
+  const english = fromOpenLibrary({
+    ...work,
+    editions: { docs: [{ key: "/books/OL10426195M", title: "The Last Wish", cover_i: 12848705, language: ["eng"] }] },
+  });
+  check("an English edition's title is shown", english?.title === "The Last Wish");
+  check("and its cover, not the work's", english?.coverUrl === "https://covers.openlibrary.org/b/id/12848705-M.jpg");
+  check("and it is the reader's edition", english?.edition?.externalId === "/books/OL10426195M");
+  check("the work stays the work", english?.externalId === "/works/OL2577482W" && english?.totalUnits === 342);
+  const german = fromOpenLibrary({
+    ...work,
+    editions: { docs: [{ key: "/books/OL62330730M", title: "Der Letzte Wunsch", cover_i: 15239396, language: ["ger"] }] },
+  });
+  check("another language's edition is not preferred", german?.title === "Ostatnie Życzenie" && german?.edition === null);
+  check("a coverless English edition keeps the work's cover", fromOpenLibrary({
+    ...work,
+    editions: { docs: [{ key: "/books/OL34507768M", title: "Last Wish", language: ["eng"] }] },
+  })?.coverUrl === "https://covers.openlibrary.org/b/id/7360819-M.jpg");
+
+  const edition = fromOpenLibraryEdition({
+    key: "/books/OL32404880M",
+    title: "The Last Wish",
+    covers: [-1, 12455224],
+    languages: [{ key: "/languages/eng" }],
+    publishers: ["Orbit"],
+    publish_date: "Dec 07, 2021",
+    physical_format: "hardcover",
+    number_of_pages: 352,
+  });
+  check("an edition reads its year from a free-form date", edition?.year === 2021);
+  check("an edition skips a placeholder cover id", edition?.coverUrl === "https://covers.openlibrary.org/b/id/12455224-M.jpg");
+  check("an edition's language is its MARC code", edition?.language === "eng");
+  check("an audiobook's one disc is not a length", fromOpenLibraryEdition({ key: "/books/X", title: "T", number_of_pages: 1 })?.totalUnits === null);
+  check("a bilingual edition has no one language", fromOpenLibraryEdition({
+    key: "/books/X",
+    title: "T",
+    languages: [{ key: "/languages/eng" }, { key: "/languages/pol" }],
+  })?.language === null);
+
+  const base = { source: "openlibrary" as const, title: "T", publisher: null, format: null, totalUnits: null };
+  const ranked = rankEditions([
+    { ...base, externalId: "polish", language: "pol", year: 2020, coverUrl: "c" },
+    { ...base, externalId: "unknown", language: null, year: 2022, coverUrl: "c" },
+    { ...base, externalId: "english-old", language: "eng", year: 1993, coverUrl: "c" },
+    { ...base, externalId: "english-bare", language: "eng", year: 2023, coverUrl: null },
+    { ...base, externalId: "english-new", language: "eng", year: 2019, coverUrl: "c" },
+  ]).map((edition) => edition.externalId);
+  check(
+    "editions: English with covers, newest first, then English without, then unrecorded, then the rest",
+    ranked.join() === "english-new,english-old,english-bare,unknown,polish",
+    ranked
+  );
 }
 
 console.log(`\n${checks - failures}/${checks} checks passed`);
