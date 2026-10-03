@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Avatar } from "../BlogCard";
 import { invalidateShelf, localDay, shelfSend, useShelf } from "./api";
-import type { Home, HomeReading, ReaderPending } from "./api";
+import type { Home, HomeReading, Person, ReaderPending } from "./api";
 import { AccountButton } from "./BooksApp";
 import { LogSheet } from "./LogSheet";
 import { CopyPagesSheet } from "./CopyPagesSheet";
@@ -218,6 +218,33 @@ function Highlights({ home }: { home: Home }) {
   );
 }
 
+/**
+ * Everyone else in the group who reads here, as the Lounge's blog shows its
+ * authors: a row of avatars that scrolls sideways. Each opens that person's
+ * library.
+ */
+function ReadersStrip({ readers }: { readers: Person[] }) {
+  return (
+    <Card className="!p-3">
+      <div className="flex gap-3 overflow-x-auto py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {readers.map((reader) => {
+          const name = reader.name?.trim() || "Someone";
+          return (
+            <Link key={reader.id} to={`/books/people/${reader.id}`} title={name} className="flex w-16 shrink-0 flex-col items-center gap-1.5">
+              <span className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 p-0.5">
+                <Avatar size="big" name={name} themeKey={reader.themeKey} imageUrl={reader.profilePictureUrl} />
+              </span>
+              <span className="max-w-[64px] truncate text-[11px] leading-tight text-slate-600">
+                {name}
+              </span>
+            </Link>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
+
 export function HomeScreen() {
   const palette = usePalette();
   const { data: home, error } = useShelf<Home>(`/home?today=${localDay()}`);
@@ -304,6 +331,13 @@ export function HomeScreen() {
             >
               Your library ›
             </Link>
+
+            {home.readers?.length ? (
+              <>
+                <SectionTitle>Who's reading</SectionTitle>
+                <ReadersStrip readers={home.readers} />
+              </>
+            ) : null}
           </>
         )}
       </main>

@@ -499,6 +499,9 @@ model ShelfReview {
   rating    Int?
   recommend Boolean?
   body      String?
+  // The reviewer says it gives the book away. Covered, not withheld, for
+  // anyone who has not finished the work: see src/shelf-spoilers.ts.
+  spoiler   Boolean   @default(false)
   // Brought in from another service. Kept out of the review feed: an import
   // is years of reviews arriving at once, and would bury everyone's recent
   // ones. It shows on the reader's library and the book's page.

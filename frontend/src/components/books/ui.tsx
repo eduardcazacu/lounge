@@ -270,6 +270,40 @@ export function EmptyNote({ children }: { children: ReactNode }) {
   return <p className="rounded-2xl border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-500">{children}</p>;
 }
 
+/**
+ * In place of a review marked as a spoiler, for a reader who hasn't finished
+ * the book. It never stops them: "Show anyway" is one tap. Clicks stay here,
+ * because the cover often sits inside a card that opens on click.
+ */
+export function SpoilerCover({ onShow, what = "This review" }: { onShow: () => void; what?: string }) {
+  return (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onShow();
+      }}
+      className="mt-3 block w-full rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-2.5 text-left text-sm text-slate-600"
+    >
+      {what} gives the book away, and you haven't finished it. <span className="font-semibold text-slate-800 underline">Show anyway</span>
+    </button>
+  );
+}
+
+/** A review's text, behind `SpoilerCover` when it is covered for this viewer. */
+export function ReviewBody({ review, className }: { review: { body: string | null; covered: boolean }; className: string }) {
+  const [shown, setShown] = useState(false);
+  if (!review.body) return null;
+  if (review.covered && !shown) return <SpoilerCover onShow={() => setShown(true)} />;
+  return <p className={className}>{review.body}</p>;
+}
+
+/** Marks a spoiler for the people it isn't covered for: the reviewer, and those who've read it. */
+export function SpoilerTag() {
+  return <span className="rounded bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-800">Spoilers</span>;
+}
+
 /** Thumbs up or down, as a recommendation reads in a sentence. */
 export function RecommendBadge({ recommend }: { recommend: boolean | null }) {
   if (recommend === null) return null;

@@ -5,11 +5,13 @@ import { formatPostedTime } from "../../lib/datetime";
 import { getCurrentUserId } from "../../lib/auth";
 import { errorMessage, invalidateShelf, shelfSend, useShelf } from "./api";
 import type { ReviewComment, ReviewDetail } from "./api";
-import { Cover, PersonLine, RecommendBadge, SectionTitle, Spinner, Stars, TopBar } from "./ui";
+import { Cover, PersonLine, RecommendBadge, SectionTitle, Spinner, SpoilerCover, SpoilerTag, Stars, TopBar } from "./ui";
 import { byline, formatDay, usePalette } from "./format";
 
 // One review and its discussion. This is where a Lounge card for a review
-// lands, and where a notification about a reply opens.
+// lands, and where a notification about a reply opens. A spoiler covers the
+// discussion along with the review: the replies give the ending away as
+// readily as the review does.
 
 function CommentRow({
   reviewId,
@@ -98,6 +100,7 @@ export function ReviewScreen() {
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [shown, setShown] = useState(false);
 
   if (!data) {
     return (
@@ -110,6 +113,7 @@ export function ReviewScreen() {
 
   const { review } = data;
   const reviewerPalette = getThemePalette(review.reviewer.themeKey);
+  const covered = review.covered && !shown;
 
   async function send() {
     if (!draft.trim()) return;
@@ -173,8 +177,13 @@ export function ReviewScreen() {
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <Stars rating={review.rating} size={18} />
             <RecommendBadge recommend={review.recommend} />
+            {review.spoiler && !covered ? <SpoilerTag /> : null}
           </div>
-          {review.body ? <p className="mt-3 whitespace-pre-wrap text-[16px] leading-relaxed text-slate-800">{review.body}</p> : null}
+          {covered ? (
+            <SpoilerCover onShow={() => setShown(true)} what={review.body ? "This review and its discussion" : "The discussion"} />
+          ) : review.body ? (
+            <p className="mt-3 whitespace-pre-wrap text-[16px] leading-relaxed text-slate-800">{review.body}</p>
+          ) : null}
           {review.loungePostId ? (
             <Link to={`/blog/${review.loungePostId}`} className="mt-3 inline-block text-xs font-medium text-slate-500">
               Also on the Lounge ›
@@ -186,6 +195,8 @@ export function ReviewScreen() {
           ) : null}
         </article>
 
+        {covered ? null : (
+          <>
         <SectionTitle>Discussion</SectionTitle>
         <ul className="flex flex-col gap-2">
           {review.comments.length === 0 ? (
@@ -222,6 +233,8 @@ export function ReviewScreen() {
           </button>
         </form>
         {sendError ? <p className="mt-2 text-sm text-rose-600">{sendError}</p> : null}
+          </>
+        )}
       </main>
     </>
   );

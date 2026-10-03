@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { ShelfReviewCard } from "../hooks";
 
@@ -8,7 +9,8 @@ import type { ShelfReviewCard } from "../hooks";
 // wiki/books.md.
 //
 // Stars are text here rather than Books' own star component: the blog would
-// otherwise pull Books' code into its chunk for five glyphs.
+// otherwise pull Books' code into its chunk for five glyphs. The spoiler cover
+// is its own for the same reason.
 
 function starText(rating: number) {
   return "★".repeat(Math.floor(rating / 2)) + (rating % 2 ? "½" : "");
@@ -16,6 +18,8 @@ function starText(rating: number) {
 
 export function ShelfReviewEmbed({ review, full = false }: { review: ShelfReviewCard; full?: boolean }) {
   const verb = review.status === "dnf" ? "Did not finish" : "Read";
+  const [shown, setShown] = useState(false);
+  const covered = Boolean(review.covered) && !shown;
   return (
     <Link
       to={`/books/review/${review.id}`}
@@ -41,7 +45,20 @@ export function ShelfReviewEmbed({ review, full = false }: { review: ShelfReview
             </span>
           ) : null}
         </div>
-        {review.body ? (
+        {review.body && covered ? (
+          <button
+            type="button"
+            onClick={(event) => {
+              // Inside a link, and inside a card that opens the post.
+              event.preventDefault();
+              event.stopPropagation();
+              setShown(true);
+            }}
+            className="mt-1.5 block w-full rounded-lg border border-dashed border-slate-300 bg-white px-2.5 py-2 text-left text-sm text-slate-600"
+          >
+            Spoilers, and you haven't finished it. <span className="font-semibold text-slate-800 underline">Show anyway</span>
+          </button>
+        ) : review.body ? (
           <p className={`mt-1.5 whitespace-pre-wrap text-sm text-slate-700 ${full ? "" : "line-clamp-3"}`}>{review.body}</p>
         ) : null}
         <div className="mt-1.5 text-xs font-medium text-slate-500">Open in Books ›</div>

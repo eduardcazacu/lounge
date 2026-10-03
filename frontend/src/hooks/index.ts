@@ -22,6 +22,9 @@ export interface ShelfReviewCard {
     rating: number | null;
     recommend: boolean | null;
     body: string | null;
+    spoiler?: boolean;
+    /** A spoiler this viewer hasn't finished the book for. */
+    covered?: boolean;
     status: string;
     item: { title: string; creators: string[]; coverUrl: string | null; kind: string };
 }

@@ -23,11 +23,12 @@ import { getUserGroupId } from "../groups";
 import { scheduleBackgroundWork } from "../background";
 import { notifyFollowersOfNewPost, sendPushToUsers } from "../push";
 import { CatalogUnavailable, SEARCH_CACHE_TTL_MS, bookEditions, searchCatalog } from "../catalog";
-import { findBook, freshSourceState, manualCandidate, type SourceState } from "../catalog/match-book";
+import { findBook, freshSourceState, manualCandidate, sameBook, type SourceState } from "../catalog/match-book";
 import { findKnownBook, rememberIsbns, resolveCandidate, saveEdition } from "../catalog/store";
 import { copyCovers, deleteCover } from "../covers";
 import { notifyBookClubNote, notifyFinishedReading, notifyStartedReading, type NotifyConfig } from "../shelf-notify";
 import { blockedUserIds } from "../blocks";
+import { coveredFor, finishedItemIds } from "../shelf-spoilers";
 import {
   applyDocument,
   dayInZone,
@@ -222,16 +223,20 @@ type ReviewRow = {
   rating: number | null;
   recommend: boolean | null;
   body: string | null;
+  spoiler: boolean;
   createdAt: Date;
   editedAt: Date | null;
 };
 
-function reviewView(review: ReviewRow) {
+/** `covered`: a spoiler this viewer has not finished the book for; see src/shelf-spoilers.ts. */
+function reviewView(review: ReviewRow, covered = false) {
   return {
     id: review.id,
     rating: review.rating,
     recommend: review.recommend,
     body: review.body,
+    spoiler: review.spoiler,
+    covered,
     createdAt: review.createdAt.toISOString(),
     editedAt: review.editedAt ? review.editedAt.toISOString() : null,
   };
@@ -325,17 +330,59 @@ function catalogUnavailable(c: Context<ShelfEnv>, error: CatalogUnavailable) {
  * Open Library — which limits by IP — never sees. Only complete answers are
  * cached; see `BookSearchResult.complete`.
  */
+/**
+ * Which search results are already on the caller's shelf, keyed as the client
+ * keys results (`source:externalId`), and where the book stands there. A result
+ * counts if it is the same catalog work, or has the same title and author: that
+ * is the work adding it would land on (`resolveCandidate`), so a book added from
+ * Google shows as on the shelf when Open Library offers it too. Worked out per
+ * request, because search answers are cached for everyone.
+ */
+async function onShelf(prisma: PrismaClient, userId: number, results: CatalogCandidate[]) {
+  if (results.length === 0) return {};
+  const entries = await prisma.shelfEntry.findMany({
+    where: { userId },
+    select: {
+      id: true,
+      wantedAt: true,
+      item: { select: { source: true, externalId: true, title: true, creators: true } },
+      runs: { orderBy: { id: "desc" }, select: { status: true } },
+    },
+  });
+  const shelf: Record<string, { entryId: number; status: "reading" | "read" | "dnf" | "want" }> = {};
+  for (const result of results) {
+    const entry =
+      entries.find((mine) => mine.item.source === result.source && mine.item.externalId === result.externalId) ??
+      entries.find((mine) => sameBook(result, { title: mine.item.title, author_name: mine.item.creators }));
+    if (!entry) continue;
+    const latest = entry.runs[0]?.status;
+    const status = entry.runs.some((run) => run.status === "active")
+      ? "reading"
+      : latest === "finished"
+        ? "read"
+        : latest === "dnf"
+          ? "dnf"
+          : entry.wantedAt
+            ? "want"
+            : null;
+    if (status) shelf[`${result.source}:${result.externalId}`] = { entryId: entry.id, status };
+  }
+  return shelf;
+}
+
 shelfRouter.get("/catalog/search", async (c) => {
   const kind = shelfKind.safeParse(c.req.query("kind") ?? "book");
   if (!kind.success) return badRequest(c, "Unknown kind.");
   const query = (c.req.query("q") ?? "").trim().replace(/\s+/g, " ").slice(0, 200);
-  if (query.length < 2) return c.json({ results: [] });
+  if (query.length < 2) return c.json({ results: [], onShelf: {} });
   const { prisma, config } = db(c);
+  const userId = c.get("userId");
   const key = query.toLowerCase();
 
   const cached = await prisma.catalogSearchCache.findUnique({ where: { kind_query: { kind: kind.data, query: key } } });
   if (cached && Date.now() - cached.createdAt.getTime() < SEARCH_CACHE_TTL_MS) {
-    return c.json({ results: cached.results });
+    const results = cached.results as unknown as CatalogCandidate[];
+    return c.json({ results, onShelf: await onShelf(prisma, userId, results) });
   }
 
   try {
@@ -350,7 +397,7 @@ shelfRouter.get("/catalog/search", async (c) => {
         update: { results: json, createdAt: new Date() },
       });
     }
-    return c.json({ results });
+    return c.json({ results, onShelf: await onShelf(prisma, userId, results) });
   } catch (error) {
     if (error instanceof CatalogUnavailable) return catalogUnavailable(c, error);
     throw error;
@@ -691,13 +738,15 @@ shelfRouter.get("/entries", async (c) => {
             totalUnits: true,
             position: true,
             unitsConfirmed: true,
-            review: { select: { id: true, rating: true, recommend: true, body: true, createdAt: true, editedAt: true } },
+            review: { select: { id: true, rating: true, recommend: true, body: true, spoiler: true, createdAt: true, editedAt: true } },
           },
         },
       },
     }),
   ]);
   if (!owner) return notFound(c);
+  const finished =
+    userId === callerId ? new Set<number>() : await finishedItemIds(prisma, callerId, entries.map((entry) => entry.item.id));
 
   return c.json({
     owner: personView(owner, config.r2PublicBaseUrl),
@@ -707,7 +756,7 @@ shelfRouter.get("/entries", async (c) => {
       item: itemView(entry.item, entry.edition),
       runs: entry.runs.map((run) => ({
         ...runView(run, entry.item.totalUnits),
-        review: run.review ? reviewView(run.review) : null,
+        review: run.review ? reviewView(run.review, coveredFor(run.review, userId, entry.item.id, callerId, finished)) : null,
       })),
     })),
   });
@@ -744,6 +793,7 @@ shelfRouter.get("/entries/:id", async (c) => {
               rating: true,
               recommend: true,
               body: true,
+              spoiler: true,
               createdAt: true,
               editedAt: true,
               loungePost: { select: { id: true } },
@@ -761,6 +811,7 @@ shelfRouter.get("/entries/:id", async (c) => {
     if (groupId === null || groupId !== entry.user.groupId) return notFound(c);
   }
 
+  const finished = isMine ? new Set<number>() : await finishedItemIds(prisma, callerId, [entry.item.id]);
   const activeRun = entry.runs.find((run) => run.status === "active");
   // The most recent logs of the run in progress, so the last one can be
   // undone and a note edited. Only the owner sees them here; everyone else
@@ -787,7 +838,7 @@ shelfRouter.get("/entries/:id", async (c) => {
       number: entry.runs.length - index,
       review: run.review
         ? {
-            ...reviewView(run.review),
+            ...reviewView(run.review, coveredFor(run.review, entry.userId, entry.item.id, callerId, finished)),
             loungePostId: run.review.loungePost?.id ?? null,
             commentCount: run.review._count.comments,
           }
@@ -808,6 +859,32 @@ shelfRouter.get("/entries/:id", async (c) => {
 // ---------------------------------------------------------------------------
 // Home: the one request the main screen makes
 // ---------------------------------------------------------------------------
+
+/**
+ * Everyone else in the group who has read something here, for Home's row of
+ * libraries to look through. A want list alone does not count: it is a shelf
+ * with nothing on it yet. Blocks hide people both ways, as they do for
+ * Books' notifications. The most recently active come first.
+ */
+async function groupReaders(prisma: PrismaClient, userId: number, groupId: number, r2: string | undefined) {
+  const [people, lastLogs, blocked] = await Promise.all([
+    prisma.user.findMany({
+      where: { groupId, status: "approved", id: { not: userId }, shelfEntries: { some: { runs: { some: {} } } } },
+      select: personSelect,
+    }),
+    prisma.progressLog.groupBy({
+      by: ["userId"],
+      where: { userId: { not: userId }, user: { groupId } },
+      _max: { id: true },
+    }),
+    blockedUserIds(prisma, userId),
+  ]);
+  const latest = new Map(lastLogs.map((row) => [row.userId, row._max.id ?? 0]));
+  return people
+    .filter((person) => !blocked.has(person.id))
+    .sort((a, b) => (latest.get(b.id) ?? 0) - (latest.get(a.id) ?? 0))
+    .map((person) => personView(person, r2));
+}
 
 shelfRouter.get("/home", async (c) => {
   const userId = c.get("userId");
@@ -861,7 +938,7 @@ shelfRouter.get("/home", async (c) => {
   ]);
 
   const entryIds = activeRuns.map((run) => run.entry.id);
-  const [readerLinks, readerPending] = await Promise.all([
+  const [readerLinks, readerPending, readers] = await Promise.all([
     entryIds.length
       ? prisma.readerDocument.findMany({
           where: { userId, entryId: { in: entryIds }, ignored: false },
@@ -870,6 +947,7 @@ shelfRouter.get("/home", async (c) => {
         })
       : [],
     pendingDocuments(prisma, userId),
+    groupReaders(prisma, userId, groupId, config.r2PublicBaseUrl),
   ]);
 
   const itemIds = activeRuns.map((run) => run.entry.item.id);
@@ -955,6 +1033,7 @@ shelfRouter.get("/home", async (c) => {
     }),
     want: wanted.map((entry) => ({ entryId: entry.id, item: itemView(entry.item, entry.edition) })),
     readerPending,
+    readers,
     highlights: {
       year,
       booksThisYear: finishedThisYear,
@@ -1136,6 +1215,7 @@ shelfRouter.get("/runs/:id", async (c) => {
           rating: true,
           recommend: true,
           body: true,
+          spoiler: true,
           createdAt: true,
           editedAt: true,
           loungePost: { select: { id: true } },
@@ -1377,6 +1457,18 @@ shelfRouter.put("/runs/:id", async (c) => {
   }
   if (parsed.data.finishedOn !== undefined) {
     if (run.status === "active") return conflict(c, "This read is not finished.");
+    // A read cannot end before it began, nor before a day the reader actually
+    // logged pages: the closing log would land ahead of real reading.
+    const startedOn = parsed.data.startedOn !== undefined ? parsed.data.startedOn : run.startedOn ? dayOf(run.startedOn) : null;
+    if (startedOn && parsed.data.finishedOn < startedOn) return badRequest(c, "That's before you started it.");
+    const lastRead = await prisma.progressLog.findFirst({
+      where: { runId, closing: false },
+      orderBy: { loggedOn: "desc" },
+      select: { loggedOn: true },
+    });
+    if (lastRead && parsed.data.finishedOn < dayOf(lastRead.loggedOn)) {
+      return badRequest(c, `You logged pages on ${dayOf(lastRead.loggedOn)}, after that.`);
+    }
     data.finishedOn = dateFromDay(parsed.data.finishedOn);
   }
   if (parsed.data.totalUnits !== undefined) {
@@ -1393,11 +1485,13 @@ shelfRouter.put("/runs/:id", async (c) => {
       const closing = await tx.progressLog.findFirst({
         where: { runId },
         orderBy: { id: "desc" },
-        select: { id: true, loggedOn: true },
+        select: { id: true, loggedOn: true, closing: true },
       });
       const closingData: Prisma.ProgressLogUpdateInput = {};
       if (closing && parsed.data.totalUnits !== undefined) closingData.toPosition = parsed.data.totalUnits;
-      if (closing && parsed.data.finishedOn !== undefined && run.finishedOn && dayOf(closing.loggedOn) === dayOf(run.finishedOn)) {
+      // Only a closing log follows the date. A read logged to the last page has
+      // none, and its last log is a real reading day that must stay put.
+      if (closing?.closing && parsed.data.finishedOn !== undefined) {
         closingData.loggedOn = dateFromDay(parsed.data.finishedOn);
       }
       if (closing && Object.keys(closingData).length > 0) {
@@ -1466,6 +1560,7 @@ shelfRouter.put("/runs/:id/review", async (c) => {
   if (parsed.data.rating !== undefined) fields.rating = parsed.data.rating;
   if (parsed.data.recommend !== undefined) fields.recommend = parsed.data.recommend;
   if (parsed.data.body !== undefined) fields.body = cleanBody(parsed.data.body);
+  if (parsed.data.spoiler !== undefined) fields.spoiler = parsed.data.spoiler;
 
   const existing = await prisma.shelfReview.findUnique({ where: { runId }, select: { id: true } });
   const review = existing
@@ -1476,10 +1571,31 @@ shelfRouter.put("/runs/:id/review", async (c) => {
           rating: parsed.data.rating ?? null,
           recommend: parsed.data.recommend ?? null,
           body: cleanBody(parsed.data.body) ?? null,
+          spoiler: parsed.data.spoiler ?? false,
         },
       });
+  // The Lounge card reads the review live, but the post's own text is the
+  // fallback, and a spoiler must not survive there after being marked.
+  const post = await prisma.post.findFirst({ where: { shelfReviewId: review.id }, select: { id: true, title: true } });
+  if (post) await prisma.post.update({ where: { id: post.id }, data: { content: loungeContent(review, post.title) } });
   return c.json({ review: reviewView(review) });
 });
+
+/**
+ * A cross-posted review's own text on the Lounge, which only shows if the card
+ * cannot be drawn from the review. A spoiler's body is left out of it: unlike
+ * the card, it has no cover.
+ */
+function loungeContent(review: { rating: number | null; recommend: boolean | null; body: string | null; spoiler: boolean }, fallback: string) {
+  const summary = [
+    ratingText(review.rating),
+    review.recommend === true ? "Recommends it" : review.recommend === false ? "Does not recommend it" : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const body = review.spoiler && review.body ? "Contains spoilers." : review.body;
+  return [summary, body].filter(Boolean).join("\n\n") || fallback;
+}
 
 function ratingText(rating: number | null) {
   if (rating === null) return null;
@@ -1504,6 +1620,7 @@ shelfRouter.post("/reviews/:id/lounge", async (c) => {
       rating: true,
       recommend: true,
       body: true,
+      spoiler: true,
       loungePost: { select: { id: true } },
       run: {
         select: {
@@ -1529,13 +1646,7 @@ shelfRouter.post("/reviews/:id/lounge", async (c) => {
   const verb = review.run.status === "dnf" ? "Did not finish" : "Read";
   const byline = item.creators.length ? ` by ${item.creators.join(", ")}` : "";
   const title = `${verb}: ${item.title}${byline}`.slice(0, 300);
-  const summary = [
-    ratingText(review.rating),
-    review.recommend === true ? "Recommends it" : review.recommend === false ? "Does not recommend it" : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  const content = [summary, review.body].filter(Boolean).join("\n\n") || title;
+  const content = loungeContent(review, title);
 
   const post = await prisma.post.create({
     data: { title, content, authorId: userId, published: true, shelfReviewId: review.id },
@@ -1566,6 +1677,7 @@ const feedReviewSelect = {
   rating: true,
   recommend: true,
   body: true,
+  spoiler: true,
   createdAt: true,
   editedAt: true,
   loungePost: { select: { id: true } },
@@ -1594,11 +1706,11 @@ const feedReviewSelect = {
 
 type FeedReviewRow = Prisma.ShelfReviewGetPayload<{ select: typeof feedReviewSelect }>;
 
-function feedReviewView(review: FeedReviewRow, r2: string | undefined) {
+function feedReviewView(review: FeedReviewRow, r2: string | undefined, viewerId: number, finished: Set<number>) {
   const { run } = review;
   const finishedRunIds = run.entry.runs.map((other) => other.id).sort((a, b) => a - b);
   return {
-    ...reviewView(review),
+    ...reviewView(review, coveredFor(review, run.entry.user.id, run.entry.item.id, viewerId, finished)),
     commentCount: review._count.comments,
     loungePostId: review.loungePost?.id ?? null,
     entryId: run.entry.id,
@@ -1654,8 +1766,13 @@ shelfRouter.get("/reviews", async (c) => {
 
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
+  const finished = await finishedItemIds(
+    prisma,
+    callerId,
+    page.filter((review) => review.spoiler).map((review) => review.run.entry.item.id)
+  );
   return c.json({
-    reviews: page.map((review) => feedReviewView(review, config.r2PublicBaseUrl)),
+    reviews: page.map((review) => feedReviewView(review, config.r2PublicBaseUrl, callerId, finished)),
     nextCursor: hasMore ? page[page.length - 1]?.id ?? null : null,
   });
 });
@@ -1679,10 +1796,11 @@ shelfRouter.get("/reviews/:id", async (c) => {
     },
   });
   if (!review) return notFound(c);
+  const finished = review.spoiler ? await finishedItemIds(prisma, callerId, [review.run.entry.item.id]) : new Set<number>();
 
   return c.json({
     review: {
-      ...feedReviewView(review, config.r2PublicBaseUrl),
+      ...feedReviewView(review, config.r2PublicBaseUrl, callerId, finished),
       isMine: review.run.entry.user.id === callerId,
       comments: review.comments.map((comment) => ({
         id: comment.id,
@@ -1945,6 +2063,8 @@ type RowContext = {
   retryAfterSeconds: number | null;
   /** New catalog items whose covers still need copying into R2. */
   covers: number[];
+  /** Likewise for editions. */
+  editionCovers: number[];
 };
 
 /**
@@ -2008,6 +2128,7 @@ async function importRow(context: RowContext, row: ImportRowInput): Promise<Impo
         itemTotalUnits = current.item.totalUnits;
       } else {
         let itemId: number;
+        let editionId: number | null = null;
         if (knownItemId !== null) {
           await rememberIsbns(tx, knownItemId, row);
           const item = await tx.catalogItem.findUniqueOrThrow({ where: { id: knownItemId }, select: { totalUnits: true } });
@@ -2020,17 +2141,28 @@ async function importRow(context: RowContext, row: ImportRowInput): Promise<Impo
           if (item.coverUrl && !item.coverKey) context.covers.push(item.id);
           itemId = item.id;
           itemTotalUnits = item.totalUnits;
+          // The edition the row's ISBN names (see `findBook`): the copy they read.
+          if (candidate!.edition && candidate!.source !== "manual") {
+            const edition = await saveEdition(tx, item.id, candidate!.edition);
+            if (edition.coverUrl && !edition.coverKey) context.editionCovers.push(edition.id);
+            editionId = edition.id;
+          }
         }
         const upserted = await tx.shelfEntry.upsert({
           where: { userId_itemId: { userId, itemId } },
-          create: { userId, itemId, importId },
+          create: { userId, itemId, importId, editionId },
           update: {},
-          select: { id: true, wantedAt: true, importId: true },
+          select: { id: true, wantedAt: true, importId: true, editionId: true },
         });
         // A book already on the shelf, added by hand, takes the import's id
         // so the next import recognises it. One that already carries another
-        // row's id (two editions of one work in the export) keeps it.
-        if (!upserted.importId) await tx.shelfEntry.update({ where: { id: upserted.id }, data: { importId } });
+        // row's id (two editions of one work in the export) keeps it, and an
+        // edition the reader chose is never replaced by the import's.
+        const fill = {
+          ...(upserted.importId ? {} : { importId }),
+          ...(upserted.editionId || !editionId ? {} : { editionId }),
+        };
+        if (Object.keys(fill).length > 0) await tx.shelfEntry.update({ where: { id: upserted.id }, data: fill });
         entry = upserted;
       }
       const done = (outcome: ImportRowResult["outcome"]): ImportRowResult => ({ ...base, outcome, match, entryId: entry.id });
@@ -2146,12 +2278,13 @@ shelfRouter.post("/import", async (c) => {
     sources: freshSourceState(),
     retryAfterSeconds: null,
     covers: [],
+    editionCovers: [],
   };
 
   const results: ImportRowResult[] = [];
   for (const row of parsed.data.rows) results.push(await importRow(context, row));
 
-  scheduleCoverCopies(c, prisma, context.covers);
+  scheduleCoverCopies(c, prisma, context.covers, context.editionCovers);
   return c.json({
     results,
     retryAfterSeconds: context.retryAfterSeconds,

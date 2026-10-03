@@ -42,7 +42,10 @@ would count toward books finished but not toward pages, and the two numbers
 would disagree. The log is marked `closing`. That way its pages count, but its
 day is never a reading day, a best day or part of a streak: a remembered book
 was not read on 31 December. `PUT /runs/:id` moves the closing log when a
-finished run's length or date is corrected.
+finished run's length or date is corrected; a book's page offers the date as
+"Change date" on each past read. Only a log marked `closing` moves. A read
+logged to its last page has none, and its last log is a real reading day. A
+finish date cannot go before the run's start or its last real log.
 
 **Book-club gating is by fraction, never by page.** Each run keeps the length
 of its own edition (`ShelfRun.totalUnits`). Page 200 is the ending of a
@@ -110,6 +113,16 @@ English edition's title and cover in place of the work's. It only does this for
 English: an edition search picked in another language is no better than the
 work's own. A work added for the first time is filed under that English title
 and cover.
+
+**Import asks Open Library the way search does** (`OPEN_LIBRARY_FIELDS`,
+`lang=en`, one free-text query, in `backend/src/catalog/match-book.ts`), so an
+imported book is filed as a searched one would be. A title matches the work's
+or its English edition's (`sameBook`). An author matches any of Open Library's
+spellings of them: Murakami's own is 村上春樹. A work matched only by a
+spelling like that takes the export's. A row matched by ISBN also gets the
+edition that ISBN names as the reader's (`fromIsbnMatch`), in whatever
+language, because it is the copy they read. A match by title gets none: it
+names the work, not the copy.
 
 A reader's edition hangs off their `ShelfEntry` (`editionId`), never off the
 work. `itemView` in `backend/src/route/shelf.ts` puts its title and cover in
@@ -206,6 +219,21 @@ and returns to the tab with the book in it. Without an intent it offers Want,
 Start and Read it. There, Want stays on the screen for adding several in a row,
 and Read it goes on to the review prompt.
 
+A result already on the reader's shelf says so, and where it stands there,
+linking to the book's page. Search answers are cached for everyone, so the
+response carries this separately (`onShelf` in `backend/src/route/shelf.ts`),
+worked out per request. A result counts if it is the same work or has the same
+title and author, which is the work adding it would land on.
+
+## Finding a book on a shelf
+
+A library is fetched whole (`GET /entries`, a few hundred entries at most), so
+its search, genre and year filters and sorting run in the client
+(`frontend/src/components/books/LibraryScreen.tsx`), with no endpoint of their
+own. They apply across the tabs, and each tab counts its matches, so a book
+searched for in the wrong tab says where it is. They live in the URL, so
+coming back from a book returns to the same list.
+
 ## Importing from Goodreads
 
 `/books/import` reads a Goodreads library export
@@ -278,6 +306,32 @@ Progress sync plugin is pointed at `https://<api>/kosync` with a login made in
 KOReader's progress is handed back verbatim on `GET /syncs/progress/:document`,
 so syncing between several KOReader devices keeps working with the Lounge as
 their only server.
+
+## Spoilers in reviews
+
+A reviewer can mark a review as giving the book away (`ShelfReview.spoiler`).
+It is then covered for anyone who has not finished the work, with "Show
+anyway" on the cover. "Finished" means any finished run of the work, the same
+test that gives a re-reader the whole book club; a DNF is not finished. The
+server decides per viewer (`coveredFor` in `backend/src/shelf-spoilers.ts`) and
+sends `covered` with every review it hands out: the feed, a review's page, a
+book's page, someone's library, and the Lounge card in `backend/src/route/blog.ts`.
+
+**The text is covered, not withheld.** It is sent and the client covers it,
+unlike book-club notes, which the server keeps back. A note is gated by how far
+the reader has got; a spoiler review is one tap from being read by choice. On
+a review's page the discussion is covered along with it, because replies give
+the ending away as readily. The Lounge post's own text, which shows only if
+the card cannot be drawn, leaves a spoiler's body out (`loungeContent`), and
+it is rewritten whenever the review is saved.
+
+## Other people's libraries
+
+Home ends with everyone else in the group who has a read on their shelf
+(`groupReaders` in `backend/src/route/shelf.ts`), each opening
+`/books/people/:id`, as a reviewer's name does. A want list alone does not put
+someone there: it is a shelf with nothing read on it. Blocks hide people both
+ways, as for notifications.
 
 ## On the Lounge
 

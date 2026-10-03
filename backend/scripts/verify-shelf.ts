@@ -18,7 +18,8 @@ import {
   type StatsRun,
 } from "../src/shelf-logic";
 import { cleanGenres, fromOpenLibrary, fromOpenLibraryEdition, parseRetryAfter, rankEditions } from "../src/catalog/books";
-import { sameBook } from "../src/catalog/match-book";
+import { fromIsbnMatch, sameBook } from "../src/catalog/match-book";
+import { coveredFor } from "../src/shelf-spoilers";
 import {
   authorsFrom,
   dayInZone,
@@ -253,6 +254,31 @@ console.log("Import matching");
   check("a different author is not a match", !sameBook({ title: "Circe", creators: ["Madeline Miller"] }, { title: "Circe", author_name: ["Someone Else"] }));
   check("a different title is not a match", !sameBook(row, { title: "Dune Messiah", author_name: ["Frank Herbert"] }));
   check("a study guide is not the book", !sameBook({ title: "Project Hail Mary", creators: ["Andy Weir"] }, { title: "Summary of Project Hail Mary", author_name: ["Andy Weir"] }));
+
+  // Open Library files The Last Wish as the Polish work "Ostatnie Życzenie".
+  const lastWish = { title: "The Last Wish (The Witcher, #0.5)", creators: ["Andrzej Sapkowski"], isbn13: "9780316438964", isbn10: null, totalUnits: 360, year: 1993 };
+  const work = { key: "/works/OL2577482W", title: "Ostatnie Życzenie", author_name: ["Andrzej Sapkowski"], cover_i: 1 };
+  check("a translated work is found by its English edition's title", sameBook(lastWish, { ...work, editions: { docs: [{ key: "/books/OL1M", title: "The Last Wish", language: ["eng"] }] } }));
+  check("a translated work is not found by its own title", !sameBook(lastWish, work));
+  const murakami = { title: "Norwegian Wood", author_name: ["村上春樹"], author_alternative_name: ["Murakami Haruki", "Haruki Murakami"] };
+  check("an author in another script is matched by an alternative name", sameBook({ title: "Norwegian Wood", creators: ["Haruki Murakami"] }, murakami));
+  check("an alternative name is still an author check", !sameBook({ title: "Norwegian Wood", creators: ["Someone Else"] }, murakami));
+  const byIsbn = fromIsbnMatch({ ...work, editions: { docs: [{ key: "/books/OL26803794M", title: "The Last Wish: Introducing the Witcher", cover_i: 2 }] } }, lastWish);
+  check("an ISBN's edition is the reader's copy", byIsbn?.edition?.externalId === "/books/OL26803794M", byIsbn?.edition);
+  check("an ISBN's unrecorded-language edition titles the work when the export agrees", byIsbn?.title === "The Last Wish: Introducing the Witcher" && byIsbn.coverUrl?.includes("/2-") === true, byIsbn);
+  const polishCopy = fromIsbnMatch({ ...work, editions: { docs: [{ key: "/books/OL2M", title: "Ostatnie życzenie", language: ["pol"], cover_i: 3 }] } }, lastWish);
+  check("a copy in another language is the reader's, but does not title the work", polishCopy?.edition?.externalId === "/books/OL2M" && polishCopy.title === "Ostatnie Życzenie", polishCopy);
+}
+
+console.log("Spoiler reviews");
+{
+  // Reviewer 1 reviewed work 100; viewer 2 is asking.
+  const spoiler = { spoiler: true };
+  check("a spoiler is covered for someone who hasn't finished the book", coveredFor(spoiler, 1, 100, 2, new Set()));
+  check("a spoiler is not covered once they have finished it", !coveredFor(spoiler, 1, 100, 2, new Set([100])));
+  check("finishing another book uncovers nothing", coveredFor(spoiler, 1, 100, 2, new Set([101])));
+  check("a reviewer's own spoiler is never covered for them", !coveredFor(spoiler, 1, 100, 1, new Set()));
+  check("a review not marked is never covered", !coveredFor({ spoiler: false }, 1, 100, 2, new Set()));
 }
 
 console.log("Retry-After");

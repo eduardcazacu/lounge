@@ -60,6 +60,10 @@ export type Review = {
   rating: number | null;
   recommend: boolean | null;
   body: string | null;
+  /** The reviewer marked it as giving the book away. */
+  spoiler: boolean;
+  /** A spoiler, and this viewer hasn't finished the book: cover it until they ask. */
+  covered: boolean;
   createdAt: string;
   editedAt: string | null;
 };
@@ -107,6 +111,8 @@ export type Home = {
   reading: HomeReading[];
   want: { entryId: number; item: Item }[];
   readerPending: ReaderPending[];
+  /** Everyone else in the group with a read on their shelf, most recently active first. */
+  readers: Person[];
   highlights: { year: number; booksThisYear: number; pagesThisWeek: number; streak: number };
 };
 

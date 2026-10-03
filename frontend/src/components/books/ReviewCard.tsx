@@ -2,7 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { getThemePalette } from "../../themes";
 import { formatPostedTime } from "../../lib/datetime";
 import type { FeedReview } from "./api";
-import { Cover, PersonLine, RecommendBadge, Stars } from "./ui";
+import { Cover, PersonLine, RecommendBadge, ReviewBody, SpoilerTag, Stars } from "./ui";
 import { byline } from "./format";
 
 // A review in the feed. Tinted by the reviewer's palette, like a post on the
@@ -38,10 +38,11 @@ export function ReviewCard({ review }: { review: FeedReview }) {
             <RecommendBadge recommend={review.recommend} />
             {review.run.status === "dnf" ? <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-600">DNF</span> : null}
             {review.readNumber > 1 ? <span className="text-xs text-slate-500">Re-read #{review.readNumber}</span> : null}
+            {review.spoiler && !review.covered ? <SpoilerTag /> : null}
           </div>
         </div>
       </div>
-      {review.body ? <p className="mt-3 line-clamp-4 whitespace-pre-wrap text-[15px] leading-relaxed text-slate-700">{review.body}</p> : null}
+      <ReviewBody review={review} className="mt-3 line-clamp-4 whitespace-pre-wrap text-[15px] leading-relaxed text-slate-700" />
       <div className="mt-3 text-xs font-medium" style={{ color: palette.accent }}>
         💬 {review.commentCount > 0 ? `${review.commentCount} in the discussion` : "Discuss"}
       </div>
