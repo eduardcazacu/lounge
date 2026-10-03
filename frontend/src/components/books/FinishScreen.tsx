@@ -32,6 +32,7 @@ export function FinishScreen() {
   const [rating, setRating] = useState<number | null>(null);
   const [recommend, setRecommend] = useState<boolean | null>(null);
   const [body, setBody] = useState("");
+  const [spoiler, setSpoiler] = useState(false);
   const [toLounge, setToLounge] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,6 +45,7 @@ export function FinishScreen() {
     setRating(data.review?.rating ?? null);
     setRecommend(data.review?.recommend ?? null);
     setBody(data.review?.body ?? "");
+    setSpoiler(data.review?.spoiler ?? false);
     setSeeded(true);
   }, [data, seeded]);
 
@@ -69,6 +71,7 @@ export function FinishScreen() {
         rating,
         recommend,
         body: body.trim() || null,
+        spoiler,
       });
       if (toLounge && hasContent && !onLounge) {
         await shelfSend("post", `/reviews/${review.id}/lounge`);
@@ -133,6 +136,20 @@ export function FinishScreen() {
           placeholder={dnf ? "Where did it lose you?" : "What did you think?"}
           className="mt-4 w-full resize-y rounded-2xl border border-slate-200 bg-white p-4 text-[16px] outline-none focus:border-slate-400"
         />
+
+        <label className="mt-3 flex w-full items-center justify-between gap-3 rounded-2xl bg-white px-4 py-3">
+          <span className="text-[15px]">
+            Contains spoilers
+            <span className="block text-xs text-slate-500">Covered for anyone who hasn't finished it, until they choose to look.</span>
+          </span>
+          <input
+            type="checkbox"
+            checked={spoiler}
+            onChange={(event) => setSpoiler(event.target.checked)}
+            className="h-6 w-6"
+            style={{ accentColor: palette.accent }}
+          />
+        </label>
 
         <label className={`mt-3 flex w-full items-center justify-between gap-3 rounded-2xl bg-white px-4 py-3 ${hasContent && !onLounge ? "" : "opacity-60"}`}>
           <span className="text-[15px]">

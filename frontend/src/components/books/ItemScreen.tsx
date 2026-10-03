@@ -5,7 +5,7 @@ import type { CatalogEdition, EntryDetail, FeedReview, ProgressLogRow } from "./
 import { LogSheet } from "./LogSheet";
 import { CopyPagesSheet } from "./CopyPagesSheet";
 import { EditionSheet } from "./EditionSheet";
-import { Card, Cover, PersonLine, ProgressBar, RecommendBadge, SectionTitle, Sheet, Spinner, Stars, TopBar } from "./ui";
+import { Card, Cover, PersonLine, ProgressBar, RecommendBadge, ReviewBody, SectionTitle, Sheet, Spinner, SpoilerTag, Stars, TopBar } from "./ui";
 import { byline, editionLine, formatDay, percentText, usePalette } from "./format";
 
 // One work on one person's shelf. For your own: the read in progress and what
@@ -224,8 +224,9 @@ function PastRun({ run, isMine }: { run: RunWithReview; isMine: boolean }) {
           <div className="flex flex-wrap items-center gap-2">
             <Stars rating={review.rating} />
             <RecommendBadge recommend={review.recommend} />
+            {review.spoiler && !review.covered ? <SpoilerTag /> : null}
           </div>
-          {review.body ? <p className="mt-1.5 line-clamp-3 whitespace-pre-wrap text-[15px] text-slate-700">{review.body}</p> : null}
+          <ReviewBody review={review} className="mt-1.5 line-clamp-3 whitespace-pre-wrap text-[15px] text-slate-700" />
           <p className="mt-1.5 text-xs text-slate-500">
             {review.commentCount > 0 ? `${review.commentCount} in the discussion · ` : ""}
             {review.loungePostId ? "On the Lounge · " : ""}
@@ -479,7 +480,7 @@ export function ItemScreen() {
                       <PersonLine person={review.reviewer} />
                       <Stars rating={review.rating} />
                     </div>
-                    {review.body ? <p className="mt-1.5 line-clamp-2 text-sm text-slate-700">{review.body}</p> : null}
+                    <ReviewBody review={review} className="mt-1.5 line-clamp-2 text-sm text-slate-700" />
                     <div className="mt-1.5">
                       <RecommendBadge recommend={review.recommend} />
                     </div>

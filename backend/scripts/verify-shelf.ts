@@ -19,6 +19,7 @@ import {
 } from "../src/shelf-logic";
 import { cleanGenres, fromOpenLibrary, fromOpenLibraryEdition, parseRetryAfter, rankEditions } from "../src/catalog/books";
 import { fromIsbnMatch, sameBook } from "../src/catalog/match-book";
+import { coveredFor } from "../src/shelf-spoilers";
 import {
   authorsFrom,
   dayInZone,
@@ -267,6 +268,17 @@ console.log("Import matching");
   check("an ISBN's unrecorded-language edition titles the work when the export agrees", byIsbn?.title === "The Last Wish: Introducing the Witcher" && byIsbn.coverUrl?.includes("/2-") === true, byIsbn);
   const polishCopy = fromIsbnMatch({ ...work, editions: { docs: [{ key: "/books/OL2M", title: "Ostatnie życzenie", language: ["pol"], cover_i: 3 }] } }, lastWish);
   check("a copy in another language is the reader's, but does not title the work", polishCopy?.edition?.externalId === "/books/OL2M" && polishCopy.title === "Ostatnie Życzenie", polishCopy);
+}
+
+console.log("Spoiler reviews");
+{
+  // Reviewer 1 reviewed work 100; viewer 2 is asking.
+  const spoiler = { spoiler: true };
+  check("a spoiler is covered for someone who hasn't finished the book", coveredFor(spoiler, 1, 100, 2, new Set()));
+  check("a spoiler is not covered once they have finished it", !coveredFor(spoiler, 1, 100, 2, new Set([100])));
+  check("finishing another book uncovers nothing", coveredFor(spoiler, 1, 100, 2, new Set([101])));
+  check("a reviewer's own spoiler is never covered for them", !coveredFor(spoiler, 1, 100, 1, new Set()));
+  check("a review not marked is never covered", !coveredFor({ spoiler: false }, 1, 100, 2, new Set()));
 }
 
 console.log("Retry-After");

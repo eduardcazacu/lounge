@@ -292,6 +292,24 @@ KOReader's progress is handed back verbatim on `GET /syncs/progress/:document`,
 so syncing between several KOReader devices keeps working with the Lounge as
 their only server.
 
+## Spoilers in reviews
+
+A reviewer can mark a review as giving the book away (`ShelfReview.spoiler`).
+It is then covered for anyone who has not finished the work, with "Show
+anyway" on the cover. "Finished" means any finished run of the work, the same
+test that gives a re-reader the whole book club; a DNF is not finished. The
+server decides per viewer (`coveredFor` in `backend/src/shelf-spoilers.ts`) and
+sends `covered` with every review it hands out: the feed, a review's page, a
+book's page, someone's library, and the Lounge card in `backend/src/route/blog.ts`.
+
+**The text is covered, not withheld.** It is sent and the client covers it,
+unlike book-club notes, which the server keeps back. A note is gated by how far
+the reader has got; a spoiler review is one tap from being read by choice. On
+a review's page the discussion is covered along with it, because replies give
+the ending away as readily. The Lounge post's own text, which shows only if
+the card cannot be drawn, leaves a spoiler's body out (`loungeContent`), and
+it is rewritten whenever the review is saved.
+
 ## Other people's libraries
 
 Home ends with everyone else in the group who has a read on their shelf

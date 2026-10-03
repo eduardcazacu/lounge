@@ -60,6 +60,10 @@ export type Review = {
   rating: number | null;
   recommend: boolean | null;
   body: string | null;
+  /** The reviewer marked it as giving the book away. */
+  spoiler: boolean;
+  /** A spoiler, and this viewer hasn't finished the book: cover it until they ask. */
+  covered: boolean;
   createdAt: string;
   editedAt: string | null;
 };

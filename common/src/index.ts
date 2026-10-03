@@ -400,6 +400,8 @@ export const upsertReviewInput = z.object({
     rating: z.number().int().min(1).max(10).nullable().optional(),
     recommend: z.boolean().nullable().optional(),
     body: z.string().trim().max(10000).nullable().optional(),
+    // Covers the review for anyone who has not finished the book.
+    spoiler: z.boolean().optional(),
 })
 
 export type UpsertReviewInput = z.infer<typeof upsertReviewInput>

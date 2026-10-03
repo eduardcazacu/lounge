@@ -28,6 +28,7 @@ import { findKnownBook, rememberIsbns, resolveCandidate, saveEdition } from "../
 import { copyCovers, deleteCover } from "../covers";
 import { notifyBookClubNote, notifyFinishedReading, notifyStartedReading, type NotifyConfig } from "../shelf-notify";
 import { blockedUserIds } from "../blocks";
+import { coveredFor, finishedItemIds } from "../shelf-spoilers";
 import {
   applyDocument,
   dayInZone,
@@ -222,16 +223,20 @@ type ReviewRow = {
   rating: number | null;
   recommend: boolean | null;
   body: string | null;
+  spoiler: boolean;
   createdAt: Date;
   editedAt: Date | null;
 };
 
-function reviewView(review: ReviewRow) {
+/** `covered`: a spoiler this viewer has not finished the book for; see src/shelf-spoilers.ts. */
+function reviewView(review: ReviewRow, covered = false) {
   return {
     id: review.id,
     rating: review.rating,
     recommend: review.recommend,
     body: review.body,
+    spoiler: review.spoiler,
+    covered,
     createdAt: review.createdAt.toISOString(),
     editedAt: review.editedAt ? review.editedAt.toISOString() : null,
   };
@@ -691,13 +696,15 @@ shelfRouter.get("/entries", async (c) => {
             totalUnits: true,
             position: true,
             unitsConfirmed: true,
-            review: { select: { id: true, rating: true, recommend: true, body: true, createdAt: true, editedAt: true } },
+            review: { select: { id: true, rating: true, recommend: true, body: true, spoiler: true, createdAt: true, editedAt: true } },
           },
         },
       },
     }),
   ]);
   if (!owner) return notFound(c);
+  const finished =
+    userId === callerId ? new Set<number>() : await finishedItemIds(prisma, callerId, entries.map((entry) => entry.item.id));
 
   return c.json({
     owner: personView(owner, config.r2PublicBaseUrl),
@@ -707,7 +714,7 @@ shelfRouter.get("/entries", async (c) => {
       item: itemView(entry.item, entry.edition),
       runs: entry.runs.map((run) => ({
         ...runView(run, entry.item.totalUnits),
-        review: run.review ? reviewView(run.review) : null,
+        review: run.review ? reviewView(run.review, coveredFor(run.review, userId, entry.item.id, callerId, finished)) : null,
       })),
     })),
   });
@@ -744,6 +751,7 @@ shelfRouter.get("/entries/:id", async (c) => {
               rating: true,
               recommend: true,
               body: true,
+              spoiler: true,
               createdAt: true,
               editedAt: true,
               loungePost: { select: { id: true } },
@@ -761,6 +769,7 @@ shelfRouter.get("/entries/:id", async (c) => {
     if (groupId === null || groupId !== entry.user.groupId) return notFound(c);
   }
 
+  const finished = isMine ? new Set<number>() : await finishedItemIds(prisma, callerId, [entry.item.id]);
   const activeRun = entry.runs.find((run) => run.status === "active");
   // The most recent logs of the run in progress, so the last one can be
   // undone and a note edited. Only the owner sees them here; everyone else
@@ -787,7 +796,7 @@ shelfRouter.get("/entries/:id", async (c) => {
       number: entry.runs.length - index,
       review: run.review
         ? {
-            ...reviewView(run.review),
+            ...reviewView(run.review, coveredFor(run.review, entry.userId, entry.item.id, callerId, finished)),
             loungePostId: run.review.loungePost?.id ?? null,
             commentCount: run.review._count.comments,
           }
@@ -1164,6 +1173,7 @@ shelfRouter.get("/runs/:id", async (c) => {
           rating: true,
           recommend: true,
           body: true,
+          spoiler: true,
           createdAt: true,
           editedAt: true,
           loungePost: { select: { id: true } },
@@ -1508,6 +1518,7 @@ shelfRouter.put("/runs/:id/review", async (c) => {
   if (parsed.data.rating !== undefined) fields.rating = parsed.data.rating;
   if (parsed.data.recommend !== undefined) fields.recommend = parsed.data.recommend;
   if (parsed.data.body !== undefined) fields.body = cleanBody(parsed.data.body);
+  if (parsed.data.spoiler !== undefined) fields.spoiler = parsed.data.spoiler;
 
   const existing = await prisma.shelfReview.findUnique({ where: { runId }, select: { id: true } });
   const review = existing
@@ -1518,10 +1529,31 @@ shelfRouter.put("/runs/:id/review", async (c) => {
           rating: parsed.data.rating ?? null,
           recommend: parsed.data.recommend ?? null,
           body: cleanBody(parsed.data.body) ?? null,
+          spoiler: parsed.data.spoiler ?? false,
         },
       });
+  // The Lounge card reads the review live, but the post's own text is the
+  // fallback, and a spoiler must not survive there after being marked.
+  const post = await prisma.post.findFirst({ where: { shelfReviewId: review.id }, select: { id: true, title: true } });
+  if (post) await prisma.post.update({ where: { id: post.id }, data: { content: loungeContent(review, post.title) } });
   return c.json({ review: reviewView(review) });
 });
+
+/**
+ * A cross-posted review's own text on the Lounge, which only shows if the card
+ * cannot be drawn from the review. A spoiler's body is left out of it: unlike
+ * the card, it has no cover.
+ */
+function loungeContent(review: { rating: number | null; recommend: boolean | null; body: string | null; spoiler: boolean }, fallback: string) {
+  const summary = [
+    ratingText(review.rating),
+    review.recommend === true ? "Recommends it" : review.recommend === false ? "Does not recommend it" : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const body = review.spoiler && review.body ? "Contains spoilers." : review.body;
+  return [summary, body].filter(Boolean).join("\n\n") || fallback;
+}
 
 function ratingText(rating: number | null) {
   if (rating === null) return null;
@@ -1546,6 +1578,7 @@ shelfRouter.post("/reviews/:id/lounge", async (c) => {
       rating: true,
       recommend: true,
       body: true,
+      spoiler: true,
       loungePost: { select: { id: true } },
       run: {
         select: {
@@ -1571,13 +1604,7 @@ shelfRouter.post("/reviews/:id/lounge", async (c) => {
   const verb = review.run.status === "dnf" ? "Did not finish" : "Read";
   const byline = item.creators.length ? ` by ${item.creators.join(", ")}` : "";
   const title = `${verb}: ${item.title}${byline}`.slice(0, 300);
-  const summary = [
-    ratingText(review.rating),
-    review.recommend === true ? "Recommends it" : review.recommend === false ? "Does not recommend it" : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  const content = [summary, review.body].filter(Boolean).join("\n\n") || title;
+  const content = loungeContent(review, title);
 
   const post = await prisma.post.create({
     data: { title, content, authorId: userId, published: true, shelfReviewId: review.id },
@@ -1608,6 +1635,7 @@ const feedReviewSelect = {
   rating: true,
   recommend: true,
   body: true,
+  spoiler: true,
   createdAt: true,
   editedAt: true,
   loungePost: { select: { id: true } },
@@ -1636,11 +1664,11 @@ const feedReviewSelect = {
 
 type FeedReviewRow = Prisma.ShelfReviewGetPayload<{ select: typeof feedReviewSelect }>;
 
-function feedReviewView(review: FeedReviewRow, r2: string | undefined) {
+function feedReviewView(review: FeedReviewRow, r2: string | undefined, viewerId: number, finished: Set<number>) {
   const { run } = review;
   const finishedRunIds = run.entry.runs.map((other) => other.id).sort((a, b) => a - b);
   return {
-    ...reviewView(review),
+    ...reviewView(review, coveredFor(review, run.entry.user.id, run.entry.item.id, viewerId, finished)),
     commentCount: review._count.comments,
     loungePostId: review.loungePost?.id ?? null,
     entryId: run.entry.id,
@@ -1696,8 +1724,13 @@ shelfRouter.get("/reviews", async (c) => {
 
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
+  const finished = await finishedItemIds(
+    prisma,
+    callerId,
+    page.filter((review) => review.spoiler).map((review) => review.run.entry.item.id)
+  );
   return c.json({
-    reviews: page.map((review) => feedReviewView(review, config.r2PublicBaseUrl)),
+    reviews: page.map((review) => feedReviewView(review, config.r2PublicBaseUrl, callerId, finished)),
     nextCursor: hasMore ? page[page.length - 1]?.id ?? null : null,
   });
 });
@@ -1721,10 +1754,11 @@ shelfRouter.get("/reviews/:id", async (c) => {
     },
   });
   if (!review) return notFound(c);
+  const finished = review.spoiler ? await finishedItemIds(prisma, callerId, [review.run.entry.item.id]) : new Set<number>();
 
   return c.json({
     review: {
-      ...feedReviewView(review, config.r2PublicBaseUrl),
+      ...feedReviewView(review, config.r2PublicBaseUrl, callerId, finished),
       isMine: review.run.entry.user.id === callerId,
       comments: review.comments.map((comment) => ({
         id: comment.id,

@@ -8,6 +8,7 @@ import { getPrismaClient } from "../prisma";
 import { notifyFollowersOfNewPost, notifyPostAuthorOfReply, notifyMentionedUsers } from "../push";
 import { scheduleBackgroundWork } from "../background";
 import { getUserGroupId } from "../groups";
+import { coveredFor, finishedItemIds } from "../shelf-spoilers";
 
 const MAX_MENTIONS_PER_COMMENT = 10;
 
@@ -76,12 +77,14 @@ const shelfReviewCardSelect = {
     rating: true,
     recommend: true,
     body: true,
+    spoiler: true,
     run: {
       select: {
         status: true,
         entry: {
           select: {
-            item: { select: { title: true, creators: true, coverUrl: true, kind: true } },
+            userId: true,
+            item: { select: { id: true, title: true, creators: true, coverUrl: true, kind: true } },
             // The reviewer's edition, as on /books (itemView in route/shelf.ts).
             edition: { select: { title: true, coverUrl: true } },
           },
@@ -97,24 +100,31 @@ function shelfReviewCard(
     rating: number | null;
     recommend: boolean | null;
     body: string | null;
+    spoiler: boolean;
     run: {
       status: string;
       entry: {
-        item: { title: string; creators: string[]; coverUrl: string | null; kind: string };
+        userId: number;
+        item: { id: number; title: string; creators: string[]; coverUrl: string | null; kind: string };
         edition: { title: string; coverUrl: string | null } | null;
       };
     };
-  } | null
+  } | null,
+  viewerId: number,
+  finished: Set<number>
 ) {
   if (!review) return null;
+  const { id: itemId, ...item } = review.run.entry.item;
   return {
     id: review.id,
     rating: review.rating,
     recommend: review.recommend,
     body: review.body,
+    spoiler: review.spoiler,
+    covered: coveredFor(review, review.run.entry.userId, itemId, viewerId, finished),
     status: review.run.status,
     item: {
-      ...review.run.entry.item,
+      ...item,
       title: review.run.entry.edition?.title ?? review.run.entry.item.title,
       coverUrl: review.run.entry.edition?.coverUrl ?? review.run.entry.item.coverUrl,
     },
@@ -745,6 +755,11 @@ blogRouter.post('/:id/comments/:commentId/likes/toggle', async (c) => {
         const pageRows = hasMore ? blogRows.slice(0, limit) : blogRows;
         const nextCursor = hasMore ? pageRows[pageRows.length - 1]?.id ?? null : null;
 
+        const finished = await finishedItemIds(
+          prisma,
+          userId,
+          pageRows.flatMap((blog) => (blog.shelfReview?.spoiler ? [blog.shelfReview.run.entry.item.id] : []))
+        );
         const blogs = pageRows.map((blog) => ({
           id: blog.id,
           title: blog.title,
@@ -753,7 +768,7 @@ blogRouter.post('/:id/comments/:commentId/likes/toggle', async (c) => {
           imageUrl: blog.imageKey ? buildPublicImageUrl(r2PublicBaseUrl, blog.imageKey) : null,
           createdAt: blog.createdAt.toISOString(),
           editedAt: blog.editedAt ? blog.editedAt.toISOString() : null,
-          shelfReview: shelfReviewCard(blog.shelfReview),
+          shelfReview: shelfReviewCard(blog.shelfReview, userId, finished),
           author: {
             id: blog.author.id,
             name: blog.author.name,
@@ -877,7 +892,11 @@ blogRouter.post('/:id/comments/:commentId/likes/toggle', async (c) => {
               imageUrl: blog.imageKey ? buildPublicImageUrl(r2PublicBaseUrl, blog.imageKey) : null,
               createdAt: blog.createdAt.toISOString(),
               editedAt: blog.editedAt ? blog.editedAt.toISOString() : null,
-              shelfReview: shelfReviewCard(blog.shelfReview),
+              shelfReview: shelfReviewCard(
+                blog.shelfReview,
+                userId,
+                blog.shelfReview?.spoiler ? await finishedItemIds(prisma, userId, [blog.shelfReview.run.entry.item.id]) : new Set()
+              ),
               author: {
                 id: blog.author.id,
                 name: blog.author.name,

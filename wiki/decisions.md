@@ -999,6 +999,29 @@ share a chosen few imported reviews.
 
 ---
 
+## A spoiler review is covered by the client, not withheld by the server
+
+**Chosen** sending a spoiler review's text to everyone, with `covered` saying
+whether this viewer has finished the book, and the client drawing a cover with
+"Show anyway" (`backend/src/shelf-spoilers.ts`).
+
+**Rejected** leaving the text out for readers who have not finished it, as the
+book club does with notes, and fetching it when they ask to see it.
+
+**Because** a spoiler review is meant to be readable on request, and the
+reader's choice is the gate. Withholding it would cost "Show anyway" a round
+trip on every screen that shows reviews, including the Lounge's, and protect
+nothing the reader had not chosen to see.
+
+**Cost paid** the text is in the response, so a reader who inspects it can
+read it without the tap.
+
+**Would reopen if** spoiler reviews needed a guarantee rather than a
+courtesy: shown only past a point in the book, say, which is the book club's
+job.
+
+---
+
 ## Import looks books up as free text, like search
 
 **Chosen** one free-text `q=<title> <author>` query with search's fields and
