@@ -20,7 +20,9 @@ Table names are snake_case via `@map`; Prisma model names are not.
 **Shelf** (`/books`) — `CatalogItem`, `ShelfEntry`, `ShelfRun`, `ProgressLog`,
 `ShelfReview`, `ShelfReviewComment`, `CatalogSearchCache` (a day of search
 answers), `NotificationSent` (the once-a-day notification throttle), and
-`Post.shelfReviewId` for a review cross-posted to the Lounge.
+`Post.shelfReviewId` for a review cross-posted to the Lounge. `ReaderSync` (a
+KOReader login) and `ReaderDocument` (one file KOReader has synced, and the
+entry it is) belong to KOReader sync.
 
 ## Invariants the schema cannot state
 
@@ -86,6 +88,8 @@ pages nobody logged, on the finish day, so books and pages stay consistent.
 `CatalogItem` is the one shelf table that does not cascade from `User`, because
 it is shared. `import_id` on an entry and a run ties them to the row of a
 Goodreads export they came from, and is how a second import recognises them.
+`ProgressLog.source` is `"koreader"` on a log a sync wrote, which a later sync
+that day extends.
 The rest, and the spoiler rule, are in [books.md](books.md).
 
 ### Admin is not in the database

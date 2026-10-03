@@ -181,6 +181,23 @@ missing, which most Kindle editions are. Read as-is, every ISBN is invalid and
 every book falls through to a title search. `isbn` in
 `frontend/src/components/books/goodreads.ts` unwraps them.
 
+**KOReader shows "Unknown server error" for any status it did not expect.**
+Its client raises on a status missing from the call's list in KOReader's
+`api.json`, which loses the body and its message. `/kosync` therefore answers
+401, not 403, and 402 for Register; a new response there must use a status
+KOReader lists. See `backend/src/route/kosync.ts`.
+
+**A re-downloaded or converted book is a new file to KOReader.** Its default
+document hash is of part of the file's contents, so a new copy of the same book
+arrives as an unidentified document. Books asks which book it is again, and
+nothing already logged is lost. The "Document matching method → Filename"
+setting in KOReader avoids it, but makes two different books with the same
+filename one.
+
+**A KOReader sync never moves a run backwards.** Jumping to the end by mistake
+and back logs the end. Undo the latest log on the book's page; the next sync
+continues from there.
+
 **`prisma dev` cannot run `/books` locally.** Its PGlite server takes one
 connection, and the shelf's parallel queries interleave on it:
 `bind message supplies 3 parameters, but prepared statement "" requires 4`.

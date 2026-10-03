@@ -61,13 +61,44 @@ export type HomeReading = {
   item: Item;
   run: Run;
   today: number;
+  /** The latest KOReader sync of this book, when a file is linked to it. */
+  reader: { device: string; syncedAt: string } | null;
   club: { visibleNotes: number; aheadNotes: number; readers: Person[] };
+};
+
+/** A file KOReader synced that nobody has said is a book yet. */
+export type ReaderPending = {
+  id: number;
+  /** What KOReader says the file is: only with "Send document metadata" on. */
+  title: string | null;
+  authors: string | null;
+  percentage: number;
+  device: string;
+  syncedAt: string;
+  /** The entry it most likely is: the one its title names, or the one read on the go. */
+  suggestedEntryId: number | null;
+};
+
+export type ReaderSettings = {
+  serverUrl: string;
+  login: { username: string; timeZone: string; lastSeenAt: string | null } | null;
+  documents: {
+    id: number;
+    title: string | null;
+    authors: string | null;
+    percentage: number;
+    device: string;
+    ignored: boolean;
+    syncedAt: string;
+    entry: { id: number; item: Item } | null;
+  }[];
 };
 
 export type Home = {
   today: string;
   reading: HomeReading[];
   want: { entryId: number; item: Item }[];
+  readerPending: ReaderPending[];
   highlights: { year: number; booksThisYear: number; pagesThisWeek: number; streak: number };
 };
 
@@ -77,6 +108,8 @@ export type ProgressLogRow = {
   fromPosition: number;
   toPosition: number;
   note: string | null;
+  /** "koreader" when a KOReader sync wrote it. */
+  source: string | null;
   createdAt: string;
 };
 

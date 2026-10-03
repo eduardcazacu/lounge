@@ -19,6 +19,19 @@ import {
 } from "../src/shelf-logic";
 import { cleanGenres, parseRetryAfter } from "../src/catalog/books";
 import { sameBook } from "../src/catalog/match-book";
+import {
+  authorsFrom,
+  dayInZone,
+  generatePassword,
+  hashReaderKey,
+  matchByMetadata,
+  pageAt,
+  planSync,
+  readerKeyFor,
+  sameHash,
+  usernameFrom,
+  type LastLog,
+} from "../src/reader-sync";
 
 let checks = 0;
 let failures = 0;
@@ -251,6 +264,52 @@ console.log("Retry-After");
   check("nonsense falls back", parseRetryAfter("soon", 30, now) === 30);
   check("a date in the past still waits a moment", parseRetryAfter("Fri, 02 Oct 2026 11:00:00 GMT", 60, now) === 1);
   check("a day is clamped to an hour", parseRetryAfter("86400", 60, now) === 3600);
+}
+
+console.log("KOReader sync");
+{
+  check("a percentage is a page of the reader's own copy", pageAt(0.5, 300) === 150 && pageAt(0.5, 412) === 206);
+  check("past 100% is the last page", pageAt(1.2, 300) === 300);
+  check("no length, no page", pageAt(0.5, null) === null);
+
+  const day = "2026-10-03";
+  const mine = (partial: Partial<LastLog>): LastLog => ({ id: 7, loggedOn: day, source: "koreader", note: null, closing: false, ...partial });
+  const plan = (percentage: number, position: number, lastLog: LastLog | null) =>
+    planSync({ position, totalUnits: 400, percentage, day, lastLog });
+  check("the first sync of a day starts a log", plan(0.1, 0, null).kind === "create");
+  const extend = plan(0.2, 40, mine({}));
+  check("later syncs that day extend it", extend.kind === "extend" && extend.logId === 7 && extend.to === 80, extend);
+  check("a new day starts a new log", plan(0.3, 80, mine({ loggedOn: "2026-10-02" })).kind === "create");
+  check("a hand-written log is never moved", plan(0.3, 80, mine({ source: null })).kind === "create");
+  check("nor one with a note on it", plan(0.3, 80, mine({ note: "Wow" })).kind === "create");
+  check("going back is not un-reading", plan(0.05, 80, mine({})).kind === "none");
+  check("standing still logs nothing", plan(0.2, 80, mine({})).kind === "none");
+  check("a book with no length logs nothing", planSync({ position: 0, totalUnits: null, percentage: 0.5, day, lastLog: null }).kind === "none");
+
+  const lateNight = new Date("2026-10-03T22:30:00Z");
+  check("the day is the reader's, not UTC's", dayInZone(lateNight, "Europe/Bucharest") === "2026-10-04" && dayInZone(lateNight, "America/New_York") === "2026-10-03");
+  check("an unknown zone falls back to UTC", dayInZone(lateNight, "Mars/Olympus") === "2026-10-03");
+
+  check("several authors on separate lines", authorsFrom("Neil Gaiman\nTerry Pratchett").length === 2);
+  check("surname-first authors are turned round", authorsFrom("Herbert, Frank")[0] === "Frank Herbert");
+  const shelf = [
+    { entryId: 1, title: "Dune", creators: ["Frank Herbert"] },
+    { entryId: 2, title: "Dune Messiah", creators: ["Frank Herbert"] },
+    { entryId: 3, title: "Circe", creators: ["Madeline Miller"] },
+  ];
+  check("KOReader's title finds the book", matchByMetadata("Dune", "Herbert, Frank", shelf) === 1);
+  check("a sequel is not the book", matchByMetadata("Dune Messiah", "Frank Herbert", shelf) === 2);
+  check("no title, no guess", matchByMetadata(null, "Frank Herbert", shelf) === null);
+  check("a wrong author, no guess", matchByMetadata("Circe", "Someone Else", shelf) === null);
+  check("two equally good matches, no guess", matchByMetadata("Dune", "Frank Herbert", [...shelf, { entryId: 4, title: "Dune", creators: ["Frank Herbert"] }]) === null);
+
+  const password = generatePassword();
+  check("a password is three groups of four", /^[a-z2-9]{4}-[a-z2-9]{4}-[a-z2-9]{4}$/.test(password), password);
+  check("KOReader's key is md5 of the password", readerKeyFor("abc") === "900150983cd24fb0d6963f7d28e17f72");
+  const stored = hashReaderKey(readerKeyFor(password));
+  check("the stored hash accepts the right key", sameHash(hashReaderKey(readerKeyFor(password)), stored));
+  check("and refuses another", !sameHash(hashReaderKey(readerKeyFor(`${password}x`)), stored));
+  check("usernames are plain", usernameFrom("Ana María") === "anamaria" && usernameFrom("") === "reader");
 }
 
 console.log(`\n${checks - failures}/${checks} checks passed`);

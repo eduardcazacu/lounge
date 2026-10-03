@@ -36,3 +36,14 @@ export function formatDay(day: string | null, today = new Date()) {
 export function percentText(fraction: number | null) {
   return fraction === null ? "" : `${Math.round(fraction * 100)}%`;
 }
+
+/** "just now", "12 min ago", "3 h ago", then the day. */
+export function agoText(iso: string, now = new Date()) {
+  const minutes = Math.floor((now.getTime() - new Date(iso).getTime()) / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  if (minutes < 24 * 60) return `${Math.floor(minutes / 60)} h ago`;
+  const date = new Date(iso);
+  const day = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  return formatDay(day, now);
+}

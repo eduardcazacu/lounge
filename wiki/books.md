@@ -67,7 +67,8 @@ usually what it means.
 
 **Days are the reader's own.** The client sends `loggedOn` and `today` as local
 `YYYY-MM-DD` strings, and the server never derives a reading day from its own
-clock. This deliberately differs from Instant's streaks, which are UTC: "pages
+clock. The one place no client is there to say, a KOReader sync, uses the zone
+the reader's browser gave when they set sync up. This deliberately differs from Instant's streaks, which are UTC: "pages
 read that day" means the reader's day.
 
 **A log in the middle of a run cannot move.** Each log starts where the
@@ -203,6 +204,41 @@ DNF (`looksLikeDnfShelf`).
 ```bash
 cd backend && npx tsx ../frontend/scripts/verify-goodreads.ts   # the export's quirks: formula ISBNs, HTML reviews, quoted line breaks
 ```
+
+## KOReader sync
+
+The backend is a KOReader **progress sync server**: KOReader's built-in
+Progress sync plugin is pointed at `https://<api>/kosync` with a login made in
+`/books/koreader`, and page turns on a Kindle move the book here. The wire is
+`backend/src/route/kosync.ts`; what a sync means is
+`backend/src/reader-sync.ts`.
+
+- **A file has to be identified once.** KOReader names a file only by a hash
+  (`ReaderDocument.document`) and sends a percentage. A file nobody has
+  identified is stored and shown on Home as "which book is it?", with the
+  likeliest choice marked. When KOReader's "Send document metadata" is on, its
+  title and authors come with each sync, and a title naming exactly one read
+  under way links the file by itself (`matchByMetadata`, the import's
+  `sameBook`).
+- **A sync never starts or finishes a read.** It moves only a run already
+  under way. A want-list book is linked, and so started, only by the reader. Near
+  the end the card asks "Finished it?", for the epilogue reason a manual log
+  gives.
+- **Percentage becomes a page of the reader's copy**, so a run with no known
+  length logs nothing until it has one. Linking asks.
+- **Forward only.** A sync behind the run's position is stored, for KOReader's
+  other devices, but logs nothing. Paging back to check a map is not
+  un-reading.
+- **One KOReader log per run per day.** A sync extends that day's `koreader`
+  log (`ProgressLog.source`) rather than adding a row per page turn. A note or
+  a hand-written log ends it, so nothing the reader wrote is ever moved.
+- **The login is generated.** It is a 12-character password, shown once, and
+  stored as sha256 of the md5 KOReader derives from it (`ReaderSync.keyHash`).
+  KOReader's Register button is refused.
+
+KOReader's progress is handed back verbatim on `GET /syncs/progress/:document`,
+so syncing between several KOReader devices keeps working with the Lounge as
+their only server.
 
 ## On the Lounge
 

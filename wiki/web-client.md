@@ -30,7 +30,7 @@ failing to open it.
 | `Publish.tsx` | Compose a post. Markdown plus one image, WebP-encoded client-side; the draft is kept in `localStorage` under `publishPostDraft` |
 | `Account.tsx` | Display name, bio, profile picture, theme picker, notification toggle, logout |
 | `Instant.tsx` | The Instant client — see below |
-| `Books.tsx` | Lounge Books, a standalone app at `/books/*` — see [books.md](books.md) |
+| `Books.tsx` | Lounge Books, a standalone app at `/books/*`, including KOReader sync at `/books/koreader` — see [books.md](books.md) |
 | `Admin.tsx` | Approvals, push broadcast, markdown email broadcast with preview, stats, and the report queue |
 | `Signin.tsx` / `Signup.tsx` | The `Auth` form beside `Quotes` |
 | `VerifyEmail.tsx`, `ForgotPassword.tsx`, `ResetPassword.tsx` | The token flows from [accounts.md](accounts.md) |

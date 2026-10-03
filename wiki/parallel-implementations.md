@@ -150,6 +150,11 @@ Both must stay as they are. The Books switches ride beside them as
 surface is the blog. `shelfReview` rides on `/blog/bulk` and `/blog/:id`, which
 iOS does not call.
 
+`/kosync` has a second side we do not own: KOReader. Its paths, headers
+(`x-auth-user`, `x-auth-key`), field names (`device_id`, `percentage`, …) and
+statuses are fixed by `plugins/kosync.koplugin/api.json` and `KOSyncClient.lua`
+in the KOReader repository, and a rename breaks every Kindle silently.
+
 ## Also worth knowing
 
 - **`PrivacyInfo.xcprivacy` and the App Privacy table in `ios/APP_STORE.md`**

@@ -334,6 +334,27 @@ export const startRunInput = z.object({
 
 export type StartRunInput = z.infer<typeof startRunInput>
 
+// KOReader sync (/books → KOReader sync). The zone dates the logs a sync
+// writes, since KOReader sends no day of its own.
+export const readerSetupInput = z.object({
+    timeZone: z.string().min(1).max(64),
+})
+
+export type ReaderSetupInput = z.infer<typeof readerSetupInput>
+
+// Which book a synced file is: an entry (a read under way, or a want-list
+// book, which starts it), or "not a book I track".
+export const linkReaderDocumentInput = z.union([
+    z.object({
+        entryId: z.number().int().positive(),
+        totalUnits: z.number().int().positive().max(100000).optional(),
+        today: localDay.optional(),
+    }),
+    z.object({ ignore: z.literal(true) }),
+])
+
+export type LinkReaderDocumentInput = z.infer<typeof linkReaderDocumentInput>
+
 export const updateRunInput = z.object({
     totalUnits: z.number().int().positive().max(100000).optional(),
     startedOn: localDay.nullable().optional(),
