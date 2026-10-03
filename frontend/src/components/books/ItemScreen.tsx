@@ -1,15 +1,20 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { errorMessage, invalidateShelf, localDay, shelfSend, useShelf } from "./api";
-import type { EntryDetail, FeedReview, ProgressLogRow } from "./api";
+import type { CatalogEdition, EntryDetail, FeedReview, ProgressLogRow } from "./api";
 import { LogSheet } from "./LogSheet";
 import { CopyPagesSheet } from "./CopyPagesSheet";
+import { EditionSheet } from "./EditionSheet";
 import { Card, Cover, PersonLine, ProgressBar, RecommendBadge, SectionTitle, Sheet, Spinner, Stars, TopBar } from "./ui";
-import { byline, formatDay, percentText, usePalette } from "./format";
+import { byline, editionLine, formatDay, percentText, usePalette } from "./format";
 
 // One work on one person's shelf. For your own: the read in progress and what
 // can be done to it, every earlier read with its review, and the way into the
 // book club. For somebody else's: their reads and reviews, read-only.
+//
+// The cover and title are the reader's edition's, which they can change here.
+// Changing it offers the new edition's length for the read in progress rather
+// than setting it: the book club trusts a length only the reader confirmed.
 
 type RunWithReview = EntryDetail["runs"][number];
 
@@ -239,7 +244,8 @@ export function ItemScreen() {
   const others = useShelf<{ reviews: FeedReview[] }>(entry ? `/reviews?scope=everyone&itemId=${entry.item.id}&limit=10` : null);
   const [logging, setLogging] = useState(false);
   const [ending, setEnding] = useState(false);
-  const [edition, setEdition] = useState(false);
+  const [copyLength, setCopyLength] = useState<{ initial: number | null; note?: string } | null>(null);
+  const [choosingEdition, setChoosingEdition] = useState(false);
   const [starting, setStarting] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -268,6 +274,18 @@ export function ItemScreen() {
     setStarting(false);
   }
 
+  async function setEditionTo(edition: CatalogEdition | null) {
+    await shelfSend("put", `/entries/${entry!.id}/edition`, { edition });
+    invalidateShelf();
+    setChoosingEdition(false);
+    if (active && edition?.totalUnits && edition.totalUnits !== active.totalUnits) {
+      setCopyLength({
+        initial: edition.totalUnits,
+        note: `This edition has ${edition.totalUnits} pages. Saving it as your copy's length keeps the book club in step with where you are.`,
+      });
+    }
+  }
+
   async function unwant() {
     setBusy(true);
     try {
@@ -288,7 +306,24 @@ export function ItemScreen() {
           <div className="min-w-0 flex-1">
             <h2 className="text-xl font-semibold leading-snug">{item.title}</h2>
             <p className="text-[15px] text-slate-600">{byline(item)}</p>
-            <p className="mt-1 text-sm text-slate-500">{[item.year, item.totalUnits ? `${item.totalUnits} pages` : null].filter(Boolean).join(" · ")}</p>
+            <p className="mt-1 text-sm text-slate-500">
+              {[item.year, (item.edition?.totalUnits ?? item.totalUnits) ? `${item.edition?.totalUnits ?? item.totalUnits} pages` : null]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+            {item.edition || (entry.isMine && item.source === "openlibrary") ? (
+              <p className="mt-0.5 text-xs text-slate-500">
+                {item.edition ? editionLine({ ...item.edition, totalUnits: null }) : null}
+                {entry.isMine && item.source === "openlibrary" ? (
+                  <>
+                    {item.edition ? " · " : null}
+                    <button type="button" onClick={() => setChoosingEdition(true)} className="font-medium" style={{ color: palette.accent }}>
+                      {item.edition ? "Change edition" : "Choose your edition"}
+                    </button>
+                  </>
+                ) : null}
+              </p>
+            ) : null}
             {item.genres.length ? (
               <div className="mt-2 flex flex-wrap gap-1">
                 {item.genres.map((genre) => (
@@ -313,7 +348,7 @@ export function ItemScreen() {
                 </span>
                 <button
                   type="button"
-                  onClick={() => setEdition(true)}
+                  onClick={() => setCopyLength({ initial: active.totalUnits })}
                   className={`text-xs font-medium ${active.unitsConfirmed ? "text-slate-500" : "text-amber-700"}`}
                 >
                   {active.unitsConfirmed ? "Your copy · change" : "Is that your copy's length?"}
@@ -403,17 +438,28 @@ export function ItemScreen() {
 
       {logging && active ? <LogSheet run={active} item={item} onClose={() => setLogging(false)} /> : null}
       {ending && active ? <EndSheet run={active} onClose={() => setEnding(false)} /> : null}
-      {edition && active ? (
+      {copyLength && active ? (
         <CopyPagesSheet
           title={item.title}
-          initial={active.totalUnits}
+          initial={copyLength.initial}
+          note={copyLength.note}
           confirmLabel="Save"
-          onClose={() => setEdition(false)}
+          onClose={() => setCopyLength(null)}
           onConfirm={async (pages) => {
             await shelfSend("put", `/runs/${active.id}`, { totalUnits: pages });
             invalidateShelf();
-            setEdition(false);
+            setCopyLength(null);
           }}
+        />
+      ) : null}
+      {choosingEdition ? (
+        <EditionSheet
+          title={item.title}
+          path={`/items/${item.id}/editions`}
+          currentId={item.edition?.externalId ?? null}
+          onClose={() => setChoosingEdition(false)}
+          onPick={setEditionTo}
+          onReset={item.edition ? () => setEditionTo(null) : undefined}
         />
       ) : null}
       {starting ? (

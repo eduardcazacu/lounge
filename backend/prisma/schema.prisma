@@ -346,7 +346,8 @@ model CatalogItem {
   metadata   Json?
   createdAt  DateTime @default(now()) @map("created_at")
 
-  entries ShelfEntry[]
+  entries  ShelfEntry[]
+  editions CatalogEdition[]
 
   @@unique([kind, source, externalId])
   @@index([isbns], type: Gin)
@@ -369,6 +370,39 @@ model CatalogSearchCache {
   @@map("catalog_search_cache")
 }
 
+// One printing of a work, as somebody picked it. Shared, like the work: it
+// is public metadata, and two readers of the same paperback share one cover
+// copy. Only a ShelfEntry points at it, so a reader's edition changes their
+// cover and title and never anybody else's. Keyed under its work, because
+// resolveCandidate can land an Open Library edition on a work first filed
+// from Google.
+model CatalogEdition {
+  id         Int      @id @default(autoincrement())
+  itemId     Int      @map("item_id")
+  // "openlibrary"
+  source     String
+  // "/books/OL…M"
+  externalId String   @map("external_id")
+  title      String
+  // MARC code ("eng"), null when Open Library has none.
+  language   String?
+  publisher  String?
+  year       Int?
+  format     String?
+  // As on CatalogItem: the URL to show, and `coverKey` once it is our copy
+  // (`covers/editions/<id>.<ext>`). See backend/src/covers.ts.
+  coverUrl   String?  @map("cover_url")
+  coverKey   String?  @map("cover_key")
+  totalUnits Int?     @map("total_units")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  item    CatalogItem  @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  entries ShelfEntry[]
+
+  @@unique([itemId, source, externalId])
+  @@map("catalog_editions")
+}
+
 model ShelfEntry {
   id        Int       @id @default(autoincrement())
   userId    Int       @map("user_id")
@@ -380,10 +414,14 @@ model ShelfEntry {
   // Open Library does not answer the same way twice, and a different match
   // would be a duplicate book.
   importId  String?   @map("import_id")
+  // The edition this reader has, whose cover and title they see in place of
+  // the work's. Null shows the work's own.
+  editionId Int?      @map("edition_id")
   createdAt DateTime  @default(now()) @map("created_at")
 
-  user User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  item CatalogItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  item    CatalogItem     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  edition CatalogEdition? @relation(fields: [editionId], references: [id], onDelete: SetNull)
   runs ShelfRun[]
   readerDocuments ReaderDocument[]
 

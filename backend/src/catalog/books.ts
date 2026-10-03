@@ -1,4 +1,4 @@
-import type { CatalogCandidate } from "@blogging-app/common";
+import type { CatalogCandidate, CatalogEdition } from "@blogging-app/common";
 
 // Books come from Open Library, with Google Books filling the holes.
 //
@@ -29,6 +29,32 @@ export type OpenLibraryDoc = {
   cover_i?: number;
   number_of_pages_median?: number;
   subject?: string[];
+  // The one edition Open Library thinks best fits the query, in the language
+  // asked for with `lang`. See `searchBooks`.
+  editions?: { docs?: OpenLibraryEditionDoc[] };
+};
+
+export type OpenLibraryEditionDoc = {
+  key?: string;
+  title?: string;
+  cover_i?: number;
+  language?: string[];
+  publisher?: string[];
+  publish_year?: number[];
+  number_of_pages_median?: number;
+};
+
+/** An entry of /works/:id/editions.json, which is shaped unlike search's. */
+export type OpenLibraryEdition = {
+  key?: string;
+  title?: string;
+  subtitle?: string;
+  covers?: number[];
+  languages?: { key?: string }[];
+  publishers?: string[];
+  publish_date?: string;
+  physical_format?: string;
+  number_of_pages?: number;
 };
 
 export type GoogleVolume = {
@@ -198,19 +224,105 @@ function matchKey(title: string | undefined, creator: string | undefined) {
   return `${normaliseForMatch(title).split(" ").slice(0, 4).join(" ")}|${surname}`;
 }
 
+const openLibraryCover = (id: number | undefined) =>
+  id && id > 0 ? `https://covers.openlibrary.org/b/id/${id}-M.jpg` : null;
+
+const positive = (value: number | undefined) => (value && value > 0 ? value : null);
+
+// A work's own title and cover on Open Library are whichever edition a
+// librarian happened to catalogue first, and for a translated book that is
+// often not the English one: The Last Wish is the work "Ostatnie Życzenie",
+// with a Polish cover. Search therefore asks for an English edition
+// (`lang=en`), and an English edition's title and cover are shown in place of
+// the work's. Only an English one: the edition search picks in another
+// language is no better than the work's own.
 export function fromOpenLibrary(doc: OpenLibraryDoc): CatalogCandidate | null {
   if (!doc.key || !doc.title) return null;
+  const editionDoc = doc.editions?.docs?.[0];
+  const edition = editionDoc?.key && editionDoc.title ? fromOpenLibraryEditionDoc(editionDoc) : null;
+  const english = edition?.language === "eng" ? edition : null;
   return {
     kind: "book",
     source: "openlibrary",
     externalId: doc.key,
-    title: doc.title.slice(0, 300),
+    title: (english?.title ?? doc.title).slice(0, 300),
     creators: (doc.author_name ?? []).slice(0, 5),
     year: doc.first_publish_year ?? null,
-    coverUrl: doc.cover_i ? `https://covers.openlibrary.org/b/id/${doc.cover_i}-M.jpg` : null,
-    totalUnits: doc.number_of_pages_median && doc.number_of_pages_median > 0 ? doc.number_of_pages_median : null,
+    coverUrl: english?.coverUrl ?? openLibraryCover(doc.cover_i),
+    totalUnits: positive(doc.number_of_pages_median),
     genres: cleanGenres(doc.subject),
+    edition: english,
   };
+}
+
+function fromOpenLibraryEditionDoc(doc: OpenLibraryEditionDoc): CatalogEdition {
+  return {
+    source: "openlibrary",
+    externalId: doc.key!,
+    title: doc.title!.slice(0, 300),
+    language: doc.language?.length === 1 ? doc.language[0] : null,
+    publisher: doc.publisher?.[0]?.slice(0, 200) ?? null,
+    year: doc.publish_year?.length ? Math.min(...doc.publish_year) : null,
+    format: null,
+    coverUrl: openLibraryCover(doc.cover_i),
+    totalUnits: positive(doc.number_of_pages_median),
+  };
+}
+
+export function fromOpenLibraryEdition(entry: OpenLibraryEdition): CatalogEdition | null {
+  if (!entry.key || !entry.title) return null;
+  const year = Number.parseInt(entry.publish_date?.match(/\b(1[5-9]|20)\d\d\b/)?.[0] ?? "", 10);
+  // One language is the edition's; several is a bilingual edition, which is
+  // not "the English one" either.
+  const languages = (entry.languages ?? []).flatMap((language) => language.key?.replace("/languages/", "") ?? []);
+  return {
+    source: "openlibrary",
+    externalId: entry.key,
+    title: (entry.subtitle ? `${entry.title}: ${entry.subtitle}` : entry.title).slice(0, 300),
+    language: languages.length === 1 ? languages[0].slice(0, 8) : null,
+    publisher: entry.publishers?.[0]?.trim().slice(0, 200) || null,
+    year: Number.isFinite(year) ? year : null,
+    format: entry.physical_format?.trim().slice(0, 80) || null,
+    coverUrl: openLibraryCover(entry.covers?.find((id) => id > 0)),
+    // A page count of 1 is an audiobook's "1 audio disc", not a length.
+    totalUnits: entry.number_of_pages && entry.number_of_pages > 1 ? entry.number_of_pages : null,
+  };
+}
+
+/**
+ * The order editions are offered in: English first, then those with no
+ * language recorded (most of them are English too — Orbit's The Last Wish is
+ * one), then the rest; within each, those with a cover, then the newest.
+ * Someone browsing editions is nearly always looking for the cover of the copy
+ * on their shelf.
+ */
+export function rankEditions(editions: CatalogEdition[]) {
+  const languageRank = (edition: CatalogEdition) => (edition.language === "eng" ? 0 : edition.language === null ? 1 : 2);
+  return [...editions].sort(
+    (a, b) =>
+      languageRank(a) - languageRank(b) ||
+      Number(b.coverUrl !== null) - Number(a.coverUrl !== null) ||
+      (b.year ?? 0) - (a.year ?? 0)
+  );
+}
+
+// Dune has about 150 editions and Open Library answers 300 in a second or so.
+// A work with thousands (Shakespeare) is cut off, English first being the
+// order the reader would have scrolled in anyway.
+const EDITIONS_LIMIT = 300;
+
+/**
+ * Every edition Open Library has of a work, ranked. `workKey` is the work's
+ * externalId ("/works/OL…W"). Throws CatalogUnavailable on a refusal, as
+ * search does; an unknown work is an empty list.
+ */
+export async function bookEditions(workKey: string, options: BookSearchOptions = {}): Promise<CatalogEdition[]> {
+  if (!/^\/works\/OL\d+W$/.test(workKey)) return [];
+  const answer = await fetchProvider<{ entries?: OpenLibraryEdition[] }>(
+    `${options.openLibraryUrl ?? OPEN_LIBRARY_URL}${workKey}/editions.json?limit=${EDITIONS_LIMIT}`
+  );
+  if (!answer.ok) throw new CatalogUnavailable("Open Library", answer.retryAfterSeconds);
+  return rankEditions((answer.data?.entries ?? []).flatMap((entry) => fromOpenLibraryEdition(entry) ?? []));
 }
 
 function googleCover(volume: GoogleVolume) {
@@ -259,7 +371,10 @@ export async function searchBooks(query: string, options: BookSearchOptions = {}
   const openLibraryUrl =
     `${options.openLibraryUrl ?? OPEN_LIBRARY_URL}/search.json?q=${encodeURIComponent(q)}` +
     `&fields=key,title,author_name,first_publish_year,cover_i,number_of_pages_median,subject` +
-    `&limit=${RESULT_LIMIT}`;
+    `,editions,editions.key,editions.title,editions.cover_i,editions.language,editions.publisher` +
+    `,editions.publish_year,editions.number_of_pages_median` +
+    // The edition each work comes with is an English one where there is one.
+    `&lang=en&limit=${RESULT_LIMIT}`;
   const googleUrl = googleVolumesUrl(options.googleBooksUrl, q, RESULT_LIMIT, options.googleBooksApiKey);
 
   const [openLibrary, google] = await Promise.all([
@@ -296,7 +411,11 @@ export async function searchBooks(query: string, options: BookSearchOptions = {}
       totalUnits: candidate.totalUnits ?? match.totalUnits,
       // Google's categories are the better genres when it has any.
       genres: match.genres.length > 0 ? match.genres : candidate.genres,
-      coverUrl: candidate.coverUrl ?? match.coverUrl,
+      // An English edition with no cover of its own would otherwise fall back
+      // to the work's, which is the translation's cover this is avoiding.
+      // Google's volume, matched by the English title, is the English cover.
+      coverUrl:
+        candidate.edition && !candidate.edition.coverUrl ? match.coverUrl ?? candidate.coverUrl : candidate.coverUrl ?? match.coverUrl,
       year: candidate.year ?? match.year,
     };
   });

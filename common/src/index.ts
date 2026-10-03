@@ -263,6 +263,25 @@ export const catalogSources = ["openlibrary", "google", "manual"] as const;
 // it happened to the reader, not by the UTC day the server sees.
 const localDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
+// One printing of a work: its language, publisher and cover. A reader's
+// edition is their own (`ShelfEntry.editionId`); the work, and so the book
+// club, is shared. Open Library is the only provider that lists editions.
+export const catalogEdition = z.object({
+    source: z.enum(["openlibrary"]),
+    externalId: z.string().trim().min(1).max(200),
+    title: z.string().trim().min(1).max(300),
+    // MARC code, as Open Library gives it: "eng", "pol". Null when unrecorded,
+    // which is common for English editions.
+    language: z.string().trim().min(2).max(8).nullable(),
+    publisher: z.string().trim().min(1).max(200).nullable(),
+    year: z.number().int().min(-3000).max(3000).nullable(),
+    format: z.string().trim().min(1).max(80).nullable(),
+    coverUrl: z.string().url().max(500).nullable(),
+    totalUnits: z.number().int().positive().max(100000).nullable(),
+})
+
+export type CatalogEdition = z.infer<typeof catalogEdition>
+
 // What /catalog/search returns and /entries takes back. The client hands the
 // chosen candidate back whole rather than an id, so adding a book costs no
 // second round trip to the provider.
@@ -276,9 +295,21 @@ export const catalogCandidate = z.object({
     coverUrl: z.string().url().max(500).nullable(),
     totalUnits: z.number().int().positive().max(100000).nullable(),
     genres: z.array(z.string().trim().min(1).max(80)).max(8),
+    // The edition this reader means. Search fills in an English one where the
+    // work has it; "Other editions" swaps it. The fields above stay the work's,
+    // because the first sighting fixes them for everyone.
+    edition: catalogEdition.nullable().optional(),
 })
 
 export type CatalogCandidate = z.infer<typeof catalogCandidate>
+
+// Changing the edition of a book already on the shelf. Null goes back to the
+// work's own cover and title.
+export const setEditionInput = z.object({
+    edition: catalogEdition.nullable(),
+})
+
+export type SetEditionInput = z.infer<typeof setEditionInput>
 
 export const addShelfEntryInput = z.object({
     // A candidate from search. For a manual entry the client sends source

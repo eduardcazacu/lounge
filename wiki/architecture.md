@@ -69,8 +69,8 @@ out and there is no D1 database.
 
 **One R2 bucket**, bound as `BLOG_IMAGES`, holding four unrelated things under
 four prefixes: post and profile images (public, read through Cloudflare image
-transformations), `covers/<item id>` book covers copied from Open Library
-(public, the same way; see [books.md](books.md)), `instant/<uuid>` ciphertext
+transformations), `covers/<item id>` and `covers/editions/<edition id>` book covers copied
+from Open Library (public, the same way; see [books.md](books.md)), `instant/<uuid>` ciphertext
 (private, deleted on read), and `reports/` evidence (private, streamed only to
 admins).
 

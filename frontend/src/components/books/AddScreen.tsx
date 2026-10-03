@@ -4,7 +4,8 @@ import { errorMessage, invalidateShelf, localDay, shelfGet, shelfSend } from "./
 import type { CatalogCandidate } from "./api";
 import { Cover, Sheet, TopBar } from "./ui";
 import { CopyPagesSheet } from "./CopyPagesSheet";
-import { byline, usePalette } from "./format";
+import { EditionSheet } from "./EditionSheet";
+import { byline, languageName, usePalette } from "./format";
 
 // Adding a book is one search and one tap. Type a title or an author, and each
 // result carries the three things you might mean: Want, Start, Read it. Cover,
@@ -14,6 +15,10 @@ import { byline, usePalette } from "./format";
 // Opened from a library tab (`?intent=`), the screen already knows which of
 // those you mean: each result carries that one button, and the book lands in
 // the tab you came from.
+//
+// A result is shown as its edition: search offers an English one where the
+// work has it, and "Other editions" swaps it for the copy on the reader's
+// shelf. The edition is the reader's own; the work it belongs to is shared.
 
 export type Intent = "want" | "start" | "finished" | "dnf";
 
@@ -32,6 +37,16 @@ const TITLE: Record<Intent, string> = {
 const TAB_OF: Record<Intent, string> = { want: "want", start: "reading", finished: "read", dnf: "dnf" };
 
 const DEBOUNCE_MS = 350;
+
+/** A result as the reader will see it on their shelf: its edition's title, cover and length. */
+function asShown(candidate: CatalogCandidate) {
+  const { edition } = candidate;
+  return {
+    title: edition?.title ?? candidate.title,
+    coverUrl: edition?.coverUrl ?? candidate.coverUrl,
+    totalUnits: edition?.totalUnits ?? candidate.totalUnits,
+  };
+}
 
 /** When a past read ended — and, for one put down, how far it got. */
 function EndedSheet({
@@ -100,9 +115,9 @@ function EndedSheet({
       }
     >
       <div className="flex items-center gap-3 pb-4">
-        <Cover item={candidate} size="sm" />
+        <Cover item={asShown(candidate)} size="sm" />
         <div className="min-w-0">
-          <div className="truncate font-semibold">{candidate.title}</div>
+          <div className="truncate font-semibold">{asShown(candidate).title}</div>
           <div className="truncate text-sm text-slate-500">{byline(candidate)}</div>
         </div>
       </div>
@@ -131,7 +146,7 @@ function EndedSheet({
             inputMode="numeric"
             value={stoppedAt}
             onChange={(event) => setStoppedAt(event.target.value.replace(/[^0-9]/g, ""))}
-            placeholder={candidate.totalUnits ? `of ${candidate.totalUnits}` : ""}
+            placeholder={asShown(candidate).totalUnits ? `of ${asShown(candidate).totalUnits}` : ""}
             className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2.5 text-[16px]"
           />
         </label>
@@ -226,6 +241,8 @@ export function AddScreen() {
   const [ending, setEnding] = useState<{ candidate: CatalogCandidate; intent: "finished" | "dnf" } | null>(null);
   const [starting, setStarting] = useState<CatalogCandidate | null>(null);
   const [manual, setManual] = useState(false);
+  // The result whose editions are being browsed.
+  const [browsing, setBrowsing] = useState<CatalogCandidate | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [added, setAdded] = useState<Set<string>>(new Set());
   const requestId = useRef(0);
@@ -351,16 +368,28 @@ export function AddScreen() {
             {results.map((candidate) => {
               const key = keyOf(candidate);
               const isAdded = added.has(key);
+              const shown = asShown(candidate);
+              const edition = candidate.edition;
               return (
                 <li key={key} className="flex gap-3 rounded-2xl border border-slate-200/70 bg-white p-3 shadow-sm">
-                  <Cover item={candidate} size="sm" />
+                  <Cover item={shown} size="sm" />
                   <div className="flex min-w-0 flex-1 flex-col">
-                    <div className="line-clamp-2 font-semibold leading-snug">{candidate.title}</div>
+                    <div className="line-clamp-2 font-semibold leading-snug">{shown.title}</div>
                     <div className="truncate text-sm text-slate-500">
-                      {[byline(candidate), candidate.year, candidate.totalUnits ? `${candidate.totalUnits} pages` : null]
+                      {[byline(candidate), candidate.year, shown.totalUnits ? `${shown.totalUnits} pages` : null]
                         .filter(Boolean)
                         .join(" · ")}
                     </div>
+                    {candidate.source === "openlibrary" ? (
+                      <div className="truncate text-xs text-slate-400">
+                        {edition
+                          ? `${[languageName(edition.language), edition.publisher, edition.year].filter(Boolean).join(" · ")} · `
+                          : null}
+                        <button type="button" onClick={() => setBrowsing(candidate)} className="font-medium" style={{ color: palette.accent }}>
+                          Other editions
+                        </button>
+                      </div>
+                    ) : null}
                     <div className="mt-auto flex gap-1.5 pt-2">
                       {intents.map((intent) => {
                         const primary = intent === "start" || intents.length === 1;
@@ -402,8 +431,8 @@ export function AddScreen() {
       ) : null}
       {starting ? (
         <CopyPagesSheet
-          title={starting.title}
-          initial={starting.totalUnits}
+          title={asShown(starting).title}
+          initial={asShown(starting).totalUnits}
           confirmLabel="Start reading"
           onClose={() => setStarting(null)}
           onConfirm={async (pages) => {
@@ -411,6 +440,23 @@ export function AddScreen() {
             invalidateShelf();
             setStarting(null);
             landed("start", null);
+          }}
+        />
+      ) : null}
+      {browsing ? (
+        <EditionSheet
+          title={asShown(browsing).title}
+          path={`/catalog/editions?work=${encodeURIComponent(browsing.externalId)}`}
+          currentId={browsing.edition?.externalId ?? null}
+          onClose={() => setBrowsing(null)}
+          onPick={(edition) => {
+            // Only the result's edition changes. Its title and cover stay the
+            // work's, which the first person to add it fixes for everyone.
+            const key = keyOf(browsing);
+            setResults((previous) =>
+              previous ? previous.map((candidate) => (keyOf(candidate) === key ? { ...candidate, edition } : candidate)) : previous
+            );
+            setBrowsing(null);
           }}
         />
       ) : null}

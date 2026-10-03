@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { getThemePalette } from "../../themes";
-import type { Item } from "./api";
+import type { CatalogEdition, Item } from "./api";
 
 // Formatting and the reader's palette: the non-component half of ui.tsx.
 
@@ -46,4 +46,52 @@ export function agoText(iso: string, now = new Date()) {
   const date = new Date(iso);
   const day = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
   return formatDay(day, now);
+}
+
+const LANGUAGES: Record<string, string> = {
+  eng: "English",
+  pol: "Polish",
+  ger: "German",
+  fre: "French",
+  spa: "Spanish",
+  ita: "Italian",
+  por: "Portuguese",
+  dut: "Dutch",
+  rus: "Russian",
+  ukr: "Ukrainian",
+  cze: "Czech",
+  slo: "Slovak",
+  hun: "Hungarian",
+  rum: "Romanian",
+  bul: "Bulgarian",
+  hrv: "Croatian",
+  srp: "Serbian",
+  swe: "Swedish",
+  nor: "Norwegian",
+  dan: "Danish",
+  fin: "Finnish",
+  gre: "Greek",
+  tur: "Turkish",
+  heb: "Hebrew",
+  ara: "Arabic",
+  chi: "Chinese",
+  jpn: "Japanese",
+  kor: "Korean",
+};
+
+export function languageName(code: string | null) {
+  return code ? LANGUAGES[code] ?? code.toUpperCase() : null;
+}
+
+/** "English · Orbit · 2022 · Paperback · 352 pages", leaving out what is unknown. */
+export function editionLine(edition: Pick<CatalogEdition, "language" | "publisher" | "year" | "format" | "totalUnits">) {
+  return [
+    languageName(edition.language),
+    edition.publisher,
+    edition.year,
+    edition.format,
+    edition.totalUnits ? `${edition.totalUnits} pages` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }

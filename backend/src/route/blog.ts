@@ -79,7 +79,13 @@ const shelfReviewCardSelect = {
     run: {
       select: {
         status: true,
-        entry: { select: { item: { select: { title: true, creators: true, coverUrl: true, kind: true } } } },
+        entry: {
+          select: {
+            item: { select: { title: true, creators: true, coverUrl: true, kind: true } },
+            // The reviewer's edition, as on /books (itemView in route/shelf.ts).
+            edition: { select: { title: true, coverUrl: true } },
+          },
+        },
       },
     },
   },
@@ -91,7 +97,13 @@ function shelfReviewCard(
     rating: number | null;
     recommend: boolean | null;
     body: string | null;
-    run: { status: string; entry: { item: { title: string; creators: string[]; coverUrl: string | null; kind: string } } };
+    run: {
+      status: string;
+      entry: {
+        item: { title: string; creators: string[]; coverUrl: string | null; kind: string };
+        edition: { title: string; coverUrl: string | null } | null;
+      };
+    };
   } | null
 ) {
   if (!review) return null;
@@ -101,7 +113,11 @@ function shelfReviewCard(
     recommend: review.recommend,
     body: review.body,
     status: review.run.status,
-    item: review.run.entry.item,
+    item: {
+      ...review.run.entry.item,
+      title: review.run.entry.edition?.title ?? review.run.entry.item.title,
+      coverUrl: review.run.entry.edition?.coverUrl ?? review.run.entry.item.coverUrl,
+    },
   };
 }
 

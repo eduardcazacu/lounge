@@ -1,6 +1,6 @@
 import axios from "axios";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { CatalogCandidate } from "@blogging-app/common";
+import type { CatalogCandidate, CatalogEdition } from "@blogging-app/common";
 import { BACKEND_URL } from "../../config";
 import { getAuthHeader, getCurrentUserId } from "../../lib/auth";
 
@@ -31,7 +31,15 @@ export type Item = {
   coverUrl: string | null;
   totalUnits: number | null;
   genres: string[];
+  /**
+   * The printing this reader has, when they chose one (or search offered an
+   * English one). `title` and `coverUrl` above are already its; this says
+   * which it is.
+   */
+  edition: ItemEdition | null;
 };
+
+export type ItemEdition = Omit<CatalogEdition, "source" | "coverUrl">;
 
 export type RunStatus = "active" | "finished" | "dnf";
 
@@ -205,7 +213,7 @@ export type Stats = {
   years: number[];
 };
 
-export type { CatalogCandidate };
+export type { CatalogCandidate, CatalogEdition };
 
 /** Today in the reader's own timezone. Reading is logged by the reader's day. */
 export function localDay(date = new Date()) {

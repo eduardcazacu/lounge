@@ -17,13 +17,48 @@ import { percentText, usePalette } from "./format";
 // where a note lands in the book club and the catalog's figure is often
 // another edition's. A number past the last page is not quietly capped: it
 // usually means the copy is longer, so the sheet asks.
+//
+// "Percent" is for e-readers, which show a percentage and no page that means
+// anything. It is turned into a page of the reader's copy the way a KOReader
+// sync is (`pageAt` in backend/src/reader-sync.ts), so a log is a page range
+// whichever way it was typed, and needs the copy's length to be known. The
+// mode last used is remembered per book, falling back to the last one used at
+// all, since a reader tends to read a given book on one device.
 
-type Mode = "amount" | "position";
+type Mode = "amount" | "position" | "percent";
+
+const MODES: Mode[] = ["amount", "position", "percent"];
+const MODE_LABEL: Record<Mode, string> = { amount: "Pages read", position: "I'm on page", percent: "Percent" };
+const modeKey = (itemId: number) => `books.logMode.${itemId}`;
+const LAST_MODE_KEY = "books.logMode";
+
+function rememberedMode(itemId: number): Mode {
+  try {
+    const stored = localStorage.getItem(modeKey(itemId)) ?? localStorage.getItem(LAST_MODE_KEY);
+    return MODES.find((mode) => mode === stored) ?? "amount";
+  } catch {
+    return "amount";
+  }
+}
+
+function rememberMode(itemId: number, mode: Mode) {
+  try {
+    localStorage.setItem(modeKey(itemId), mode);
+    localStorage.setItem(LAST_MODE_KEY, mode);
+  } catch {
+    // Private browsing: the sheet opens on pages next time, which is fine.
+  }
+}
+
+/** A percentage of the copy as a page of it, rounded as KOReader's are. */
+function pageAtPercent(percent: number, total: number) {
+  return Math.min(total, Math.round((Math.min(100, Math.max(0, percent)) / 100) * total));
+}
 
 export function LogSheet({ run, item, onClose }: { run: Run; item: Item; onClose: () => void }) {
   const palette = usePalette();
   const navigate = useNavigate();
-  const [mode, setMode] = useState<Mode>("amount");
+  const [mode, setMode] = useState<Mode>(() => rememberedMode(item.id));
   const [value, setValue] = useState("");
   const [note, setNote] = useState("");
   const [showNote, setShowNote] = useState(false);
@@ -44,12 +79,22 @@ export function LogSheet({ run, item, onClose }: { run: Run; item: Item; onClose
   const total = copy.pages;
   const number = Number.parseInt(value, 10);
   const valid = Number.isFinite(number) && number >= 0;
-  const target = !valid ? run.position : mode === "amount" ? run.position + number : number;
+  // Percent with no length on file has no page to go to; the sheet asks for it.
+  const needsLength = mode === "percent" && !total;
+  const target = !valid
+    ? run.position
+    : mode === "amount"
+      ? run.position + number
+      : mode === "percent"
+        ? total
+          ? pageAtPercent(number, total)
+          : run.position
+        : number;
   const clampedTarget = total ? Math.min(target, total) : target;
   const moved = clampedTarget - run.position;
   // Past the end of the copy on file: ask rather than cap.
   const overshoot = Boolean(total && target > total);
-  const canSave = !busy && !overshoot && (moved !== 0 || note.trim().length > 0);
+  const canSave = !busy && !overshoot && !needsLength && (moved !== 0 || note.trim().length > 0);
 
   async function setCopyPages(pages: number) {
     await shelfSend("put", `/runs/${run.id}`, { totalUnits: pages });
@@ -174,17 +219,18 @@ export function LogSheet({ run, item, onClose }: { run: Run; item: Item; onClose
       }
     >
       <div className="mb-3 flex rounded-full bg-slate-100 p-1 text-sm font-medium">
-        {(["amount", "position"] as Mode[]).map((option) => (
+        {MODES.map((option) => (
           <button
             key={option}
             type="button"
             onClick={() => {
               setMode(option);
               setValue("");
+              rememberMode(item.id, option);
             }}
             className={`flex-1 rounded-full py-1.5 ${mode === option ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}
           >
-            {option === "amount" ? "Pages read" : "I'm on page"}
+            {MODE_LABEL[option]}
           </button>
         ))}
       </div>
@@ -195,23 +241,34 @@ export function LogSheet({ run, item, onClose }: { run: Run; item: Item; onClose
           void save();
         }}
       >
-        <input
-          autoFocus
-          inputMode="numeric"
-          pattern="[0-9]*"
-          value={value}
-          onChange={(event) => setValue(event.target.value.replace(/[^0-9]/g, "").slice(0, 6))}
-          placeholder={mode === "amount" ? "0" : String(run.position)}
-          aria-label={mode === "amount" ? "Pages read" : "Current page"}
-          className="w-full bg-transparent text-center text-6xl font-semibold tabular-nums text-slate-900 outline-none placeholder:text-slate-300"
-          // index.css holds every phone input at 16px !important so iOS does
-          // not zoom on focus; only an inline !important outranks it, and at
-          // 60px there is no zoom to prevent.
-          ref={(element) => element?.style.setProperty("font-size", "60px", "important")}
-        />
+        <div className="flex items-baseline justify-center">
+          <input
+            autoFocus
+            inputMode="numeric"
+            pattern="[0-9]*"
+            value={value}
+            onChange={(event) => {
+              const digits = event.target.value.replace(/[^0-9]/g, "");
+              if (mode !== "percent") setValue(digits.slice(0, 6));
+              else setValue(digits ? String(Math.min(100, Number(digits.slice(0, 3)))) : "");
+            }}
+            placeholder={
+              mode === "amount" ? "0" : mode === "percent" ? String(Math.round((run.fraction ?? 0) * 100)) : String(run.position)
+            }
+            aria-label={mode === "amount" ? "Pages read" : mode === "percent" ? "Percent read" : "Current page"}
+            className={`${mode === "percent" ? "w-[3.2ch] text-right" : "w-full text-center"} bg-transparent text-6xl font-semibold tabular-nums text-slate-900 outline-none placeholder:text-slate-300`}
+            // index.css holds every phone input at 16px !important so iOS does
+            // not zoom on focus; only an inline !important outranks it, and at
+            // 60px there is no zoom to prevent.
+            ref={(element) => element?.style.setProperty("font-size", "60px", "important")}
+          />
+          {mode === "percent" ? <span className="text-4xl font-semibold text-slate-400">%</span> : null}
+        </div>
       </form>
       <p className="text-center text-sm text-slate-500">
-        {total ? (
+        {needsLength ? (
+          <>Percent needs your copy's length</>
+        ) : total ? (
           <>
             p. {clampedTarget} of {total} · {percentText(clampedTarget / total)}
           </>

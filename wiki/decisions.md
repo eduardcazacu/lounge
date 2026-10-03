@@ -1079,6 +1079,32 @@ Start learned which edition the reader holds.
 
 ---
 
+## A reader's edition is on their entry, not on the work
+
+**Chosen** a shared `CatalogEdition` table and `ShelfEntry.editionId`. Each
+reader's title and cover are their edition's (`itemView` in
+`backend/src/route/shelf.ts`). Search shows an English edition by default.
+
+**Rejected** changing the work's own cover. One reader's choice would change
+everyone's, and the work's metadata is fixed on first sighting precisely so
+that covers do not shift under other people's reviews. Also rejected: the
+edition on the run. A re-read is usually the same copy, and the cover is
+something the shelf shows, not something a read-through has. Also rejected:
+edition columns copied onto each entry. Two readers of one paperback would
+then make two copies of the same cover in R2.
+
+**Because** Open Library's work title and cover are often a translation's,
+and the group reads in English.
+
+**Cost paid** every place that shows a reader's book has to select the
+entry's edition next to the work, and one that forgets shows the work's cover
+without any error. Books filed from Google, or by hand, cannot change edition.
+
+**Would reopen if** readers wanted a different edition per re-read, or the
+group stopped being English-reading.
+
+---
+
 ## Book club notifications use the club's own gate, once a day per book
 
 **Chosen** a push only for a note the reader can already read, decided by the

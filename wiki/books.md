@@ -22,8 +22,9 @@ first other kind anybody asked for.
 ## The model in one paragraph
 
 A `CatalogItem` is the work, shared across everyone and every group because it
-holds only public metadata. A `ShelfEntry` is one person's relationship to it,
-including the want-to-read flag. A `ShelfRun` is one read-through, and
+holds only public metadata. A `CatalogEdition` is one printing of a work,
+shared the same way. A `ShelfEntry` is one person's relationship to the work,
+including the want-to-read flag and which edition they have. A `ShelfRun` is one read-through, and
 **a re-read is a new run, never a reset of the old one**. That is what lets
 stats count a book read twice as two books finished but one distinct work, and
 lets each read carry its own review. A `ProgressLog` is one session of reading,
@@ -75,6 +76,13 @@ read that day" means the reader's day.
 previous one ended. Only the latest log of a run in progress can change its page
 or be deleted (an undo). Notes on any log can be edited.
 
+**A percentage is logged as a page.** The log sheet's Percent mode is for
+e-readers, which show no page worth typing. It is turned into a page of the
+reader's copy in `frontend/src/components/books/LogSheet.tsx`, rounded as a
+KOReader sync is (`pageAt` in `backend/src/reader-sync.ts`). That way every log
+is still a page range, and stats, streaks and the book club need nothing new.
+It needs the copy's length, and the sheet asks for it when it is missing.
+
 ## Search goes through the backend
 
 `GET /api/v1/shelf/catalog/search` asks Open Library and Google Books at once.
@@ -91,6 +99,37 @@ split one taste across three rows of the genre stats and ranked a dragon's
 treasure as somebody's favourite genre. A subject that maps onto nothing is
 dropped. A work's genres are fixed on its first sighting, so a change to the
 list only reaches works added afterwards.
+
+## Editions are the reader's; the work is everyone's
+
+Open Library's work title and cover belong to whichever edition a librarian
+catalogued first, often a translation's. The Last Wish is the work "Ostatnie
+Życzenie", with a Polish cover. Search therefore asks for English editions
+(`lang=en`), and `fromOpenLibrary` in `backend/src/catalog/books.ts` shows an
+English edition's title and cover in place of the work's. It only does this for
+English: an edition search picked in another language is no better than the
+work's own. A work added for the first time is filed under that English title
+and cover.
+
+A reader's edition hangs off their `ShelfEntry` (`editionId`), never off the
+work. `itemView` in `backend/src/route/shelf.ts` puts its title and cover in
+place of the work's wherever that entry is shown: library, home, their reviews
+in the feed and on the Lounge, the book club as they see it, and their stats.
+Nobody else's copy changes. An edition with no cover shows the work's.
+
+"Other editions" lists Open Library's editions of the work
+(`GET /catalog/editions?work=` from search, `GET /items/:id/editions` from the
+book's page), ranked by `rankEditions`: English first, then editions with no
+language recorded (mostly English), then the rest; within each, those with a
+cover first, then the newest. A list is cached for a day in
+`catalog_search_cache` under `editions:<work key>`. Only Open Library works
+have editions. Google's volumes are not grouped into works, so a book filed
+from Google, or by hand, keeps the cover it has.
+
+**Choosing an edition never changes a run's length.** The book's page offers
+the edition's page count through "Pages in your copy" instead, because the
+book club trusts only a length the reader confirmed. Edition covers are copied
+into R2 like works' (`covers/editions/<id>`, `backend/src/covers.ts`).
 
 ## Open Library limits by IP
 
