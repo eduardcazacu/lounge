@@ -176,6 +176,11 @@ in the KOReader repository, and a rename breaks every Kindle silently.
   `ios/tools/journey-report.swift`, which runs as a script and cannot import
   the app. If a new outcome is added to one and not the other, the Mac report
   and Settings → Timings disagree about the same file.
+- **The page each URL is served** is `vercel.json`'s rewrites and, once the
+  service worker is installed, the navigation routes in `frontend/src/sw.ts`.
+  The worker answers first, so a route in one and not the other works on a
+  first visit and breaks on the next — and a `/books` that gets `index.html`
+  installs Lounge Books from a page naming the Lounge's manifest.
 - **The `instant://` deep link** is built by the widget extension and parsed by
   the app, which is exactly why it lives once in `ios/Shared/DeepLink.swift`
   rather than being spelled out twice. Keep it that way.

@@ -1247,3 +1247,51 @@ shared; the tables are not.
 
 **Would reopen if** a third bookless kind of post appeared. One table with a
 `kind` column would then cost less than a three-way merge in the feed.
+
+---
+
+## One query cache for the web client, persisted on the device
+
+**Chosen** TanStack Query for every read in `frontend/` but Instant's, in
+`frontend/src/lib/query.ts`, persisted to IndexedDB, keyed by account,
+allowlisted by key prefix, and wiped by `clearAuthStorage()`.
+
+**Rejected** lifting Books' own `useShelf` cache into a shared one, which would
+have meant writing infinite paging, request dedupe and persistence by hand for
+the feed. Also rejected: persisting to localStorage, whose quota ten pages of
+posts approach and whose writes block the main thread; and the feed's
+`?pages=N`, which refetched the pages it already had.
+
+**Because** going Back remounted the page and showed a skeleton, and the
+scroll position could not be restored onto a page that was not there yet.
+Drawing the cached answer on the first render is what makes both work.
+
+**Cost paid** private posts and shelves sit on the device until logout or seven
+days, and about 26 kB gzipped on the entry chunk (90 kB to 116 kB) — the query
+client and its persister, and the data router `<ScrollRestoration>` needs —
+which the sign-in page pays too.
+
+**Would reopen if** someone needs the Lounge on a shared device without leaving
+posts on it — persistence can be dropped without touching the hooks.
+
+---
+
+## The service worker precaches the shell and takes over at once
+
+**Chosen** `frontend/src/sw.ts` precaches the build through `vite-plugin-pwa`'s
+`injectManifest`, and keeps `skipWaiting` and `clients.claim`.
+
+**Rejected** a "new version — reload" prompt, and runtime caching of API
+responses and images. The query cache already holds the data, and a worker
+cache of API answers would be a second one to clear at logout — and a risk to
+Instant's one-shot media.
+
+**Because** an installed app opened from the home screen waited on the network
+for `index.html` and every chunk before drawing anything, even with its data on
+the device.
+
+**Cost paid** the first launch after a deploy runs the previous build, and the
+rewrite table in `vercel.json` now has a second copy in the worker.
+
+**Would reopen if** a deploy had to reach everyone at once — a breaking API
+change would want the prompt.

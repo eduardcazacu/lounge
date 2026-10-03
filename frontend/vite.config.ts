@@ -1,9 +1,33 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
+import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vitejs.dev/config/
-export default defineConfig({
-  plugins: [react()],
+export default defineConfig(({ mode }) => ({
+  define: {
+    // Busts the persisted query cache on every deploy. See src/lib/query.ts.
+    __BUILD_ID__: JSON.stringify(loadEnv(mode, '.', '').VERCEL_GIT_COMMIT_SHA || 'dev'),
+  },
+  plugins: [
+    react(),
+    // Only the precache list is generated; the worker is ours, in src/sw.ts,
+    // and it must keep being served as /sw.js so existing installs update in
+    // place with their push subscriptions. Both webmanifests stay hand-written
+    // in public/, and main.tsx registers the worker. See wiki/web-client.md.
+    VitePWA({
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
+      manifest: false,
+      injectRegister: false,
+      // `npm run dev` serves the worker too, as /dev-sw.js, so push still
+      // works locally. It precaches nothing there; see src/sw.ts.
+      devOptions: { enabled: true, type: 'module' },
+      injectManifest: {
+        globPatterns: ['**/*.{js,css,html,webmanifest,ico}', '*icon*.png', 'topbar-logo.png'],
+      },
+    }),
+  ],
   build: {
     rollupOptions: {
       // Two pages, one app. books.html differs only in its <head> — the
@@ -15,4 +39,4 @@ export default defineConfig({
       },
     },
   },
-})
+}))

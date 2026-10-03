@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "react-router-dom"
-import { Comment, type ShelfAskCard, type ShelfReviewCard } from "../hooks";
+import { Comment, markBlogsStale, type ShelfAskCard, type ShelfReviewCard } from "../hooks";
 import { ShelfReviewEmbed } from "./ShelfReviewEmbed";
 import { ShelfAskEmbed } from "./ShelfAskEmbed";
 import ReactMarkdown, { type Components } from "react-markdown";
@@ -9,7 +9,7 @@ import { extractFirstYouTubeEmbedUrl, extractStandaloneImagePreviewUrls, getTran
 import axios from "axios";
 import { BACKEND_URL } from "../config";
 import { getAuthHeader } from "../lib/auth";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { MouseEvent } from "react";
 
 interface BlogCardProps{
@@ -48,6 +48,11 @@ export const BlogCard = ({
   const [postLikeCount, setPostLikeCount] = useState(likeCount);
   const [postLikedByMe, setPostLikedByMe] = useState(likedByMe);
   const [likeLoading, setLikeLoading] = useState(false);
+  // The feed refreshes under a card that is already drawn.
+  useEffect(() => {
+    setPostLikeCount(likeCount);
+    setPostLikedByMe(likedByMe);
+  }, [likeCount, likedByMe]);
   const markdownComponents: Components = {
     img: () => null,
     a: (props) => (
@@ -145,6 +150,7 @@ export const BlogCard = ({
           },
         }
       );
+      markBlogsStale();
       setPostLikeCount(Number(response.data?.likeCount) || 0);
       setPostLikedByMe(Boolean(response.data?.likedByMe));
     } finally {

@@ -2,7 +2,7 @@ import axios from "axios";
 import { ShelfReviewEmbed } from "./ShelfReviewEmbed";
 import { ShelfAskEmbed } from "./ShelfAskEmbed";
 import { useEffect, useState } from "react";
-import { Blog } from "../hooks";
+import { Blog, markBlogsStale } from "../hooks";
 import { Appbar } from "./Appbar";
 import { Avatar } from "./BlogCard";
 import { MentionInput } from "./MentionInput";
@@ -14,7 +14,7 @@ import remarkGfm from "remark-gfm";
 import { getThemePalette } from "../themes";
 import { extractFirstYouTubeEmbedUrl, getTransformedImageUrl, isImageLikeUrl, stripLeadingFirstYouTubeUrl, withStandaloneImagePreviewMarkdown } from "../lib/content";
 
-export const FullBlog = ({ blog }: { blog: Blog }) => {
+export const FullBlog = ({ blog, commentsPending = false }: { blog: Blog; commentsPending?: boolean }) => {
   const markdownComponents: Components = {
     img: (props) => {
       const src = typeof props.src === "string" ? props.src : undefined;
@@ -118,6 +118,7 @@ export const FullBlog = ({ blog }: { blog: Blog }) => {
           },
         }
       );
+      markBlogsStale();
       const comment = response.data?.comment;
       if (comment) {
         setComments((existing) => [...existing, {
@@ -154,6 +155,7 @@ export const FullBlog = ({ blog }: { blog: Blog }) => {
           },
         }
       );
+      markBlogsStale();
       setPostLikeCount(Number(response.data?.likeCount) || 0);
       setPostLikedByMe(Boolean(response.data?.likedByMe));
     } finally {
@@ -172,6 +174,7 @@ export const FullBlog = ({ blog }: { blog: Blog }) => {
           },
         }
       );
+      markBlogsStale();
       const likeCount = Number(response.data?.likeCount) || 0;
       const likedByMe = Boolean(response.data?.likedByMe);
       setComments((existing) =>
@@ -206,6 +209,7 @@ export const FullBlog = ({ blog }: { blog: Blog }) => {
           },
         }
       );
+      markBlogsStale();
       setPostTitle(title);
       setPostContent(content);
       const editedAt = typeof response.data?.editedAt === "string" ? response.data.editedAt : new Date().toISOString();
@@ -241,6 +245,7 @@ export const FullBlog = ({ blog }: { blog: Blog }) => {
           },
         }
       );
+      markBlogsStale();
       const editedAt = typeof response.data?.editedAt === "string" ? response.data.editedAt : new Date().toISOString();
       setComments((existing) =>
         existing.map((comment) =>
@@ -445,7 +450,7 @@ export const FullBlog = ({ blog }: { blog: Blog }) => {
             </div>
             <div className="mt-5 space-y-3">
               {comments.length === 0 ? (
-                <div className="text-sm text-slate-500">No comments yet.</div>
+                <div className="text-sm text-slate-500">{commentsPending ? "Loading comments…" : "No comments yet."}</div>
               ) : (
                 comments.map((comment) => (
                   <div key={comment.id} className="rounded-lg bg-white p-3">

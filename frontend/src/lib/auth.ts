@@ -1,5 +1,6 @@
 import axios, { type AxiosRequestConfig } from "axios";
 import { BACKEND_URL } from "../config";
+import { clearQueryCache } from "./query";
 
 let refreshInFlight: Promise<string | null> | null = null;
 let axiosAuthInitialized = false;
@@ -119,6 +120,8 @@ export function clearAuthStorage() {
   localStorage.removeItem("isAdmin");
   localStorage.removeItem("themeKey");
   localStorage.removeItem("profilePictureUrl");
+  // The cached posts and shelf are this account's, and they are on disk.
+  clearQueryCache();
 }
 
 export function isAuthErrorStatus(status?: number) {

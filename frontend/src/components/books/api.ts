@@ -1,17 +1,19 @@
 import axios from "axios";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useCallback } from "react";
 import type { CatalogCandidate, CatalogEdition } from "@blogging-app/common";
 import { BACKEND_URL } from "../../config";
 import { getAuthHeader, getCurrentUserId } from "../../lib/auth";
+import { accountKey, queryClient } from "../../lib/query";
 
-// The shelf API, and the one cache /books reads through.
+// The shelf API, and how /books reads through the app's query cache.
 //
 // Every screen asks `useShelf(path)` and gets the last answer for that path at
-// once, if there is one, while a fresh one is fetched. A write calls
-// `invalidateShelf()`, which refetches whatever is on screen. That is the whole
-// data layer: the shelf is one person's few hundred rows, and showing the last
-// answer first is what makes the home screen open instantly from the home
-// screen icon.
+// once, if there is one — from memory, or from disk on a cold launch — while a
+// fresh one is fetched. A write calls `invalidateShelf()`, which refetches
+// whatever is on screen. The shelf is one person's few hundred rows, and
+// showing the last answer first is what makes the home screen open instantly
+// from the home screen icon.
 
 export type Person = {
   id: number;
@@ -277,73 +279,34 @@ export function errorMessage(error: unknown, fallback = "Something went wrong. T
 
 // --- cache -----------------------------------------------------------------
 
+// The app's one query cache (src/lib/query.ts), under a "shelf" key per path.
 // Keyed by account as well as path: one localStorage token is shared by every
 // tab, so another account can sign in under an open /books (wiki/gotchas.md).
-const cache = new Map<string, unknown>();
-const cacheKey = (path: string) => `${getCurrentUserId() ?? "-"}:${path}`;
-const INVALIDATE_EVENT = "shelf-invalidate";
+const shelfKey = (path: string) => accountKey(getCurrentUserId(), "shelf", path);
 
 /** Refetch everything on screen after a write. Cheap: it is a handful of GETs. */
 export function invalidateShelf() {
-  window.dispatchEvent(new Event(INVALIDATE_EVENT));
+  void queryClient.invalidateQueries({ queryKey: accountKey(getCurrentUserId(), "shelf") });
 }
 
 /** Edit a cached answer in place, for an optimistic update. */
 export function patchCached<T>(path: string, update: (value: T) => T) {
-  const current = cache.get(cacheKey(path)) as T | undefined;
-  if (current !== undefined) {
-    cache.set(cacheKey(path), update(current));
-    window.dispatchEvent(new CustomEvent(`${INVALIDATE_EVENT}:local`, { detail: path }));
-  }
+  queryClient.setQueryData<T>(shelfKey(path), (current) => (current === undefined ? current : update(current)));
 }
 
 export function useShelf<T>(path: string | null) {
-  const [data, setData] = useState<T | undefined>(() => (path ? (cache.get(cacheKey(path)) as T | undefined) : undefined));
-  const [error, setError] = useState<unknown>(null);
-  const [loading, setLoading] = useState(false);
-  const latestPath = useRef(path);
-  latestPath.current = path;
-
-  const load = useCallback(async () => {
-    if (!path) return;
-    setLoading(true);
-    try {
-      const value = await shelfGet<T>(path);
-      cache.set(cacheKey(path), value);
-      if (latestPath.current === path) {
-        setData(value);
-        setError(null);
-      }
-    } catch (e) {
-      if (latestPath.current === path) setError(e);
-    } finally {
-      if (latestPath.current === path) setLoading(false);
-    }
-  }, [path]);
-
-  useEffect(() => {
-    setData(path ? (cache.get(cacheKey(path)) as T | undefined) : undefined);
-    setError(null);
-    void load();
-  }, [path, load]);
-
-  useEffect(() => {
-    const reload = () => void load();
-    const onVisible = () => {
-      if (document.visibilityState === "visible") reload();
-    };
-    const onLocal = (event: Event) => {
-      if (path && (event as CustomEvent<string>).detail === path) setData(cache.get(cacheKey(path)) as T);
-    };
-    window.addEventListener(INVALIDATE_EVENT, reload);
-    window.addEventListener(`${INVALIDATE_EVENT}:local`, onLocal);
-    document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      window.removeEventListener(INVALIDATE_EVENT, reload);
-      window.removeEventListener(`${INVALIDATE_EVENT}:local`, onLocal);
-      document.removeEventListener("visibilitychange", onVisible);
-    };
-  }, [load, path]);
-
-  return { data, error, loading, reload: load };
+  const query = useQuery({
+    queryKey: shelfKey(path ?? ""),
+    queryFn: () => shelfGet<T>(path!),
+    enabled: path !== null,
+    // Every visit refetches, as this did before it was TanStack: a club's notes
+    // and a friend's progress are someone else's writes, which no
+    // invalidateShelf() here will ever announce.
+    staleTime: 0,
+  });
+  const { refetch } = query;
+  const reload = useCallback(async () => {
+    await refetch();
+  }, [refetch]);
+  return { data: query.data, error: query.error, loading: query.isFetching, reload };
 }
