@@ -56,6 +56,8 @@ model User {
   shelfEntries     ShelfEntry[]
   progressLogs     ProgressLog[]
   shelfReviewComments ShelfReviewComment[]
+  shelfAsks           ShelfAsk[]
+  shelfAskComments    ShelfAskComment[]
   notificationsSent   NotificationSent[]
   readerSync          ReaderSync?
   readerDocuments     ReaderDocument[]
@@ -108,11 +110,14 @@ model Post {
   // from the review through this relation, so editing the review edits the
   // card; title and content are only a plain-text fallback.
   shelfReviewId Int?  @unique @map("shelf_review_id")
+  // Set when the post is an ask cross-posted from /books, drawn the same way.
+  shelfAskId    Int?  @unique @map("shelf_ask_id")
 
   author    User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
   comments  Comment[]
   likes     PostLike[]
   shelfReview ShelfReview? @relation(fields: [shelfReviewId], references: [id], onDelete: SetNull)
+  shelfAsk    ShelfAsk?    @relation(fields: [shelfAskId], references: [id], onDelete: Cascade)
 
   @@map("posts")
 }
@@ -534,6 +539,40 @@ model ShelfReviewComment {
 
   @@index([reviewId])
   @@map("shelf_review_comments")
+}
+
+// A request for a recommendation: a review with no book, posted to the feed
+// for the group to answer in its discussion. Not a ShelfReview with no run,
+// because everything that reads a review reaches its reviewer, its book and its
+// spoiler gate through the run.
+model ShelfAsk {
+  id        Int       @id @default(autoincrement())
+  authorId  Int       @map("author_id")
+  body      String
+  createdAt DateTime  @default(now()) @map("created_at")
+  editedAt  DateTime? @map("edited_at")
+
+  author     User              @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  comments   ShelfAskComment[]
+  loungePost Post?
+
+  @@index([createdAt])
+  @@map("shelf_asks")
+}
+
+model ShelfAskComment {
+  id        Int       @id @default(autoincrement())
+  askId     Int       @map("ask_id")
+  authorId  Int       @map("author_id")
+  content   String
+  createdAt DateTime  @default(now()) @map("created_at")
+  editedAt  DateTime? @map("edited_at")
+
+  ask    ShelfAsk @relation(fields: [askId], references: [id], onDelete: Cascade)
+  author User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([askId])
+  @@map("shelf_ask_comments")
 }
 
 // One row per notification sent under a throttle: a key ("club:<item id>")

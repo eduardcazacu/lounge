@@ -11,6 +11,7 @@ import { ItemScreen } from "./ItemScreen";
 import { ClubScreen } from "./ClubScreen";
 import { FinishScreen } from "./FinishScreen";
 import { FeedScreen } from "./FeedScreen";
+import { AskScreen } from "./AskScreen";
 import { ReviewScreen } from "./ReviewScreen";
 import { LibraryScreen } from "./LibraryScreen";
 import { StatsScreen } from "./StatsScreen";
@@ -204,6 +205,7 @@ export function BooksApp() {
           <Route path="finish/:runId" element={<FinishScreen />} />
           <Route path="feed" element={<FeedScreen />} />
           <Route path="review/:reviewId" element={<ReviewScreen />} />
+          <Route path="ask/:askId" element={<AskScreen />} />
           <Route path="library" element={<LibraryScreen />} />
           <Route path="people/:userId" element={<LibraryScreen />} />
           <Route path="stats" element={<StatsScreen />} />

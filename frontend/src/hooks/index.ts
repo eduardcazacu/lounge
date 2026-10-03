@@ -29,6 +29,13 @@ export interface ShelfReviewCard {
     item: { title: string; creators: string[]; coverUrl: string | null; kind: string };
 }
 
+// An ask for a recommendation cross-posted from /books. Present only on such posts.
+export interface ShelfAskCard {
+    id: number;
+    body: string;
+    commentCount: number;
+}
+
 export  interface Blog{
     "content": string;
     "title": string;
@@ -38,6 +45,7 @@ export  interface Blog{
     "imageKey"?: string | null;
     "imageUrl"?: string | null;
     "shelfReview"?: ShelfReviewCard | null;
+    "shelfAsk"?: ShelfAskCard | null;
     "likeCount"?: number;
     "likedByMe"?: boolean;
     "commentCount"?: number;

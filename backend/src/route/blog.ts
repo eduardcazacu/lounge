@@ -94,6 +94,15 @@ const shelfReviewCardSelect = {
   },
 } as const;
 
+// An ask cross-posted from /books, drawn from the ask the same way.
+const shelfAskCardSelect = {
+  select: { id: true, body: true, _count: { select: { comments: true } } },
+} as const;
+
+function shelfAskCard(ask: { id: number; body: string; _count: { comments: number } } | null) {
+  return ask ? { id: ask.id, body: ask.body, commentCount: ask._count.comments } : null;
+}
+
 function shelfReviewCard(
   review: {
     id: number;
@@ -692,6 +701,7 @@ blogRouter.post('/:id/comments/:commentId/likes/toggle', async (c) => {
             createdAt: true,
             editedAt: true,
             shelfReview: shelfReviewCardSelect,
+            shelfAsk: shelfAskCardSelect,
             author: {
               select: {
                 id: true,
@@ -769,6 +779,7 @@ blogRouter.post('/:id/comments/:commentId/likes/toggle', async (c) => {
           createdAt: blog.createdAt.toISOString(),
           editedAt: blog.editedAt ? blog.editedAt.toISOString() : null,
           shelfReview: shelfReviewCard(blog.shelfReview, userId, finished),
+          shelfAsk: shelfAskCard(blog.shelfAsk),
           author: {
             id: blog.author.id,
             name: blog.author.name,
@@ -821,6 +832,7 @@ blogRouter.post('/:id/comments/:commentId/likes/toggle', async (c) => {
         createdAt: true,
         editedAt: true,
         shelfReview: shelfReviewCardSelect,
+        shelfAsk: shelfAskCardSelect,
         author: {
           select: {
             id: true,
@@ -897,6 +909,7 @@ blogRouter.post('/:id/comments/:commentId/likes/toggle', async (c) => {
                 userId,
                 blog.shelfReview?.spoiler ? await finishedItemIds(prisma, userId, [blog.shelfReview.run.entry.item.id]) : new Set()
               ),
+              shelfAsk: shelfAskCard(blog.shelfAsk),
               author: {
                 id: blog.author.id,
                 name: blog.author.name,

@@ -147,8 +147,8 @@ Both must stay as they are. The Books switches ride beside them as
 
 `/books` is web only: no Swift type mirrors the shelf schemas in
 `common/src/index.ts`, and nothing in `ios/` reads them. Its one shared
-surface is the blog. `shelfReview` rides on `/blog/bulk` and `/blog/:id`, which
-iOS does not call.
+surface is the blog. `shelfReview` and `shelfAsk` ride on `/blog/bulk` and
+`/blog/:id`, which iOS does not call.
 
 `/kosync` has a second side we do not own: KOReader. Its paths, headers
 (`x-auth-user`, `x-auth-key`), field names (`device_id`, `percentage`, …) and

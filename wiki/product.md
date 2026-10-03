@@ -31,9 +31,9 @@ their own.
   the iPhone app records video; the web plays it. Streaks count consecutive days two
   people send to each other.
 - **Books** — a reading log with one-tap page logging, a want-to-read list,
-  re-reads, DNFs, stats, reviews with a discussion under each, and a book club
-  that shows other readers' notes only up to where you are. A standalone app at
-  `/books`. See [books.md](books.md).
+  re-reads, DNFs, stats, reviews and asks for a recommendation with a
+  discussion under each, and a book club that shows other readers' notes only
+  up to where you are. A standalone app at `/books`. See [books.md](books.md).
 - **Themes** — each person picks a palette that follows them around the app, so
   you can tell whose post you are looking at before reading the name.
 - **Groups** — every account belongs to exactly one, and a group is a sealed-off

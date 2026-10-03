@@ -341,6 +341,25 @@ the ending away as readily. The Lounge post's own text, which shows only if
 the card cannot be drawn, leaves a spoiler's body out (`loungeContent`), and
 it is rewritten whenever the review is saved.
 
+## Asking for a recommendation
+
+The feed's Ask button posts a `ShelfAsk`: a few lines asking the group what to
+read, drawn like a review with no book, with a discussion under it for the
+answers. `/books/ask/:id` is its page. Replies notify as a review's do, under
+`notifyBookDiscussion`. An ask notifies nobody when it is posted; crossing it
+to the Lounge, which the compose sheet offers, is how to tell everyone.
+
+**An ask is its own table, not a review without a run.** Everything that
+reads a `ShelfReview` reaches its reviewer, its book and its spoiler gate
+through `run.entry`; a nullable run would have put a null check on every one
+of those paths, including the Lounge's.
+
+**The feed pages two tables** (`GET /feed` in `backend/src/route/shelf.ts`).
+Its cursor is `"<review id>.<ask id>"`, the oldest of each shown so far, so
+each table is read as a prefix of its own order and nothing is skipped or
+repeated however they interleave. `GET /reviews` stays reviews only: a book's
+page and someone's library list reviews, never asks.
+
 ## Other people's libraries
 
 Home ends with everyone else in the group who has a read on their shelf
@@ -351,12 +370,14 @@ ways, as for notifications.
 
 ## On the Lounge
 
-A review can be cross-posted as a `Post` with `shelfReviewId` set. The blog
-feed (`/blog/bulk`, `/blog/:id`) selects the review through that relation, and
-`frontend/src/components/ShelfReviewEmbed.tsx` draws the card from it. Editing
-the review therefore edits the card, and the post's own title and content are
-only a plain-text fallback. The card opens `/books/review/:id`, where the
-discussion is. Deleting a run deletes its Lounge post first.
+A review can be cross-posted as a `Post` with `shelfReviewId` set, and an ask
+as one with `shelfAskId`. The blog feed (`/blog/bulk`, `/blog/:id`) selects
+the review or ask through that relation, and
+`frontend/src/components/ShelfReviewEmbed.tsx` and `ShelfAskEmbed.tsx` draw
+the card from it. Editing the review or ask therefore edits the card, and the
+post's own title and content are only a plain-text fallback. The card opens
+the review or ask in Books, where the discussion is. Deleting a run deletes
+its Lounge post first; deleting an ask takes its post by cascade.
 
 ## Notifications
 
@@ -364,7 +385,7 @@ Three kinds, each with its own switch under the account's master switch
 (`notifyBookDiscussion`, `notifyBookClub`, `notifyBookActivity` on `User`; the
 Books section of Account settings):
 
-- **Replies**: a comment on your review, or in a discussion you are in.
+- **Replies**: a comment on your review or ask, or in a discussion you are in.
 - **Book club notes**: `notifyBookClubNote` in `backend/src/shelf-notify.ts`
   runs the same gate as the club screen (`partitionClubNotes`) for every
   current reader. A notification therefore never shows anyone more than the
