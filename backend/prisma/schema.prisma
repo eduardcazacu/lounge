@@ -57,6 +57,8 @@ model User {
   progressLogs     ProgressLog[]
   shelfReviewComments ShelfReviewComment[]
   notificationsSent   NotificationSent[]
+  readerSync          ReaderSync?
+  readerDocuments     ReaderDocument[]
 
   @@index([groupId])
   @@map("users")
@@ -383,6 +385,7 @@ model ShelfEntry {
   user User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   item CatalogItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
   runs ShelfRun[]
+  readerDocuments ReaderDocument[]
 
   @@unique([userId, itemId])
   @@unique([userId, importId])
@@ -437,6 +440,10 @@ model ProgressLog {
   // backfilled book, put on the finish day. It counts as pages read but not as
   // a reading day, or one remembered book would be the year's best day.
   closing      Boolean  @default(false)
+  // "koreader" for a log a KOReader sync wrote; null for one the reader did.
+  // A sync extends the day's own "koreader" log rather than adding one per
+  // page turn (src/reader-sync.ts).
+  source       String?
   createdAt    DateTime @default(now()) @map("created_at")
 
   run  ShelfRun @relation(fields: [runId], references: [id], onDelete: Cascade)
@@ -499,4 +506,53 @@ model NotificationSent {
   @@id([userId, key, sentOn])
   @@index([sentOn])
   @@map("notifications_sent")
+}
+
+// KOReader's progress sync, served by src/route/kosync.ts. One login per
+// person, made in /books: KOReader's Register button is refused.
+model ReaderSync {
+  userId     Int       @id @map("user_id")
+  username   String    @unique
+  // sha256 of the key KOReader sends, which is itself md5(password). Never
+  // the md5: that is the credential, and KOReader stores it unsalted.
+  keyHash    String    @map("key_hash")
+  // The reader's IANA zone, from their browser at setup. A log is dated by the
+  // reader's own day, and KOReader sends no day.
+  timeZone   String    @map("time_zone")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  lastSeenAt DateTime? @map("last_seen_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("reader_syncs")
+}
+
+// One file KOReader has synced. KOReader names it only by a hash, so it is
+// unidentified (entryId null) until the reader, or the title KOReader may send
+// with it, says which book it is.
+model ReaderDocument {
+  id         Int      @id @default(autoincrement())
+  userId     Int      @map("user_id")
+  document   String
+  entryId    Int?     @map("entry_id")
+  // "Not a book I track": stored and served back to KOReader, never logged.
+  ignored    Boolean  @default(false)
+  // KOReader's own position (an xpointer or a page), handed back verbatim to
+  // its other devices.
+  progress   String
+  percentage Float
+  device     String
+  deviceId   String   @map("device_id")
+  // What KOReader says the file is, when "Send document metadata" is on.
+  title      String?
+  authors    String?
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  user  User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entry ShelfEntry? @relation(fields: [entryId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, document])
+  @@index([entryId])
+  @@map("reader_documents")
 }

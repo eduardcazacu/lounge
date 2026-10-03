@@ -2,13 +2,14 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Avatar } from "../BlogCard";
 import { invalidateShelf, localDay, shelfSend, useShelf } from "./api";
-import type { Home, HomeReading } from "./api";
+import type { Home, HomeReading, ReaderPending } from "./api";
 import { AccountButton } from "./BooksApp";
 import { LogSheet } from "./LogSheet";
 import { CopyPagesSheet } from "./CopyPagesSheet";
+import { ReaderLinkSheet } from "./ReaderLinkSheet";
 import { dismissNotificationsCard, isNotificationsCardDismissed, usePushState } from "./notifications";
 import { Card, Cover, EmptyNote, ProgressBar, SectionTitle, Spinner } from "./ui";
-import { byline, percentText, usePalette } from "./format";
+import { agoText, byline, percentText, usePalette } from "./format";
 
 // Home: what is being read, how far, and a button to log more — then three
 // numbers, then the want list. Everything else is a tap away. The book club
@@ -20,6 +21,14 @@ function ReadingCard({ reading, onLog }: { reading: HomeReading; onLog: () => vo
   const [checkingCopy, setCheckingCopy] = useState(false);
   const { item, run, club } = reading;
   const total = run.totalUnits;
+
+  // A sync never finishes a book — there may be an epilogue, or notes at the
+  // back KOReader counts as the book — so near the end it asks, once a tap.
+  async function finish() {
+    await shelfSend("post", `/runs/${run.id}/finish`, { status: "finished", finishedOn: localDay() });
+    invalidateShelf();
+    navigate(`/books/finish/${run.id}`);
+  }
 
   return (
     <Card className="!p-3">
@@ -44,6 +53,19 @@ function ReadingCard({ reading, onLog }: { reading: HomeReading; onLog: () => vo
                 </span>
               ) : null}
             </div>
+            {reading.reader ? (
+              <div className="mt-0.5 text-xs text-slate-500">
+                KOReader · {agoText(reading.reader.syncedAt)}
+                {run.fraction !== null && run.fraction >= 0.99 ? (
+                  <>
+                    {" · "}
+                    <button type="button" onClick={finish} className="font-medium" style={{ color: palette.accent }}>
+                      Finished it?
+                    </button>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
             {!run.unitsConfirmed ? (
               <button type="button" onClick={() => setCheckingCopy(true)} className="mt-0.5 text-left text-xs font-medium text-amber-700">
                 {total ? `Is your copy ${total} pages?` : "How many pages is your copy?"}
@@ -95,6 +117,31 @@ function ReadingCard({ reading, onLog }: { reading: HomeReading; onLog: () => vo
           }}
         />
       ) : null}
+    </Card>
+  );
+}
+
+/** A file KOReader synced that is not a book yet: one tap to say which. */
+function ReaderPendingCard({ doc }: { doc: ReaderPending }) {
+  const palette = usePalette();
+  const [open, setOpen] = useState(false);
+  return (
+    <Card className="mb-3">
+      <p className="text-[15px] font-medium text-slate-900">
+        {doc.title ? `${doc.title} on your ${doc.device}` : `Your ${doc.device} is reading something`}
+      </p>
+      <p className="mt-0.5 text-sm text-slate-600">
+        At {percentText(doc.percentage)}, synced {agoText(doc.syncedAt)}. Which book is it? You'll only be asked once.
+      </p>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="mt-3 rounded-full px-4 py-2 text-sm font-semibold text-white"
+        style={{ background: palette.accent }}
+      >
+        Choose the book
+      </button>
+      {open ? <ReaderLinkSheet doc={doc} onClose={() => setOpen(false)} /> : null}
     </Card>
   );
 }
@@ -207,6 +254,9 @@ export function HomeScreen() {
         ) : (
           <>
             <SectionTitle>Reading now</SectionTitle>
+            {(home.readerPending ?? []).map((doc) => (
+              <ReaderPendingCard key={doc.id} doc={doc} />
+            ))}
             {home.reading.length === 0 ? (
               <Link to="/books/add" className="block">
                 <EmptyNote>

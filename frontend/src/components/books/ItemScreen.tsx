@@ -107,6 +107,9 @@ function LogRow({ log, isLatest }: { log: ProgressLogRow; isLatest: boolean }) {
         <span className="text-slate-500">{formatDay(log.loggedOn)}</span>
         <span className="flex-1 tabular-nums text-slate-800">
           {moved >= 0 ? `+${moved}` : moved} → p. {log.toPosition}
+          {log.source === "koreader" ? (
+            <span className="ml-2 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">KOReader</span>
+          ) : null}
         </span>
         <button type="button" onClick={() => setEditing((value) => !value)} className="text-xs font-medium text-slate-500">
           {log.note ? "Edit note" : "Add note"}

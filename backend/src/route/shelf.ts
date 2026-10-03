@@ -7,7 +7,9 @@ import {
   finishRunInput,
   importBatchInput,
   startRunInput,
+  linkReaderDocumentInput,
   logProgressInput,
+  readerSetupInput,
   reviewCommentInput,
   shelfKind,
   updateProgressLogInput,
@@ -25,6 +27,17 @@ import { findKnownBook, rememberIsbns, resolveCandidate } from "../catalog/store
 import { copyCovers, deleteCover } from "../covers";
 import { notifyBookClubNote, notifyFinishedReading, notifyStartedReading, type NotifyConfig } from "../shelf-notify";
 import { blockedUserIds } from "../blocks";
+import {
+  applyDocument,
+  dayInZone,
+  generatePassword,
+  hashReaderKey,
+  pendingDocuments,
+  readerKeyFor,
+  recordProgress,
+  usernameFrom,
+  validTimeZone,
+} from "../reader-sync";
 import type { CatalogCandidate, ImportRowInput, ImportRowResult } from "@blogging-app/common";
 import {
   addDays,
@@ -624,7 +637,7 @@ shelfRouter.get("/entries/:id", async (c) => {
           where: { runId: activeRun.id },
           orderBy: { id: "desc" },
           take: 10,
-          select: { id: true, loggedOn: true, fromPosition: true, toPosition: true, note: true, createdAt: true },
+          select: { id: true, loggedOn: true, fromPosition: true, toPosition: true, note: true, source: true, createdAt: true },
         })
       : [];
 
@@ -652,6 +665,7 @@ shelfRouter.get("/entries/:id", async (c) => {
       fromPosition: log.fromPosition,
       toPosition: log.toPosition,
       note: log.note,
+      source: log.source,
       createdAt: log.createdAt.toISOString(),
     })),
   });
@@ -710,6 +724,18 @@ shelfRouter.get("/home", async (c) => {
         finishedOn: { gte: dateFromDay(`${year}-01-01`), lte: dateFromDay(`${year}-12-31`) },
       },
     }),
+  ]);
+
+  const entryIds = activeRuns.map((run) => run.entry.id);
+  const [readerLinks, readerPending] = await Promise.all([
+    entryIds.length
+      ? prisma.readerDocument.findMany({
+          where: { userId, entryId: { in: entryIds }, ignored: false },
+          orderBy: { updatedAt: "desc" },
+          select: { entryId: true, device: true, updatedAt: true },
+        })
+      : [],
+    pendingDocuments(prisma, userId),
   ]);
 
   const itemIds = activeRuns.map((run) => run.entry.item.id);
@@ -779,6 +805,11 @@ shelfRouter.get("/home", async (c) => {
         item: itemView(item),
         run: runView(run, item.totalUnits),
         today: todayByRun.get(run.id) ?? 0,
+        // The latest KOReader sync of this book, if a file is linked to it.
+        reader: (() => {
+          const link = readerLinks.find((doc) => doc.entryId === run.entry.id);
+          return link ? { device: link.device, syncedAt: link.updatedAt.toISOString() } : null;
+        })(),
         club: {
           visibleNotes: visible.length,
           aheadNotes: aheadCount,
@@ -789,6 +820,7 @@ shelfRouter.get("/home", async (c) => {
       };
     }),
     want: wanted.map((entry) => ({ entryId: entry.id, item: itemView(entry.item) })),
+    readerPending,
     highlights: {
       year,
       booksThisYear: finishedThisYear,
@@ -796,6 +828,151 @@ shelfRouter.get("/home", async (c) => {
       streak: currentStreak(recentDays.map((row) => dayOf(row.loggedOn)), today),
     },
   });
+});
+
+// ---------------------------------------------------------------------------
+// KOReader sync: the login KOReader uses (route/kosync.ts), and which book
+// each synced file is. See src/reader-sync.ts.
+// ---------------------------------------------------------------------------
+
+/** Where KOReader is pointed: this API's own origin, as the reader's browser reached it. */
+function kosyncUrl(c: Context<ShelfEnv>) {
+  return `${new URL(c.req.url).origin}/kosync`;
+}
+
+shelfRouter.get("/reader", async (c) => {
+  const userId = c.get("userId");
+  const { prisma } = db(c);
+  const [sync, documents] = await Promise.all([
+    prisma.readerSync.findUnique({ where: { userId }, select: { username: true, timeZone: true, lastSeenAt: true } }),
+    prisma.readerDocument.findMany({
+      where: { userId },
+      orderBy: { updatedAt: "desc" },
+      take: 50,
+      select: {
+        id: true,
+        title: true,
+        authors: true,
+        percentage: true,
+        device: true,
+        ignored: true,
+        updatedAt: true,
+        entry: { select: { id: true, item: { select: itemSelect } } },
+      },
+    }),
+  ]);
+  return c.json({
+    serverUrl: kosyncUrl(c),
+    login: sync
+      ? { username: sync.username, timeZone: sync.timeZone, lastSeenAt: sync.lastSeenAt?.toISOString() ?? null }
+      : null,
+    documents: documents.map((doc) => ({
+      id: doc.id,
+      title: doc.title,
+      authors: doc.authors,
+      percentage: doc.percentage,
+      device: doc.device,
+      ignored: doc.ignored,
+      syncedAt: doc.updatedAt.toISOString(),
+      entry: doc.entry ? { id: doc.entry.id, item: itemView(doc.entry.item) } : null,
+    })),
+  });
+});
+
+/**
+ * Makes the KOReader login, or a new password for it. The password is in this
+ * answer and nowhere else: only a hash of the key KOReader derives from it is
+ * kept.
+ */
+shelfRouter.post("/reader/password", async (c) => {
+  const parsed = readerSetupInput.safeParse(await readJson(c));
+  if (!parsed.success || !validTimeZone(parsed.data.timeZone)) return badRequest(c, "Inputs are incorrect.");
+  const userId = c.get("userId");
+  const { prisma } = db(c);
+  const password = generatePassword();
+  const keyHash = hashReaderKey(readerKeyFor(password));
+  const existing = await prisma.readerSync.findUnique({ where: { userId }, select: { username: true } });
+  let username = existing?.username;
+  if (username) {
+    await prisma.readerSync.update({ where: { userId }, data: { keyHash, timeZone: parsed.data.timeZone } });
+  } else {
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
+    const base = usernameFrom(user?.name);
+    const taken = await prisma.readerSync.findUnique({ where: { username: base }, select: { userId: true } });
+    username = taken ? `${base}${userId}` : base;
+    await prisma.readerSync.create({ data: { userId, username, keyHash, timeZone: parsed.data.timeZone } });
+  }
+  return c.json({ serverUrl: kosyncUrl(c), username, password });
+});
+
+/** Turns sync off. Files stay linked, so setting it up again carries on. */
+shelfRouter.delete("/reader", async (c) => {
+  const { prisma } = db(c);
+  await prisma.readerSync.deleteMany({ where: { userId: c.get("userId") } });
+  return c.json({ ok: true });
+});
+
+shelfRouter.post("/reader/documents/:id/link", async (c) => {
+  const documentId = idParam(c, "id");
+  if (!documentId) return notFound(c);
+  const parsed = linkReaderDocumentInput.safeParse(await readJson(c));
+  if (!parsed.success) return badRequest(c, "Inputs are incorrect.");
+  const userId = c.get("userId");
+  const { prisma } = db(c);
+  const doc = await prisma.readerDocument.findUnique({ where: { id: documentId }, select: { userId: true } });
+  if (!doc || doc.userId !== userId) return notFound(c);
+
+  if ("ignore" in parsed.data) {
+    await prisma.readerDocument.update({ where: { id: documentId }, data: { ignored: true, entryId: null } });
+    return c.json({ ok: true, runId: null });
+  }
+
+  const { entryId, totalUnits: copyUnits } = parsed.data;
+  const sync = await prisma.readerSync.findUnique({ where: { userId }, select: { timeZone: true } });
+  const today = parsed.data.today ?? dayOf(new Date());
+  const entry = await prisma.shelfEntry.findUnique({
+    where: { id: entryId },
+    select: {
+      userId: true,
+      itemId: true,
+      wantedAt: true,
+      item: { select: { totalUnits: true } },
+      runs: { orderBy: { id: "desc" }, select: { id: true, status: true, totalUnits: true } },
+    },
+  });
+  if (!entry || entry.userId !== userId) return notFound(c);
+  let run = entry.runs.find((candidate) => candidate.status === "active");
+  // A want-list book: KOReader is reading it, so the reader has started it.
+  // Only when the reader says so, here — never from a sync on its own.
+  let started = false;
+  if (!run) {
+    if (!entry.wantedAt) return conflict(c, "That read is over. Start a re-read of it first.");
+    run = await prisma.$transaction(async (tx) => {
+      const created = await tx.shelfRun.create({
+        data: {
+          entryId,
+          status: "active",
+          startedOn: dateFromDay(today),
+          totalUnits: copyUnits ?? entry.item.totalUnits,
+          unitsConfirmed: copyUnits !== undefined,
+        },
+        select: { id: true, status: true, totalUnits: true },
+      });
+      await tx.shelfEntry.update({ where: { id: entryId }, data: { wantedAt: null } });
+      return created;
+    });
+    started = true;
+  } else if (copyUnits !== undefined) {
+    await prisma.shelfRun.update({ where: { id: run.id }, data: { totalUnits: copyUnits, unitsConfirmed: true } });
+  }
+
+  await prisma.readerDocument.update({ where: { id: documentId }, data: { entryId, ignored: false } });
+  // Where KOReader already is counts from now: the first link moves the bar.
+  await applyDocument(prisma, documentId, parsed.data.today ?? (sync ? dayInZone(new Date(), sync.timeZone) : today));
+  if (started) {
+    scheduleBackgroundWork(c, notifyStartedReading(prisma, notifyConfig(c), { actorId: userId, itemId: entry.itemId }));
+  }
+  return c.json({ ok: true, runId: run.id });
 });
 
 // ---------------------------------------------------------------------------
@@ -895,21 +1072,9 @@ shelfRouter.post("/runs/:id/log", async (c) => {
   const note = cleanBody(parsed.data.note) ?? null;
   if (to === from && !note) return badRequest(c, "Nothing to log.");
 
-  const log = await prisma.$transaction(async (tx) => {
-    const created = await tx.progressLog.create({
-      data: {
-        runId,
-        userId,
-        loggedOn: dateFromDay(parsed.data.loggedOn),
-        fromPosition: from,
-        toPosition: to,
-        note,
-      },
-      select: { id: true, loggedOn: true, fromPosition: true, toPosition: true, note: true, createdAt: true },
-    });
-    await tx.shelfRun.update({ where: { id: runId }, data: { position: to } });
-    return created;
-  });
+  const log = await prisma.$transaction((tx) =>
+    recordProgress(tx, { runId, userId, day: parsed.data.loggedOn, from, to, note })
+  );
 
   if (note) scheduleBackgroundWork(c, notifyBookClubNote(prisma, notifyConfig(c), log.id));
   const unlockedNotes = to > from ? await notesUnlocked(prisma, userId, run.entry.itemId, runId, from) : 0;

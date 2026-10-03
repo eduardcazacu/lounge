@@ -75,7 +75,8 @@ cd backend && npx tsx ../ios/tools/verify-swift-fixtures.ts  # JS opens
 - **Zod input schemas live in `common/src/index.ts`.** iOS mirrors them by hand
   in `DTOs.swift`, so field names are stable on purpose — renaming one silently
   breaks a Swift decode nothing in the TypeScript build can see.
-- **Auth failures are 403, not 401**, everywhere.
+- **Auth failures are 403, not 401**, everywhere but `/kosync`, which speaks
+  KOReader's protocol and its statuses (`wiki/decisions.md`).
 - **Explain why, in prose.** The existing READMEs, the wiki and the commit
   messages are the reference for voice: specific, unhedged, and about reasons
   rather than mechanics. Comments that restate the code are not wanted; comments

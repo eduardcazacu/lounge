@@ -51,6 +51,10 @@ Routers, all mounted under `/api/v1`:
 | `backend/src/route/shelf.ts` | `/shelf` | Books: catalog search, the reading log, reviews and their discussion, the book club, stats ([books.md](books.md)) |
 | `backend/src/route/admin.ts` | `/admin` | Approvals, broadcasts, stats, the report queue, the on-demand sweep |
 
+One router is not under `/api/v1`. `backend/src/route/kosync.ts` is mounted at
+`/kosync` and speaks KOReader's progress sync protocol, with its own login and
+statuses ([books.md](books.md)).
+
 ## Data and storage
 
 **Postgres, not D1.** Prisma 7 with the `@prisma/adapter-pg` driver adapter.

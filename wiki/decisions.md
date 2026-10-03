@@ -1100,3 +1100,39 @@ nothing more from its club.
 **Would reopen if** people asked for a daily digest instead, which would need
 the cron to send at a time of day per person.
 
+---
+
+## KOReader progress comes from its sync protocol, not its statistics
+
+**Chosen** to implement KOReader's own progress sync server API at `/kosync`,
+so the stock Progress sync plugin talks to the Lounge.
+
+**Rejected** reading KOReader's statistics database (time per page) over
+WebDAV or an upload, and a custom KOReader plugin. Both need something
+installed or run on the Kindle, and the database arrives in batches rather than
+as you read.
+
+**Cost paid** KOReader names a file by a hash and gives a percentage. So each
+file is identified once, and a page is worked out from the reader's copy.
+Reading time is not known.
+
+**Would reopen if** reading time (pages per hour, time per day) were wanted in
+stats.
+
+---
+
+## KOReader gets its own generated password, and its statuses
+
+**Chosen** a password generated per person for KOReader, stored as sha256 of
+the md5 KOReader sends. `/kosync` answers a refused login with 401 and a refused
+registration with 402.
+
+**Rejected** reusing the Lounge password, because KOReader stores an unsalted
+md5 of it on the device and sends that md5 with every request. Also rejected:
+the repo's 403 for auth failures.
+
+**Because** KOReader's HTTP client raises on any status not listed for that
+call in its `api.json`. With 403, the reader sees "Unknown server error"
+instead of the message. The protocol is KOReader's, so its rules win inside
+`/kosync` and nowhere else.
+

@@ -5,6 +5,7 @@ import { adminRouter } from './route/admin'
 import { instantRouter } from './route/instant'
 import { moderationRouter } from './route/moderation'
 import { shelfRouter } from './route/shelf'
+import { kosyncRouter } from './route/kosync'
 import type { InstantInbox } from './instant-inbox'
 import { cors } from 'hono/cors'
 
@@ -54,6 +55,8 @@ app.route("api/v1/admin", adminRouter)
 app.route("api/v1/instant", instantRouter)
 app.route("api/v1/moderation", moderationRouter)
 app.route("api/v1/shelf", shelfRouter)
+// KOReader's progress sync, at the path KOReader is pointed at: see route/kosync.ts.
+app.route("kosync", kosyncRouter)
 
 app.use('/message/*', async (c, next) => {
   await next()

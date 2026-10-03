@@ -15,6 +15,7 @@ import { ReviewScreen } from "./ReviewScreen";
 import { LibraryScreen } from "./LibraryScreen";
 import { StatsScreen } from "./StatsScreen";
 import { ImportScreen } from "./ImportScreen";
+import { KoreaderScreen } from "./KoreaderScreen";
 
 /**
  * Paints the browser's own furniture in the reader's palette while /books is
@@ -134,6 +135,7 @@ export function AccountButton() {
             <SheetLink to="/books/add?intent=finished" label="Add a book you've already read" onClick={() => setOpen(false)} />
             <SheetLink to="/books/stats" label="Your reading stats" onClick={() => setOpen(false)} />
             <SheetLink to="/books/import" label="Import from Goodreads" onClick={() => setOpen(false)} />
+            <SheetLink to="/books/koreader" label="KOReader sync" onClick={() => setOpen(false)} />
             <NotificationsRow onNavigate={() => setOpen(false)} />
             <SheetLink to="/account" label="Account settings" />
           </nav>
@@ -206,6 +208,7 @@ export function BooksApp() {
           <Route path="people/:userId" element={<LibraryScreen />} />
           <Route path="stats" element={<StatsScreen />} />
           <Route path="import" element={<ImportScreen />} />
+          <Route path="koreader" element={<KoreaderScreen />} />
           <Route path="*" element={<HomeScreen />} />
         </Routes>
       </div>
