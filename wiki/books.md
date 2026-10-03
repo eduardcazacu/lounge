@@ -219,6 +219,12 @@ and returns to the tab with the book in it. Without an intent it offers Want,
 Start and Read it. There, Want stays on the screen for adding several in a row,
 and Read it goes on to the review prompt.
 
+A result already on the reader's shelf says so, and where it stands there,
+linking to the book's page. Search answers are cached for everyone, so the
+response carries this separately (`onShelf` in `backend/src/route/shelf.ts`),
+worked out per request. A result counts if it is the same work or has the same
+title and author, which is the work adding it would land on.
+
 ## Importing from Goodreads
 
 `/books/import` reads a Goodreads library export

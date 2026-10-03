@@ -23,7 +23,7 @@ import { getUserGroupId } from "../groups";
 import { scheduleBackgroundWork } from "../background";
 import { notifyFollowersOfNewPost, sendPushToUsers } from "../push";
 import { CatalogUnavailable, SEARCH_CACHE_TTL_MS, bookEditions, searchCatalog } from "../catalog";
-import { findBook, freshSourceState, manualCandidate, type SourceState } from "../catalog/match-book";
+import { findBook, freshSourceState, manualCandidate, sameBook, type SourceState } from "../catalog/match-book";
 import { findKnownBook, rememberIsbns, resolveCandidate, saveEdition } from "../catalog/store";
 import { copyCovers, deleteCover } from "../covers";
 import { notifyBookClubNote, notifyFinishedReading, notifyStartedReading, type NotifyConfig } from "../shelf-notify";
@@ -330,17 +330,59 @@ function catalogUnavailable(c: Context<ShelfEnv>, error: CatalogUnavailable) {
  * Open Library — which limits by IP — never sees. Only complete answers are
  * cached; see `BookSearchResult.complete`.
  */
+/**
+ * Which search results are already on the caller's shelf, keyed as the client
+ * keys results (`source:externalId`), and where the book stands there. A result
+ * counts if it is the same catalog work, or has the same title and author: that
+ * is the work adding it would land on (`resolveCandidate`), so a book added from
+ * Google shows as on the shelf when Open Library offers it too. Worked out per
+ * request, because search answers are cached for everyone.
+ */
+async function onShelf(prisma: PrismaClient, userId: number, results: CatalogCandidate[]) {
+  if (results.length === 0) return {};
+  const entries = await prisma.shelfEntry.findMany({
+    where: { userId },
+    select: {
+      id: true,
+      wantedAt: true,
+      item: { select: { source: true, externalId: true, title: true, creators: true } },
+      runs: { orderBy: { id: "desc" }, select: { status: true } },
+    },
+  });
+  const shelf: Record<string, { entryId: number; status: "reading" | "read" | "dnf" | "want" }> = {};
+  for (const result of results) {
+    const entry =
+      entries.find((mine) => mine.item.source === result.source && mine.item.externalId === result.externalId) ??
+      entries.find((mine) => sameBook(result, { title: mine.item.title, author_name: mine.item.creators }));
+    if (!entry) continue;
+    const latest = entry.runs[0]?.status;
+    const status = entry.runs.some((run) => run.status === "active")
+      ? "reading"
+      : latest === "finished"
+        ? "read"
+        : latest === "dnf"
+          ? "dnf"
+          : entry.wantedAt
+            ? "want"
+            : null;
+    if (status) shelf[`${result.source}:${result.externalId}`] = { entryId: entry.id, status };
+  }
+  return shelf;
+}
+
 shelfRouter.get("/catalog/search", async (c) => {
   const kind = shelfKind.safeParse(c.req.query("kind") ?? "book");
   if (!kind.success) return badRequest(c, "Unknown kind.");
   const query = (c.req.query("q") ?? "").trim().replace(/\s+/g, " ").slice(0, 200);
-  if (query.length < 2) return c.json({ results: [] });
+  if (query.length < 2) return c.json({ results: [], onShelf: {} });
   const { prisma, config } = db(c);
+  const userId = c.get("userId");
   const key = query.toLowerCase();
 
   const cached = await prisma.catalogSearchCache.findUnique({ where: { kind_query: { kind: kind.data, query: key } } });
   if (cached && Date.now() - cached.createdAt.getTime() < SEARCH_CACHE_TTL_MS) {
-    return c.json({ results: cached.results });
+    const results = cached.results as unknown as CatalogCandidate[];
+    return c.json({ results, onShelf: await onShelf(prisma, userId, results) });
   }
 
   try {
@@ -355,7 +397,7 @@ shelfRouter.get("/catalog/search", async (c) => {
         update: { results: json, createdAt: new Date() },
       });
     }
-    return c.json({ results });
+    return c.json({ results, onShelf: await onShelf(prisma, userId, results) });
   } catch (error) {
     if (error instanceof CatalogUnavailable) return catalogUnavailable(c, error);
     throw error;

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { errorMessage, invalidateShelf, localDay, shelfGet, shelfSend } from "./api";
 import type { CatalogCandidate } from "./api";
 import { Cover, Sheet, TopBar } from "./ui";
@@ -39,6 +39,16 @@ const TAB_OF: Record<Intent, string> = { want: "want", start: "reading", finishe
 const DEBOUNCE_MS = 350;
 
 /** A result as the reader will see it on their shelf: its edition's title, cover and length. */
+/** Results already on the reader's shelf, by `source:externalId`, from the search response. */
+type OnShelf = Record<string, { entryId: number; status: "reading" | "read" | "dnf" | "want" }>;
+
+const SHELF_LABEL: Record<OnShelf[string]["status"], string> = {
+  reading: "Reading",
+  read: "Read",
+  dnf: "Didn't finish",
+  want: "Want to read",
+};
+
 function asShown(candidate: CatalogCandidate) {
   const { edition } = candidate;
   return {
@@ -236,6 +246,7 @@ export function AddScreen() {
   const intents: Intent[] = fixed ? [fixed] : ["want", "start", "finished"];
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<CatalogCandidate[] | null>(null);
+  const [onShelf, setOnShelf] = useState<OnShelf>({});
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ending, setEnding] = useState<{ candidate: CatalogCandidate; intent: "finished" | "dnf" } | null>(null);
@@ -258,9 +269,12 @@ export function AddScreen() {
     const id = ++requestId.current;
     const timer = setTimeout(async () => {
       try {
-        const response = await shelfGet<{ results: CatalogCandidate[] }>(`/catalog/search?kind=book&q=${encodeURIComponent(q)}`);
+        const response = await shelfGet<{ results: CatalogCandidate[]; onShelf?: OnShelf }>(
+          `/catalog/search?kind=book&q=${encodeURIComponent(q)}`
+        );
         if (id === requestId.current) {
           setResults(response.results);
+          setOnShelf(response.onShelf ?? {});
           setError(null);
         }
       } catch (e) {
@@ -368,6 +382,7 @@ export function AddScreen() {
             {results.map((candidate) => {
               const key = keyOf(candidate);
               const isAdded = added.has(key);
+              const mine = onShelf[key];
               const shown = asShown(candidate);
               const edition = candidate.edition;
               return (
@@ -380,6 +395,15 @@ export function AddScreen() {
                         .filter(Boolean)
                         .join(" · ")}
                     </div>
+                    {mine ? (
+                      <Link
+                        to={`/books/item/${mine.entryId}`}
+                        className="mt-1 self-start rounded-full px-2 py-0.5 text-xs font-medium"
+                        style={{ background: palette.softBg, color: palette.accent }}
+                      >
+                        ✓ In your library · {SHELF_LABEL[mine.status]} ›
+                      </Link>
+                    ) : null}
                     {candidate.source === "openlibrary" ? (
                       <div className="truncate text-xs text-slate-400">
                         {edition
