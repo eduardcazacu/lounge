@@ -809,6 +809,32 @@ shelfRouter.get("/entries/:id", async (c) => {
 // Home: the one request the main screen makes
 // ---------------------------------------------------------------------------
 
+/**
+ * Everyone else in the group who has read something here, for Home's row of
+ * libraries to look through. A want list alone does not count: it is a shelf
+ * with nothing on it yet. Blocks hide people both ways, as they do for
+ * Books' notifications. The most recently active come first.
+ */
+async function groupReaders(prisma: PrismaClient, userId: number, groupId: number, r2: string | undefined) {
+  const [people, lastLogs, blocked] = await Promise.all([
+    prisma.user.findMany({
+      where: { groupId, status: "approved", id: { not: userId }, shelfEntries: { some: { runs: { some: {} } } } },
+      select: personSelect,
+    }),
+    prisma.progressLog.groupBy({
+      by: ["userId"],
+      where: { userId: { not: userId }, user: { groupId } },
+      _max: { id: true },
+    }),
+    blockedUserIds(prisma, userId),
+  ]);
+  const latest = new Map(lastLogs.map((row) => [row.userId, row._max.id ?? 0]));
+  return people
+    .filter((person) => !blocked.has(person.id))
+    .sort((a, b) => (latest.get(b.id) ?? 0) - (latest.get(a.id) ?? 0))
+    .map((person) => personView(person, r2));
+}
+
 shelfRouter.get("/home", async (c) => {
   const userId = c.get("userId");
   const today = todayFrom(c);
@@ -861,7 +887,7 @@ shelfRouter.get("/home", async (c) => {
   ]);
 
   const entryIds = activeRuns.map((run) => run.entry.id);
-  const [readerLinks, readerPending] = await Promise.all([
+  const [readerLinks, readerPending, readers] = await Promise.all([
     entryIds.length
       ? prisma.readerDocument.findMany({
           where: { userId, entryId: { in: entryIds }, ignored: false },
@@ -870,6 +896,7 @@ shelfRouter.get("/home", async (c) => {
         })
       : [],
     pendingDocuments(prisma, userId),
+    groupReaders(prisma, userId, groupId, config.r2PublicBaseUrl),
   ]);
 
   const itemIds = activeRuns.map((run) => run.entry.item.id);
@@ -955,6 +982,7 @@ shelfRouter.get("/home", async (c) => {
     }),
     want: wanted.map((entry) => ({ entryId: entry.id, item: itemView(entry.item, entry.edition) })),
     readerPending,
+    readers,
     highlights: {
       year,
       booksThisYear: finishedThisYear,

@@ -292,6 +292,14 @@ KOReader's progress is handed back verbatim on `GET /syncs/progress/:document`,
 so syncing between several KOReader devices keeps working with the Lounge as
 their only server.
 
+## Other people's libraries
+
+Home ends with everyone else in the group who has a read on their shelf
+(`groupReaders` in `backend/src/route/shelf.ts`), each opening
+`/books/people/:id`, as a reviewer's name does. A want list alone does not put
+someone there: it is a shelf with nothing read on it. Blocks hide people both
+ways, as for notifications.
+
 ## On the Lounge
 
 A review can be cross-posted as a `Post` with `shelfReviewId` set. The blog
