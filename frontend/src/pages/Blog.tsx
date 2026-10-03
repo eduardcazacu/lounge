@@ -6,7 +6,7 @@ import { FullBlogSkeleton } from "../components/FullBlogSkeleton";
 
 export const Blog = () => {
   const { id } = useParams();
-  const { loading, blog, authExpired } = useBlog({
+  const { blog, commentsPending, authExpired } = useBlog({
     id: id || "",
   });
 
@@ -14,7 +14,7 @@ export const Blog = () => {
     return <Navigate to="/signin" replace />;
   }
 
-  if (loading || !blog) {
+  if (!blog) {
     return (
       <div className="min-h-screen bg-slate-100">
         <Appbar />
@@ -25,7 +25,7 @@ export const Blog = () => {
 
   return (
     <div>
-      <FullBlog blog={blog} />
+      <FullBlog blog={blog} commentsPending={commentsPending} />
     </div>
   );
 };

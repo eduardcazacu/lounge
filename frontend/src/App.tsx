@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { createBrowserRouter, Navigate, Route, RouterProvider, Routes, ScrollRestoration, useLocation, type Location } from 'react-router-dom'
 import { Signup } from './pages/Signup'
 import { Signin } from './pages/Signin'
 import { getAuthHeader, refreshAccessToken } from './lib/auth'
@@ -101,12 +101,27 @@ function App() {
     };
   }, []);
 
+  return <RouterProvider router={router} future={{ v7_startTransition: true }} />
+}
+
+// Books' bottom tabs switch with `replace`, so each would otherwise open at
+// its top. Keyed by URL instead, a tab comes back where it was left, as a tab
+// bar's would. Everything else is keyed by history entry: a new screen starts
+// at the top and Back returns to the place it was left.
+const TAB_ROOTS = new Set(['/books', '/books/feed', '/books/library'])
+const scrollKey = (location: Location) =>
+  TAB_ROOTS.has(location.pathname) ? location.pathname + location.search : location.key
+
+function Root() {
   return (
     <>
-      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        {/* Nothing while a page's code arrives: a placeholder in either
-            theme would flash against Instant's black or the blog's light. */}
-        <Suspense fallback={null}>
+      {/* Restores before paint, so a page drawn from the query cache comes
+          back at full height; one that draws a skeleton first is clamped to
+          the skeleton's height (wiki/gotchas.md). */}
+      <ScrollRestoration getKey={scrollKey} />
+      {/* Nothing while a page's code arrives: a placeholder in either
+          theme would flash against Instant's black or the blog's light. */}
+      <Suspense fallback={null}>
         <Routes>
           <Route path="/" element={<RootRedirect />} />
           <Route path="/signup" element={<Signup />} />
@@ -125,11 +140,17 @@ function App() {
           <Route path="/terms" element={<Terms />} />
           <Route path="/support" element={<Support />} />
         </Routes>
-        </Suspense>
-        <LoungeChrome />
-      </BrowserRouter>
+      </Suspense>
+      <LoungeChrome />
     </>
   )
 }
+
+// A data router only for ScrollRestoration, which needs one. Every route is
+// still a descendant <Routes> under one catch-all, as it was under
+// BrowserRouter; nothing here uses loaders.
+const router = createBrowserRouter([{ path: '*', element: <Root /> }], {
+  future: { v7_relativeSplatPath: true },
+})
 
 export default App

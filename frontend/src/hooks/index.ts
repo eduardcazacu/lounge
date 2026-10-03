@@ -1,7 +1,9 @@
 import axios from "axios";
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { useInfiniteQuery, useQuery, type InfiniteData } from "@tanstack/react-query";
 import { BACKEND_URL } from "../config";
-import { clearAuthStorage, getAuthHeader } from "../lib/auth";
+import { clearAuthStorage, getAuthHeader, getCurrentUserId, isAuthErrorStatus } from "../lib/auth";
+import { accountKey, queryClient } from "../lib/query";
 
 export interface Comment {
     id: number;
@@ -61,37 +63,84 @@ export  interface Blog{
 }
 
 
-export const useBlog = ({ id }: { id: string }) =>{
-    const [loading, setLoading] = useState(true);
-    const [blog, setBlog] = useState<Blog>();
-    const [authExpired, setAuthExpired] = useState(false);
 
+// The blog's reads, through the app's query cache (src/lib/query.ts). What was
+// fetched once is drawn at once on the way back, and refreshed behind it.
+
+const PAGE_SIZE = 10;
+
+interface BlogsPage {
+    blogs: Blog[];
+    nextCursor: number | null;
+    hasMore: boolean;
+}
+
+/**
+ * A 401/403 that survived the axios interceptor's one refresh means the session
+ * is gone. Clearing the token also clears the query cache, which would take the
+ * error with it, so whether it happened is kept here.
+ */
+function useAuthExpired(error: unknown) {
+    const [authExpired, setAuthExpired] = useState(false);
+    const expired = axios.isAxiosError(error) && isAuthErrorStatus(error.response?.status);
     useEffect(() => {
-        axios.get(`${BACKEND_URL}/api/v1/blog/${id}`, {
-            headers:{
-                Authorization: getAuthHeader()
-            }
-        })
-            .then(response => {
-                setBlog(response.data.blog);
-            })
-            .catch((error: unknown) => {
-                if (axios.isAxiosError(error) && (error.response?.status === 401 || error.response?.status === 403)) {
-                    clearAuthStorage();
-                    setAuthExpired(true);
-                }
-            })
-            .finally(() => {
-                setLoading(false);
+        if (expired) {
+            clearAuthStorage();
+            setAuthExpired(true);
+        }
+    }, [expired]);
+    return authExpired || expired;
+}
+
+/**
+ * After a write from a post or a feed card. Marks the blog's reads stale without
+ * refetching them now: the open post holds its own edits in state, and the feed
+ * refreshes when it is next shown.
+ */
+export function markBlogsStale() {
+    const userId = getCurrentUserId();
+    void queryClient.invalidateQueries({ queryKey: accountKey(userId, "blogs"), refetchType: "none" });
+    void queryClient.invalidateQueries({ queryKey: accountKey(userId, "blog"), refetchType: "none" });
+}
+
+/** The post as some cached feed page already has it: its body, without its comments. */
+function blogFromFeeds(userId: number | null, id: string): Blog | undefined {
+    const feeds = queryClient.getQueriesData<InfiniteData<BlogsPage>>({ queryKey: accountKey(userId, "blogs") });
+    for (const [, feed] of feeds) {
+        for (const page of feed?.pages ?? []) {
+            const blog = page.blogs.find((b) => String(b.id) === id);
+            if (blog) return { ...blog, comments: undefined };
+        }
+    }
+    return undefined;
+}
+
+export const useBlog = ({ id }: { id: string }) => {
+    const userId = getCurrentUserId();
+    const query = useQuery({
+        queryKey: accountKey(userId, "blog", id),
+        queryFn: async () => {
+            const response = await axios.get(`${BACKEND_URL}/api/v1/blog/${id}`, {
+                headers: { Authorization: getAuthHeader() },
             });
-    }, [id])
+            return response.data.blog as Blog;
+        },
+        // Opened from the feed, the post is on screen before its fetch returns.
+        placeholderData: () => blogFromFeeds(userId, id),
+        // FullBlog copies the post into state for editing; a refetch that
+        // changed it would reset an edit in progress.
+        refetchOnWindowFocus: false,
+    });
+    const authExpired = useAuthExpired(query.error);
 
     return {
-        loading,
-        blog,
-        authExpired
-    }
-}
+        loading: query.isPending,
+        blog: query.data,
+        /** The post is the feed's copy, and its comments are still on the way. */
+        commentsPending: query.isPlaceholderData,
+        authExpired,
+    };
+};
 
 export interface UserListItem {
     id: number;
@@ -100,149 +149,78 @@ export interface UserListItem {
     profilePictureUrl: string | null;
 }
 
+
 export const useUsers = () => {
-    const [loading, setLoading] = useState(true);
-    const [users, setUsers] = useState<UserListItem[]>([]);
-    const [authExpired, setAuthExpired] = useState(false);
-
-    useEffect(() => {
-        let cancelled = false;
-        axios
-            .get(`${BACKEND_URL}/api/v1/user/list`, {
+    const query = useQuery({
+        queryKey: accountKey(getCurrentUserId(), "users"),
+        queryFn: async () => {
+            const response = await axios.get(`${BACKEND_URL}/api/v1/user/list`, {
                 headers: { Authorization: getAuthHeader() },
-            })
-            .then((response) => {
-                if (cancelled) return;
-                const list = Array.isArray(response.data?.users)
-                    ? (response.data.users as UserListItem[])
-                    : [];
-                setUsers(list);
-            })
-            .catch((error: unknown) => {
-                if (cancelled) return;
-                if (
-                    axios.isAxiosError(error) &&
-                    (error.response?.status === 401 || error.response?.status === 403)
-                ) {
-                    clearAuthStorage();
-                    setAuthExpired(true);
-                }
-            })
-            .finally(() => {
-                if (!cancelled) setLoading(false);
             });
-        return () => {
-            cancelled = true;
-        };
-    }, []);
+            return Array.isArray(response.data?.users) ? (response.data.users as UserListItem[]) : [];
+        },
+        staleTime: 5 * 60_000,
+    });
+    const authExpired = useAuthExpired(query.error);
 
-    return { loading, users, authExpired };
+    return { loading: query.isPending, users: query.data ?? EMPTY_USERS, authExpired };
 };
 
-export const useBlogs = (initialPages = 1, authorId: number | null = null) =>{
-    const PAGE_SIZE = 10;
-    const [loading, setLoading] = useState(true);
-    const [loadingMore, setLoadingMore] = useState(false);
-    const [blogs, setBlogs] = useState<Blog[]>([]);
-    const [nextCursor, setNextCursor] = useState<number | null>(null);
-    const [hasMore, setHasMore] = useState(true);
-    const [loadedPages, setLoadedPages] = useState(1);
-    const [authExpired, setAuthExpired] = useState(false);
-    const fetchTokenRef = useRef(0);
-    const lastAuthorIdRef = useRef<number | null | undefined>(undefined);
+const EMPTY_USERS: UserListItem[] = [];
 
-    const fetchPage = useCallback(async (cursor: number | null, limit = PAGE_SIZE) => {
-        const token = ++fetchTokenRef.current;
-        if (cursor === null) {
-            setLoading(true);
-        } else {
-            setLoadingMore(true);
-        }
-
-        try {
+export const useBlogs = (authorId: number | null = null) => {
+    const userId = getCurrentUserId();
+    const query = useInfiniteQuery({
+        queryKey: accountKey(userId, "blogs", authorId),
+        queryFn: async ({ pageParam }) => {
             const response = await axios.get(`${BACKEND_URL}/api/v1/blog/bulk`, {
-                headers: {
-                    Authorization: getAuthHeader()
-                },
+                headers: { Authorization: getAuthHeader() },
                 params: {
-                    limit,
-                    ...(cursor !== null ? { cursor } : {}),
-                    ...(authorId != null ? { authorId } : {})
-                }
+                    limit: PAGE_SIZE,
+                    ...(pageParam !== null ? { cursor: pageParam } : {}),
+                    ...(authorId != null ? { authorId } : {}),
+                },
             });
-
-            if (token !== fetchTokenRef.current) {
-                return;
-            }
-
-            const newBlogs = (response.data?.blogs ?? []) as Blog[];
-            setBlogs((prev) => (cursor === null ? newBlogs : [...prev, ...newBlogs]));
-            if (cursor === null) {
-                setLoadedPages(Math.max(1, Math.ceil(newBlogs.length / PAGE_SIZE)));
-            } else if (newBlogs.length > 0) {
-                setLoadedPages((value) => value + 1);
-            }
-            setNextCursor(
-                typeof response.data?.nextCursor === "number" ? response.data.nextCursor : null
-            );
-            setHasMore(Boolean(response.data?.hasMore));
-        } catch (error: unknown) {
-            if (token !== fetchTokenRef.current) {
-                return;
-            }
-            if (axios.isAxiosError(error) && (error.response?.status === 401 || error.response?.status === 403)) {
-                clearAuthStorage();
-                setAuthExpired(true);
-            }
-        } finally {
-            if (token === fetchTokenRef.current) {
-                setLoading(false);
-                setLoadingMore(false);
-            }
-        }
-    }, [PAGE_SIZE, authorId]);
-
-    useEffect(() => {
-        if (lastAuthorIdRef.current !== undefined && lastAuthorIdRef.current === authorId) {
-            return;
-        }
-        const isFirst = lastAuthorIdRef.current === undefined;
-        lastAuthorIdRef.current = authorId;
-
-        setBlogs([]);
-        setNextCursor(null);
-        setHasMore(true);
-        setLoadedPages(1);
-
-        const limitMultiplier = isFirst
-            ? (Number.isFinite(initialPages) ? Math.max(1, Math.min(10, initialPages)) : 1)
-            : 1;
-        void fetchPage(null, limitMultiplier * PAGE_SIZE);
-    }, [PAGE_SIZE, fetchPage, initialPages, authorId]);
+            return {
+                blogs: (response.data?.blogs ?? []) as Blog[],
+                nextCursor: typeof response.data?.nextCursor === "number" ? response.data.nextCursor : null,
+                hasMore: Boolean(response.data?.hasMore),
+            } satisfies BlogsPage;
+        },
+        initialPageParam: null as number | null,
+        getNextPageParam: (last) => (last.hasMore && last.nextCursor !== null ? last.nextCursor : undefined),
+    });
+    const authExpired = useAuthExpired(query.error);
+    const { data, hasNextPage, isFetchingNextPage, isPending, fetchNextPage: fetchNext } = query;
 
     const fetchNextPage = useCallback(() => {
-        if (!hasMore || loading || loadingMore || authExpired || nextCursor === null) {
+        if (!hasNextPage || isPending || isFetchingNextPage || authExpired) {
             return;
         }
-        void fetchPage(nextCursor);
-    }, [authExpired, fetchPage, hasMore, loading, loadingMore, nextCursor]);
+        void fetchNext();
+    }, [authExpired, fetchNext, hasNextPage, isFetchingNextPage, isPending]);
 
+    // Back to the newest page, without blanking the feed while it loads: keep
+    // the first page that is already drawn, drop the rest, and refetch it.
     const refreshBlogs = useCallback(() => {
-        setBlogs([]);
-        setNextCursor(null);
-        setHasMore(true);
-        setLoadedPages(1);
-        void fetchPage(null, PAGE_SIZE);
-    }, [PAGE_SIZE, fetchPage]);
+        const queryKey = accountKey(userId, "blogs", authorId);
+        queryClient.setQueryData<InfiniteData<BlogsPage, number | null>>(queryKey, (feed) =>
+            feed && { pages: feed.pages.slice(0, 1), pageParams: feed.pageParams.slice(0, 1) }
+        );
+        void queryClient.invalidateQueries({ queryKey, exact: true });
+    }, [authorId, userId]);
+
+    const blogs = useMemo(() => data?.pages.flatMap((page) => page.blogs) ?? EMPTY_BLOGS, [data]);
 
     return {
-        loading,
-        loadingMore,
+        loading: isPending,
+        loadingMore: isFetchingNextPage,
         blogs,
         authExpired,
-        hasMore,
-        loadedPages,
+        hasMore: Boolean(hasNextPage),
         fetchNextPage,
-        refreshBlogs
-    }
-}
+        refreshBlogs,
+    };
+};
+
+const EMPTY_BLOGS: Blog[] = [];

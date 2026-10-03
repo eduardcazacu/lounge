@@ -219,6 +219,36 @@ The same eight palettes exist in three other places. See
 
 `frontend/src/hooks/index.ts` holds `useBlog`, `useBlogs` and `useUsers`.
 
+## Data and scroll
+
+Every read goes through one TanStack Query client, `frontend/src/lib/query.ts`,
+so going Back draws the page that was left and refreshes it behind, rather than
+showing a skeleton. The blog's hooks are built on it, and so is Books'
+`useShelf` in `frontend/src/components/books/api.ts`, which kept its signature
+so no screen changed. Instant is not: `useInstant.ts` is a socket store.
+
+- **Keys start with the account**, through `accountKey()`. One
+  `localStorage.token` is shared by every tab, so a key without the id hands the
+  next account the last one's posts.
+- **The cache is persisted to IndexedDB** so a launch from the home screen draws
+  before the network answers. Only the key prefixes in `PERSISTED` are written;
+  anything new stays in memory unless added there. The `buster` is the build's
+  commit, so a deploy never draws a response shape it does not know.
+  `clearAuthStorage()` in `lib/auth.ts` wipes it, memory and disk.
+- **Writes mark reads stale without refetching** (`markBlogsStale`). An open post
+  holds its edits in `FullBlog`'s state, and a refetch that changed the post
+  would reset an edit in progress; for the same reason `useBlog` does not
+  refetch on focus. A post opened from the feed draws the feed's copy as
+  placeholder until its comments arrive.
+- **Scroll is restored by react-router's `<ScrollRestoration>`**, which needs a
+  data router — the only reason `App.tsx` uses `createBrowserRouter`. Every
+  route is still a descendant `<Routes>` under one catch-all. A history entry
+  is the key, so a new screen starts at the top and Back returns where it was
+  left; Books' three tab roots are keyed by URL instead, because the tabs
+  navigate with `replace` and would otherwise always open at the top.
+- **The feed's author filter is `?author=`** in the URL, so Back from a post
+  keeps it.
+
 Images are optimised client-side before upload and served through Cloudflare
 transformations (`/cdn-cgi/image/width=...`), which keeps R2 egress inside the
 free tier. Encrypted bytes cannot be transformed, which is why the Instant
@@ -232,6 +262,22 @@ Two installable apps from one build. `index.html` names
 `src/main.tsx`. `Auth.tsx` honours `?next=` (same-site paths only), so a
 sign-in from either app returns to it. [books.md](books.md) has why.
 
-`frontend/public/manifest.webmanifest` and a hand-written service worker,
-`frontend/public/sw.js`, handling `push` and notification clicks. Registered in
-`frontend/src/main.tsx`, which also mounts Vercel analytics.
+The service worker is `frontend/src/sw.ts`: push, notification clicks, and a
+precache of the build so a launch from the home screen needs no network.
+`vite-plugin-pwa` in `injectManifest` mode only injects the list of hashed
+files; the worker, both webmanifests and the registration in
+`frontend/src/main.tsx` are ours. It is emitted as `/sw.js`, the URL it has
+always had: a push subscription belongs to the registration, and a new URL
+would leave a second one behind. Under `npm run dev` the plugin serves it as
+`/dev-sw.js` instead, and it precaches nothing there — there is no build to
+precache — so the dev worker is push only.
+
+Its navigation routes repeat `vercel.json`'s rewrites — `/books/*` gets
+`books.html`, everything else `index.html` — and must keep doing so. No API
+response or image passes through it.
+
+A deploy reaches an installed app one launch late. The worker calls
+`skipWaiting`, so the launch after a deploy draws the precached old shell while
+the new worker installs, and the one after runs the new build. A tab still open
+on the old build loses its chunks when the new worker prunes the precache, and
+the `vite:preloadError` reload in `main.tsx` brings it forward.

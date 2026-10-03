@@ -87,13 +87,14 @@ export const Blogs = () => {
   const lastResolvedBgRef = useRef(BASE_BG_COLOR);
   const lastRefreshSignalRef = useRef<number | null>(null);
   const [activeBgColor, setActiveBgColor] = useState(BASE_BG_COLOR);
-  const [selectedAuthorId, setSelectedAuthorId] = useState<number | null>(null);
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const pagesParam = Number(searchParams.get("pages") || "1");
-  const initialPages = Number.isFinite(pagesParam) ? Math.max(1, Math.min(10, pagesParam)) : 1;
+  // In the URL rather than in state, so Back from a post returns to the same
+  // author's posts.
+  const authorParam = Number(searchParams.get("author"));
+  const selectedAuthorId = Number.isInteger(authorParam) && authorParam > 0 ? authorParam : null;
 
-  const {loading, loadingMore, blogs, authExpired, hasMore, loadedPages, fetchNextPage, refreshBlogs} = useBlogs(initialPages, selectedAuthorId);
+  const {loading, loadingMore, blogs, authExpired, hasMore, fetchNextPage, refreshBlogs} = useBlogs(selectedAuthorId);
   const { users, loading: loadingUsers, authExpired: usersAuthExpired } = useUsers();
 
   const selectedUser = useMemo(
@@ -107,12 +108,13 @@ export const Blogs = () => {
     return template.replace("{name}", name);
   }, [selectedAuthorId, selectedUser]);
 
+  // A new location, so ScrollRestoration (App.tsx) starts it at the top.
   const handleSelectAuthor = (authorId: number | null) => {
     if (authorId === selectedAuthorId) return;
-    setSelectedAuthorId(authorId);
-    if (typeof window !== "undefined") {
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    }
+    const next = new URLSearchParams(searchParams);
+    if (authorId === null) next.delete("author");
+    else next.set("author", String(authorId));
+    setSearchParams(next, { replace: true });
   };
 
     useEffect(() => {
@@ -152,22 +154,9 @@ export const Blogs = () => {
         return;
       }
       lastRefreshSignalRef.current = signal;
-      if (selectedAuthorId !== null) {
-        setSelectedAuthorId(null);
-      } else {
-        refreshBlogs();
-      }
-    }, [location.state, refreshBlogs, selectedAuthorId]);
-
-    useEffect(() => {
-      const current = Number(searchParams.get("pages") || "1");
-      if (current === loadedPages) {
-        return;
-      }
-      const next = new URLSearchParams(searchParams);
-      next.set("pages", String(loadedPages));
-      setSearchParams(next, { replace: true });
-    }, [loadedPages, searchParams, setSearchParams]);
+      // The logo navigates to a bare /blogs, so the author filter is already gone.
+      refreshBlogs();
+    }, [location.state, refreshBlogs]);
 
     useEffect(() => {
       const cards = Array.from(document.querySelectorAll<HTMLElement>('[data-blog-card="true"]'));

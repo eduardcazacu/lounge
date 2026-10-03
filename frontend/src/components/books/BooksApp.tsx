@@ -188,12 +188,6 @@ export function BooksApp() {
   useLightChrome(palette.softBg);
   const tabs = showsTabs(location.pathname);
 
-  // A new screen starts at its top, as an app's would, not wherever the last
-  // one was scrolled to.
-  useEffect(() => {
-    window.scrollTo(0, 0);
-  }, [location.pathname]);
-
   return (
     <div className="min-h-dvh text-slate-900" style={{ background: palette.softBg }}>
       <div style={{ paddingBottom: tabs ? "calc(4.5rem + env(safe-area-inset-bottom))" : undefined }}>

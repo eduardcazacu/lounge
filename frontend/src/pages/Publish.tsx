@@ -6,6 +6,7 @@ import { useNavigate } from "react-router-dom"
 import { clearAuthStorage, getAuthHeader, isAuthErrorStatus } from "../lib/auth"
 import { getTransformedImageUrl } from "../lib/content"
 import { encodeFileToWebp, loadImageDimensions } from "../lib/image";
+import { markBlogsStale } from "../hooks";
 
 const MAX_IMAGE_WIDTH = 1920;
 const MAX_IMAGE_HEIGHT = 1080;
@@ -178,6 +179,7 @@ export const Publish = () => {
                             }
                         });
                         localStorage.removeItem(POST_DRAFT_STORAGE_KEY);
+                        markBlogsStale();
                         setTitle("");
                         setDescription("");
                         navigate(`/blog/${response.data.id}`)

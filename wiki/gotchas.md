@@ -289,6 +289,28 @@ its decoded bitmap, so the image still draws — but `element.src` is a dead
 renders nothing at all, silently. Anything that needs a URL for the same bytes
 makes its own.
 
+
+**A query collected from memory is dropped from the persisted cache.** TanStack
+writes out only what is in memory, so a `gcTime` shorter than the persister's
+`maxAge` quietly empties the cache a cold launch reads. Both are seven days in
+`frontend/src/lib/query.ts`.
+
+**A query key without the account leaks the last account's data.** The cache
+outlives a sign-in in another tab and is on disk; `accountKey()` in
+`frontend/src/lib/query.ts` is what every key starts with, and a key built
+without it shows one person another's feed or shelf.
+
+**Scroll restoration clamps to whatever height the page has when it runs.**
+`<ScrollRestoration>` scrolls before paint; a page that draws a skeleton or
+nothing first is short, the position is clamped to its bottom, and nothing
+says so. It works because the pages it serves draw from the query cache on
+their first render.
+
+**The service worker serves the page a URL gets, not Vercel.** Its navigation
+routes in `frontend/src/sw.ts` mirror `vercel.json`. If `/books` falls through
+to `index.html`, Books still runs — it is one app — but installs as the
+Lounge, because the page that loaded names the other manifest.
+
 ## iOS
 
 **Password AutoFill needs both halves of Associated Domains.** The
