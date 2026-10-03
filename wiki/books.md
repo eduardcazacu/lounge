@@ -225,6 +225,15 @@ response carries this separately (`onShelf` in `backend/src/route/shelf.ts`),
 worked out per request. A result counts if it is the same work or has the same
 title and author, which is the work adding it would land on.
 
+## Finding a book on a shelf
+
+A library is fetched whole (`GET /entries`, a few hundred entries at most), so
+its search, genre and year filters and sorting run in the client
+(`frontend/src/components/books/LibraryScreen.tsx`), with no endpoint of their
+own. They apply across the tabs, and each tab counts its matches, so a book
+searched for in the wrong tab says where it is. They live in the URL, so
+coming back from a book returns to the same list.
+
 ## Importing from Goodreads
 
 `/books/import` reads a Goodreads library export
