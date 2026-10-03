@@ -333,8 +333,9 @@ Signing in honours `?next=`, which keeps a sign-in from the installed app inside
 it. `safeNextPath` in `frontend/src/components/Auth.tsx` accepts only same-site
 paths.
 
-The icons are drawn by `frontend/scripts/make-books-icons.swift`; regenerate
-them rather than editing the PNGs.
+The icons are drawn by `frontend/scripts/make-books-icons.swift` from
+`frontend/scripts/books-wordmark.png`; regenerate them rather than editing the
+PNGs.
 
 ```bash
 cd backend && npx tsx scripts/verify-shelf.ts   # re-reads, backfills, DNFs, streaks, spoiler gating
