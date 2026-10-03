@@ -4,8 +4,10 @@ import {
   fetchProvider,
   fromGoogle,
   fromOpenLibrary,
+  fromOpenLibraryEditionDoc,
   googleVolumesUrl,
   normaliseForMatch,
+  OPEN_LIBRARY_FIELDS,
   OPEN_LIBRARY_URL,
   type GoogleVolume,
   type OpenLibraryDoc,
@@ -36,8 +38,14 @@ import {
 // not a split book club: src/catalog/store.ts finds an existing work by title
 // and author whatever its source, so whichever source supplied a book first
 // is the one everybody lands on.
+//
+// Open Library is asked the way search asks it (`OPEN_LIBRARY_FIELDS`,
+// `lang=en`, one free-text query), so an imported book is filed as a searched
+// one would be: The Last Wish under its English title, not the work's Polish
+// one. Its `title=`/`author=` parameters looked tidier and lost: they match
+// only the work's own title, so a translated book was never found by its
+// English name.
 
-const FIELDS = "key,title,author_name,first_publish_year,cover_i,number_of_pages_median,subject";
 const SPACING_MS = 1000;
 
 export type BookMatch = { candidate: CatalogCandidate; match: "isbn" | "title" };
@@ -77,22 +85,33 @@ function surname(name: string | undefined) {
   return normaliseForMatch(name).split(" ").pop() ?? "";
 }
 
-/** Whether a catalog result is plausibly the book described. */
-export function sameBook(row: Pick<ImportRowInput, "title" | "creators">, doc: Pick<OpenLibraryDoc, "title" | "author_name">) {
-  const wanted = titleKey(row.title);
-  const found = titleKey(doc.title ?? "");
-  // Equal once series and subtitles are gone, and no looser: a prefix match
-  // would take "Dune Messiah" for "Dune".
-  if (!wanted || wanted !== found) return false;
-  const author = surname(row.creators[0]);
-  if (!author) return true;
-  return (doc.author_name ?? []).some((name) => surname(name) === author);
+/** Whether one of the result's names for its authors has this surname. */
+function byAuthor(doc: Pick<OpenLibraryDoc, "author_name" | "author_alternative_name">, author: string, names: "own" | "any" = "any") {
+  const all = names === "own" ? doc.author_name ?? [] : [...(doc.author_name ?? []), ...(doc.author_alternative_name ?? [])];
+  return all.some((name) => surname(name) === surname(author));
 }
 
-async function search(params: string, options: MatchOptions): Promise<OpenLibraryDoc[]> {
+/**
+ * Whether a catalog result is plausibly the book described. The title may be
+ * the work's or its edition's: a translated work's own title is the original's.
+ */
+export function sameBook(
+  row: Pick<ImportRowInput, "title" | "creators">,
+  doc: Pick<OpenLibraryDoc, "title" | "author_name" | "author_alternative_name" | "editions">
+) {
+  const wanted = titleKey(row.title);
+  const titles = [doc.title, doc.editions?.docs?.[0]?.title].map((title) => titleKey(title ?? ""));
+  // Equal once series and subtitles are gone, and no looser: a prefix match
+  // would take "Dune Messiah" for "Dune".
+  if (!wanted || !titles.includes(wanted)) return false;
+  if (!surname(row.creators[0])) return true;
+  return byAuthor(doc, row.creators[0]);
+}
+
+async function search(query: string, options: MatchOptions): Promise<OpenLibraryDoc[]> {
   await paced();
   const answer = await fetchProvider<{ docs?: OpenLibraryDoc[] }>(
-    `${options.openLibraryUrl ?? OPEN_LIBRARY_URL}/search.json?${params}&fields=${FIELDS}&limit=5`
+    `${options.openLibraryUrl ?? OPEN_LIBRARY_URL}/search.json?q=${encodeURIComponent(query)}&fields=${OPEN_LIBRARY_FIELDS},author_alternative_name&lang=en&limit=5`
   );
   if (!answer.ok) throw new CatalogUnavailable("Open Library", answer.retryAfterSeconds);
   return answer.data?.docs ?? [];
@@ -102,29 +121,59 @@ function withDetails(candidate: CatalogCandidate, book: Pick<ImportRowInput, "to
   return { ...candidate, totalUnits: candidate.totalUnits ?? book.totalUnits, year: candidate.year ?? book.year };
 }
 
+/**
+ * The export's spelling of the authors when Open Library's own names for them
+ * did not match it, which means they are in another script. Open Library's
+ * alternative names cannot stand in: they are every author's, flattened, with
+ * no saying whose is whose.
+ */
+function readableAuthors(candidate: CatalogCandidate, doc: OpenLibraryDoc, book: BookToFind): CatalogCandidate {
+  const author = book.creators[0];
+  return author && !byAuthor(doc, author, "own") ? { ...candidate, creators: book.creators.slice(0, 5) } : candidate;
+}
+
 export type BookToFind = Pick<ImportRowInput, "title" | "creators" | "isbn13" | "isbn10" | "totalUnits" | "year">;
+
+/**
+ * A work found by ISBN, with the edition that ISBN names as the reader's copy.
+ * Search keeps an edition only if it is English, because there it is a guess.
+ * Here it is the copy they read, whatever its language. It titles the work
+ * only by search's rule, or when Open Library records no language (most such
+ * editions are English) and its title is the one the export gives.
+ */
+export function fromIsbnMatch(doc: OpenLibraryDoc, book: BookToFind): CatalogCandidate | null {
+  const candidate = fromOpenLibrary(doc);
+  const editionDoc = doc.editions?.docs?.[0];
+  if (!candidate || !editionDoc?.key || !editionDoc.title) return candidate;
+  const copy = fromOpenLibraryEditionDoc(editionDoc);
+  const titlesWork = !candidate.edition && copy.language === null && titleKey(copy.title) === titleKey(book.title);
+  return {
+    ...candidate,
+    ...(titlesWork ? { title: copy.title, coverUrl: copy.coverUrl ?? candidate.coverUrl } : {}),
+    edition: copy,
+  };
+}
 
 async function findOnOpenLibrary(book: BookToFind, options: MatchOptions): Promise<BookMatch | null> {
   const author = book.creators[0];
   for (const isbn of [book.isbn13, book.isbn10]) {
     if (!isbn) continue;
-    const docs = await search(`q=isbn:${isbn}`, options);
+    const docs = await search(`isbn:${isbn}`, options);
     // An ISBN is an edition, so the title can legitimately differ (a
     // translation, a reissue); only the author has to agree.
-    const doc = docs.find((found) => !author || (found.author_name ?? []).some((name) => surname(name) === surname(author)));
-    const candidate = doc ? fromOpenLibrary(doc) : null;
-    if (candidate) return { candidate: withDetails(candidate, book), match: "isbn" };
+    const doc = docs.find((found) => !author || byAuthor(found, author));
+    const candidate = doc ? fromIsbnMatch(doc, book) : null;
+    if (candidate) return { candidate: withDetails(readableAuthors(candidate, doc!, book), book), match: "isbn" };
     // One ISBN that finds nothing is enough to know the other won't.
     break;
   }
 
-  const docs = await search(
-    `title=${encodeURIComponent(bareTitle(book.title))}${author ? `&author=${encodeURIComponent(author)}` : ""}`,
-    options
-  );
+  const docs = await search([bareTitle(book.title), author].filter(Boolean).join(" "), options);
   const doc = docs.find((found) => sameBook(book, found));
   const candidate = doc ? fromOpenLibrary(doc) : null;
-  return candidate ? { candidate: withDetails(candidate, book), match: "title" } : null;
+  // A title names the work, not which copy was read: the English edition
+  // search would pick titles the work, but is not taken for the reader's.
+  return candidate ? { candidate: withDetails(readableAuthors({ ...candidate, edition: null }, doc!, book), book), match: "title" } : null;
 }
 
 async function googleSearch(query: string, options: MatchOptions): Promise<GoogleVolume[]> {

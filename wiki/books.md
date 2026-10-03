@@ -114,6 +114,16 @@ English: an edition search picked in another language is no better than the
 work's own. A work added for the first time is filed under that English title
 and cover.
 
+**Import asks Open Library the way search does** (`OPEN_LIBRARY_FIELDS`,
+`lang=en`, one free-text query, in `backend/src/catalog/match-book.ts`), so an
+imported book is filed as a searched one would be. A title matches the work's
+or its English edition's (`sameBook`). An author matches any of Open Library's
+spellings of them: Murakami's own is 村上春樹. A work matched only by a
+spelling like that takes the export's. A row matched by ISBN also gets the
+edition that ISBN names as the reader's (`fromIsbnMatch`), in whatever
+language, because it is the copy they read. A match by title gets none: it
+names the work, not the copy.
+
 A reader's edition hangs off their `ShelfEntry` (`editionId`), never off the
 work. `itemView` in `backend/src/route/shelf.ts` puts its title and cover in
 place of the work's wherever that entry is shown: library, home, their reviews

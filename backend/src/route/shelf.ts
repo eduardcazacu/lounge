@@ -1959,6 +1959,8 @@ type RowContext = {
   retryAfterSeconds: number | null;
   /** New catalog items whose covers still need copying into R2. */
   covers: number[];
+  /** Likewise for editions. */
+  editionCovers: number[];
 };
 
 /**
@@ -2022,6 +2024,7 @@ async function importRow(context: RowContext, row: ImportRowInput): Promise<Impo
         itemTotalUnits = current.item.totalUnits;
       } else {
         let itemId: number;
+        let editionId: number | null = null;
         if (knownItemId !== null) {
           await rememberIsbns(tx, knownItemId, row);
           const item = await tx.catalogItem.findUniqueOrThrow({ where: { id: knownItemId }, select: { totalUnits: true } });
@@ -2034,17 +2037,28 @@ async function importRow(context: RowContext, row: ImportRowInput): Promise<Impo
           if (item.coverUrl && !item.coverKey) context.covers.push(item.id);
           itemId = item.id;
           itemTotalUnits = item.totalUnits;
+          // The edition the row's ISBN names (see `findBook`): the copy they read.
+          if (candidate!.edition && candidate!.source !== "manual") {
+            const edition = await saveEdition(tx, item.id, candidate!.edition);
+            if (edition.coverUrl && !edition.coverKey) context.editionCovers.push(edition.id);
+            editionId = edition.id;
+          }
         }
         const upserted = await tx.shelfEntry.upsert({
           where: { userId_itemId: { userId, itemId } },
-          create: { userId, itemId, importId },
+          create: { userId, itemId, importId, editionId },
           update: {},
-          select: { id: true, wantedAt: true, importId: true },
+          select: { id: true, wantedAt: true, importId: true, editionId: true },
         });
         // A book already on the shelf, added by hand, takes the import's id
         // so the next import recognises it. One that already carries another
-        // row's id (two editions of one work in the export) keeps it.
-        if (!upserted.importId) await tx.shelfEntry.update({ where: { id: upserted.id }, data: { importId } });
+        // row's id (two editions of one work in the export) keeps it, and an
+        // edition the reader chose is never replaced by the import's.
+        const fill = {
+          ...(upserted.importId ? {} : { importId }),
+          ...(upserted.editionId || !editionId ? {} : { editionId }),
+        };
+        if (Object.keys(fill).length > 0) await tx.shelfEntry.update({ where: { id: upserted.id }, data: fill });
         entry = upserted;
       }
       const done = (outcome: ImportRowResult["outcome"]): ImportRowResult => ({ ...base, outcome, match, entryId: entry.id });
@@ -2160,12 +2174,13 @@ shelfRouter.post("/import", async (c) => {
     sources: freshSourceState(),
     retryAfterSeconds: null,
     covers: [],
+    editionCovers: [],
   };
 
   const results: ImportRowResult[] = [];
   for (const row of parsed.data.rows) results.push(await importRow(context, row));
 
-  scheduleCoverCopies(c, prisma, context.covers);
+  scheduleCoverCopies(c, prisma, context.covers, context.editionCovers);
   return c.json({
     results,
     retryAfterSeconds: context.retryAfterSeconds,

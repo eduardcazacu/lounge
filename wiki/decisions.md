@@ -999,6 +999,25 @@ share a chosen few imported reviews.
 
 ---
 
+## Import looks books up as free text, like search
+
+**Chosen** one free-text `q=<title> <author>` query with search's fields and
+`lang=en`, and `sameBook` judging every result strictly
+(`backend/src/catalog/match-book.ts`).
+
+**Rejected** Open Library's `title=`/`author=` parameters, and a fielded
+`q=title:"…" author:"…"`. `title=` matches only the work's own title, so The
+Last Wish (the work "Ostatnie Życzenie") came back as a box set. The fielded
+form found it but found nothing for Norwegian Wood.
+
+**Because** free text was the only form that found every book tried, and
+precision comes from `sameBook`, not from the query.
+
+**Would reopen if** free text started ranking the right work below the five
+results import reads.
+
+---
+
 ## Open Library is cached, paced and copied, and a refusal is never "not found"
 
 **Chosen** search answers cached for a day; imports that ask our own catalog

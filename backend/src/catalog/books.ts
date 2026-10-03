@@ -29,6 +29,9 @@ export type OpenLibraryDoc = {
   key?: string;
   title?: string;
   author_name?: string[];
+  // Every spelling of every author, flattened. Asked for by import only:
+  // Murakami's `author_name` is 村上春樹, and a Goodreads export says Haruki.
+  author_alternative_name?: string[];
   first_publish_year?: number;
   cover_i?: number;
   number_of_pages_median?: number;
@@ -240,6 +243,14 @@ const positive = (value: number | undefined) => (value && value > 0 ? value : nu
 // (`lang=en`), and an English edition's title and cover are shown in place of
 // the work's. Only an English one: the edition search picks in another
 // language is no better than the work's own.
+// Search and import ask for the same fields, so a work found either way is
+// filed the same way. With `lang=en`, the edition each work comes with is an
+// English one where there is one.
+export const OPEN_LIBRARY_FIELDS =
+  "key,title,author_name,first_publish_year,cover_i,number_of_pages_median,subject" +
+  ",editions,editions.key,editions.title,editions.cover_i,editions.language,editions.publisher" +
+  ",editions.publish_year,editions.number_of_pages_median";
+
 export function fromOpenLibrary(doc: OpenLibraryDoc): CatalogCandidate | null {
   if (!doc.key || !doc.title) return null;
   const editionDoc = doc.editions?.docs?.[0];
@@ -259,7 +270,7 @@ export function fromOpenLibrary(doc: OpenLibraryDoc): CatalogCandidate | null {
   };
 }
 
-function fromOpenLibraryEditionDoc(doc: OpenLibraryEditionDoc): CatalogEdition {
+export function fromOpenLibraryEditionDoc(doc: OpenLibraryEditionDoc): CatalogEdition {
   return {
     source: "openlibrary",
     externalId: doc.key!,
@@ -374,11 +385,7 @@ export async function searchBooks(query: string, options: BookSearchOptions = {}
 
   const openLibraryUrl =
     `${options.openLibraryUrl ?? OPEN_LIBRARY_URL}/search.json?q=${encodeURIComponent(q)}` +
-    `&fields=key,title,author_name,first_publish_year,cover_i,number_of_pages_median,subject` +
-    `,editions,editions.key,editions.title,editions.cover_i,editions.language,editions.publisher` +
-    `,editions.publish_year,editions.number_of_pages_median` +
-    // The edition each work comes with is an English one where there is one.
-    `&lang=en&limit=${RESULT_LIMIT}`;
+    `&fields=${OPEN_LIBRARY_FIELDS}&lang=en&limit=${RESULT_LIMIT}`;
   const googleUrl = googleVolumesUrl(options.googleBooksUrl, q, RESULT_LIMIT, options.googleBooksApiKey);
 
   const [openLibrary, google] = await Promise.all([
