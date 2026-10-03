@@ -1225,3 +1225,25 @@ keyboard sensor gives the same moves to the arrow keys. The handle alone takes
 **Would reopen if** arranging spread beyond one list, or dnd-kit stopped being
 maintained.
 
+---
+
+## An ask for a recommendation is its own table
+
+**Chosen** `ShelfAsk` and `ShelfAskComment`, beside `ShelfReview`, merged with
+reviews only in `GET /feed`.
+
+**Rejected** a `ShelfReview` with a nullable run and an author column. Every
+reader of a review — the feed, a book's page, spoiler gating, the Lounge card —
+reaches the reviewer and the book through `run.entry`, and each would have
+needed to learn that a review might have neither. Also rejected: asks as plain
+Lounge posts, which would have put the answers outside Books, away from the
+books they name.
+
+**Because** the two share a look and a discussion, not a shape. The comment
+routes and their client (`frontend/src/components/books/Discussion.tsx`) are
+shared; the tables are not.
+
+**Cost paid** the feed pages two tables, with a two-part cursor.
+
+**Would reopen if** a third bookless kind of post appeared. One table with a
+`kind` column would then cost less than a three-way merge in the feed.

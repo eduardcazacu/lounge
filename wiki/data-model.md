@@ -19,9 +19,11 @@ Table names are snake_case via `@map`; Prisma model names are not.
 
 **Shelf** (`/books`) — `CatalogItem`, `CatalogEdition` (a printing of a work, which a
 `ShelfEntry` can point at), `ShelfEntry`, `ShelfRun`, `ProgressLog`,
-`ShelfReview`, `ShelfReviewComment`, `CatalogSearchCache` (a day of search
-answers), `NotificationSent` (the once-a-day notification throttle), and
-`Post.shelfReviewId` for a review cross-posted to the Lounge. `ReaderSync` (a
+`ShelfReview`, `ShelfReviewComment`, `ShelfAsk` and `ShelfAskComment` (a
+request for a recommendation, with no book), `CatalogSearchCache` (a day of
+search answers), `NotificationSent` (the once-a-day notification throttle), and
+`Post.shelfReviewId` and `Post.shelfAskId` for a review or ask cross-posted to
+the Lounge. `ReaderSync` (a
 KOReader login) and `ReaderDocument` (one file KOReader has synced, and the
 entry it is) belong to KOReader sync.
 

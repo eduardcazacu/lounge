@@ -420,6 +420,21 @@ export const reviewCommentInput = z.object({
 
 export type ReviewCommentInput = z.infer<typeof reviewCommentInput>
 
+// Asking the group for a recommendation. `lounge` cross-posts it as it is
+// made, so asking in both places is one step, not two.
+export const createAskInput = z.object({
+    body: z.string().trim().min(1).max(2000),
+    lounge: z.boolean().optional(),
+})
+
+export type CreateAskInput = z.infer<typeof createAskInput>
+
+export const updateAskInput = z.object({
+    body: z.string().trim().min(1).max(2000),
+})
+
+export type UpdateAskInput = z.infer<typeof updateAskInput>
+
 // One book from another service's export, already read out of its file by the
 // client — the file itself never leaves the browser. Shaped for what any
 // reading tracker exports rather than for Goodreads' columns, so a second

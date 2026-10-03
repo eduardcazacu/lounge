@@ -1,5 +1,6 @@
 import axios from "axios";
 import { ShelfReviewEmbed } from "./ShelfReviewEmbed";
+import { ShelfAskEmbed } from "./ShelfAskEmbed";
 import { useEffect, useState } from "react";
 import { Blog } from "../hooks";
 import { Appbar } from "./Appbar";
@@ -383,6 +384,10 @@ export const FullBlog = ({ blog }: { blog: Blog }) => {
               ) : blog.shelfReview ? (
                 <div className="pt-3 sm:pt-4">
                   <ShelfReviewEmbed review={blog.shelfReview} full />
+                </div>
+              ) : blog.shelfAsk ? (
+                <div className="pt-3 sm:pt-4">
+                  <ShelfAskEmbed ask={blog.shelfAsk} full />
                 </div>
               ) : (
                 <div className="markdown-body pt-3 text-sm leading-7 break-words sm:pt-4 sm:text-base">

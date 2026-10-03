@@ -171,6 +171,21 @@ export type ReviewComment = {
 
 export type ReviewDetail = FeedReview & { isMine: boolean; comments: ReviewComment[] };
 
+/** Someone asking the group for a recommendation: a review with no book. */
+export type Ask = {
+  id: number;
+  body: string;
+  createdAt: string;
+  editedAt: string | null;
+  author: Person;
+  commentCount: number;
+  loungePostId: number | null;
+};
+
+export type AskDetail = Ask & { isMine: boolean; comments: ReviewComment[] };
+
+export type FeedPost = ({ kind: "review" } & FeedReview) | ({ kind: "ask" } & Ask);
+
 export type Club = {
   item: Item;
   reach: number;

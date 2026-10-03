@@ -1,6 +1,7 @@
 import { Link, useNavigate } from "react-router-dom"
-import { Comment, type ShelfReviewCard } from "../hooks";
+import { Comment, type ShelfAskCard, type ShelfReviewCard } from "../hooks";
 import { ShelfReviewEmbed } from "./ShelfReviewEmbed";
+import { ShelfAskEmbed } from "./ShelfAskEmbed";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { getThemePalette } from "../themes";
@@ -25,6 +26,7 @@ interface BlogCardProps{
     themeKey?: string | null;
     authorProfilePictureUrl?: string | null;
     shelfReview?: ShelfReviewCard | null;
+    shelfAsk?: ShelfAskCard | null;
 }
 
 export const BlogCard = ({
@@ -40,7 +42,8 @@ export const BlogCard = ({
     commentCount = 0,
     themeKey,
     authorProfilePictureUrl,
-    shelfReview
+    shelfReview,
+    shelfAsk
 }: BlogCardProps) => {
   const [postLikeCount, setPostLikeCount] = useState(likeCount);
   const [postLikedByMe, setPostLikedByMe] = useState(likedByMe);
@@ -70,8 +73,8 @@ export const BlogCard = ({
 
   const navigate = useNavigate();
   const theme = getThemePalette(themeKey);
-  // A review cross-posted from Books opens in Books, where its discussion is.
-  const cardTarget = shelfReview ? `/books/review/${shelfReview.id}` : `/blog/${id}`;
+  // A review or ask cross-posted from Books opens in Books, where its discussion is.
+  const cardTarget = shelfReview ? `/books/review/${shelfReview.id}` : shelfAsk ? `/books/ask/${shelfAsk.id}` : `/blog/${id}`;
   const firstYouTubeEmbedUrl = extractFirstYouTubeEmbedUrl(content);
   const standaloneImagePreviewUrls = extractStandaloneImagePreviewUrls(content, 2).filter((url) => url !== imageUrl);
   const excerptData = (() => {
@@ -188,6 +191,8 @@ export const BlogCard = ({
         </div>
         {shelfReview ? (
           <ShelfReviewEmbed review={shelfReview} />
+        ) : shelfAsk ? (
+          <ShelfAskEmbed ask={shelfAsk} />
         ) : (
         <>
         <div className="text-2xl font-semibold pt-2">
@@ -261,7 +266,7 @@ export const BlogCard = ({
         ) : null}
         </>
         )}
-        {showReadTime && !shelfReview ? (
+        {showReadTime && !shelfReview && !shelfAsk ? (
           <div className="text-slate-400 text-sm pt-3">
             {`${estimatedReadMinutes} min read`}
           </div>

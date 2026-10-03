@@ -11,9 +11,11 @@ import {
   logProgressInput,
   readerSetupInput,
   reviewCommentInput,
+  createAskInput,
   setEditionInput,
   shelfKind,
   updateProgressLogInput,
+  updateAskInput,
   updateRunInput,
   upsertReviewInput,
   wantOrderInput,
@@ -1705,6 +1707,27 @@ shelfRouter.post("/reviews/:id/lounge", async (c) => {
   return c.json({ postId: post.id });
 });
 
+const commentSelect = {
+  id: true,
+  content: true,
+  createdAt: true,
+  editedAt: true,
+  author: { select: personSelect },
+} as const;
+
+function commentView(
+  comment: { id: number; content: string; createdAt: Date; editedAt: Date | null; author: PersonRow },
+  r2: string | undefined
+) {
+  return {
+    id: comment.id,
+    content: comment.content,
+    createdAt: comment.createdAt.toISOString(),
+    editedAt: comment.editedAt ? comment.editedAt.toISOString() : null,
+    author: personView(comment.author, r2),
+  };
+}
+
 const feedReviewSelect = {
   id: true,
   rating: true,
@@ -1755,6 +1778,47 @@ function feedReviewView(review: FeedReviewRow, r2: string | undefined, viewerId:
   };
 }
 
+/** A page of the group's reviews that say something, newest first. */
+function findFeedReviews(
+  prisma: PrismaClient,
+  where: { groupId: number; ownerId?: number; itemId?: number; cursor?: number },
+  take: number
+) {
+  return prisma.shelfReview.findMany({
+    where: {
+      ...reviewHasContent,
+      // Imported reviews are years of them arriving at once; the feed is for
+      // what people are reading now. A book's own page still lists them.
+      ...(where.itemId === undefined ? { imported: false } : {}),
+      ...(where.cursor ? { id: { lt: where.cursor } } : {}),
+      run: {
+        entry: {
+          user: { groupId: where.groupId },
+          ...(where.ownerId !== undefined ? { userId: where.ownerId } : {}),
+          ...(where.itemId !== undefined ? { itemId: where.itemId } : {}),
+        },
+      },
+    },
+    orderBy: { id: "desc" },
+    take,
+    select: feedReviewSelect,
+  });
+}
+
+async function feedReviewViews(prisma: PrismaClient, rows: FeedReviewRow[], viewerId: number, r2: string | undefined) {
+  const finished = await finishedItemIds(
+    prisma,
+    viewerId,
+    rows.filter((review) => review.spoiler).map((review) => review.run.entry.item.id)
+  );
+  return rows.map((review) => feedReviewView(review, r2, viewerId, finished));
+}
+
+function pageLimit(c: Context<ShelfEnv>) {
+  const raw = Number(c.req.query("limit") ?? 15);
+  return Number.isFinite(raw) ? Math.max(1, Math.min(30, raw)) : 15;
+}
+
 shelfRouter.get("/reviews", async (c) => {
   const callerId = c.get("userId");
   const { prisma, config } = db(c);
@@ -1762,8 +1826,7 @@ shelfRouter.get("/reviews", async (c) => {
   if (groupId === null) return notFound(c);
 
   const scope = c.req.query("scope") ?? "everyone";
-  const rawLimit = Number(c.req.query("limit") ?? 15);
-  const limit = Number.isFinite(rawLimit) ? Math.max(1, Math.min(30, rawLimit)) : 15;
+  const limit = pageLimit(c);
   const rawCursor = Number(c.req.query("cursor"));
   const cursor = Number.isInteger(rawCursor) && rawCursor > 0 ? rawCursor : undefined;
   const rawItemId = Number(c.req.query("itemId"));
@@ -1777,35 +1840,11 @@ shelfRouter.get("/reviews", async (c) => {
     ownerId = requested;
   }
 
-  const rows = await prisma.shelfReview.findMany({
-    where: {
-      ...reviewHasContent,
-      // Imported reviews are years of them arriving at once; the feed is for
-      // what people are reading now. A book's own page still lists them.
-      ...(itemId === undefined ? { imported: false } : {}),
-      ...(cursor ? { id: { lt: cursor } } : {}),
-      run: {
-        entry: {
-          user: { groupId },
-          ...(ownerId !== undefined ? { userId: ownerId } : {}),
-          ...(itemId !== undefined ? { itemId } : {}),
-        },
-      },
-    },
-    orderBy: { id: "desc" },
-    take: limit + 1,
-    select: feedReviewSelect,
-  });
-
+  const rows = await findFeedReviews(prisma, { groupId, ownerId, itemId, cursor }, limit + 1);
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
-  const finished = await finishedItemIds(
-    prisma,
-    callerId,
-    page.filter((review) => review.spoiler).map((review) => review.run.entry.item.id)
-  );
   return c.json({
-    reviews: page.map((review) => feedReviewView(review, config.r2PublicBaseUrl, callerId, finished)),
+    reviews: await feedReviewViews(prisma, page, callerId, config.r2PublicBaseUrl),
     nextCursor: hasMore ? page[page.length - 1]?.id ?? null : null,
   });
 });
@@ -1822,10 +1861,7 @@ shelfRouter.get("/reviews/:id", async (c) => {
     where: { id: reviewId, run: { entry: { user: { groupId } } } },
     select: {
       ...feedReviewSelect,
-      comments: {
-        orderBy: { id: "asc" },
-        select: { id: true, content: true, createdAt: true, editedAt: true, author: { select: personSelect } },
-      },
+      comments: { orderBy: { id: "asc" }, select: commentSelect },
     },
   });
   if (!review) return notFound(c);
@@ -1835,16 +1871,59 @@ shelfRouter.get("/reviews/:id", async (c) => {
     review: {
       ...feedReviewView(review, config.r2PublicBaseUrl, callerId, finished),
       isMine: review.run.entry.user.id === callerId,
-      comments: review.comments.map((comment) => ({
-        id: comment.id,
-        content: comment.content,
-        createdAt: comment.createdAt.toISOString(),
-        editedAt: comment.editedAt ? comment.editedAt.toISOString() : null,
-        author: personView(comment.author, config.r2PublicBaseUrl),
-      })),
+      comments: review.comments.map((comment) => commentView(comment, config.r2PublicBaseUrl)),
     },
   });
 });
+
+/**
+ * Tells the owner of a discussion and everyone already in it, minus the person
+ * writing, that there is a reply: those who want to hear (notifyBookDiscussion)
+ * and are not on either side of a block with the writer. Web Push only — no
+ * apnsConfig — because the iOS app has no books and an iPhone banner would
+ * open an app that cannot show this.
+ */
+async function notifyDiscussion(
+  c: Context<ShelfEnv>,
+  prisma: PrismaClient,
+  reply: {
+    writerId: number;
+    writerName: string | null;
+    involved: number[];
+    title: string;
+    content: string;
+    openUrl: string;
+    topic: string;
+  }
+) {
+  const { config } = db(c);
+  const candidates = [...new Set(reply.involved)].filter((id) => id !== reply.writerId);
+  if (candidates.length === 0) return;
+  const [willing, blocked] = await Promise.all([
+    prisma.user.findMany({ where: { id: { in: candidates }, notifyBookDiscussion: true }, select: { id: true } }),
+    blockedUserIds(prisma, reply.writerId),
+  ]);
+  const recipients = willing.map((user) => user.id).filter((id) => !blocked.has(id));
+  if (recipients.length === 0) return;
+  scheduleBackgroundWork(
+    c,
+    sendPushToUsers({
+      databaseUrl: config.databaseUrl,
+      userIds: recipients,
+      payload: {
+        title: `${reply.writerName?.trim() || "Someone"} ${reply.title}`,
+        body: reply.content.slice(0, 140),
+        data: { openUrl: reply.openUrl },
+      },
+      topic: reply.topic,
+      vapidConfig: {
+        vapidPublicKey: config.vapidPublicKey,
+        vapidPrivateKey: config.vapidPrivateKey,
+        vapidSubject: config.vapidSubject,
+      },
+    })
+  );
+}
 
 shelfRouter.post("/reviews/:id/comments", async (c) => {
   const reviewId = idParam(c, "id");
@@ -1867,55 +1946,20 @@ shelfRouter.post("/reviews/:id/comments", async (c) => {
 
   const comment = await prisma.shelfReviewComment.create({
     data: { reviewId, authorId: userId, content: parsed.data.content },
-    select: { id: true, content: true, createdAt: true, editedAt: true, author: { select: personSelect } },
+    select: commentSelect,
   });
 
-  // The reviewer and everyone already in the discussion, minus the person
-  // writing, who want to hear about it (notifyBookDiscussion) and are not on
-  // either side of a block with the writer. Web Push only — no apnsConfig —
-  // because the iOS app has no books and an iPhone banner would open an app
-  // that cannot show this.
-  const candidates = [
-    ...new Set([review.run.entry.userId, ...review.comments.map((other) => other.authorId)]),
-  ].filter((id) => id !== userId);
-  const [willing, blocked] = candidates.length
-    ? await Promise.all([
-        prisma.user.findMany({ where: { id: { in: candidates }, notifyBookDiscussion: true }, select: { id: true } }),
-        blockedUserIds(prisma, userId),
-      ])
-    : [[], new Set<number>()];
-  const recipients = willing.map((user) => user.id).filter((id) => !blocked.has(id));
-  if (recipients.length > 0) {
-    const name = comment.author.name?.trim() || "Someone";
-    scheduleBackgroundWork(
-      c,
-      sendPushToUsers({
-        databaseUrl: config.databaseUrl,
-        userIds: recipients,
-        payload: {
-          title: `${name} replied about ${review.run.entry.item.title}`,
-          body: parsed.data.content.slice(0, 140),
-          data: { openUrl: `/books/review/${reviewId}` },
-        },
-        topic: `shelf-review-${reviewId}`,
-        vapidConfig: {
-          vapidPublicKey: config.vapidPublicKey,
-          vapidPrivateKey: config.vapidPrivateKey,
-          vapidSubject: config.vapidSubject,
-        },
-      })
-    );
-  }
-
-  return c.json({
-    comment: {
-      id: comment.id,
-      content: comment.content,
-      createdAt: comment.createdAt.toISOString(),
-      editedAt: null,
-      author: personView(comment.author, config.r2PublicBaseUrl),
-    },
+  await notifyDiscussion(c, prisma, {
+    writerId: userId,
+    writerName: comment.author.name,
+    involved: [review.run.entry.userId, ...review.comments.map((other) => other.authorId)],
+    title: `replied about ${review.run.entry.item.title}`,
+    content: parsed.data.content,
+    openUrl: `/books/review/${reviewId}`,
+    topic: `shelf-review-${reviewId}`,
   });
+
+  return c.json({ comment: commentView(comment, config.r2PublicBaseUrl) });
 });
 
 shelfRouter.put("/reviews/:id/comments/:commentId", async (c) => {
@@ -1954,6 +1998,285 @@ shelfRouter.delete("/reviews/:id/comments/:commentId", async (c) => {
   if (comment.authorId !== userId && comment.review.run.entry.userId !== userId) return notFound(c);
   await prisma.shelfReviewComment.delete({ where: { id: commentId } });
   return c.json({ ok: true });
+});
+
+// ---------------------------------------------------------------------------
+// Asks: a request for a recommendation, with no book
+// ---------------------------------------------------------------------------
+
+const askSelect = {
+  id: true,
+  body: true,
+  createdAt: true,
+  editedAt: true,
+  author: { select: personSelect },
+  loungePost: { select: { id: true } },
+  _count: { select: { comments: true } },
+} satisfies Prisma.ShelfAskSelect;
+
+type AskRow = Prisma.ShelfAskGetPayload<{ select: typeof askSelect }>;
+
+function askView(ask: AskRow, r2: string | undefined) {
+  return {
+    id: ask.id,
+    body: ask.body,
+    createdAt: ask.createdAt.toISOString(),
+    editedAt: ask.editedAt ? ask.editedAt.toISOString() : null,
+    author: personView(ask.author, r2),
+    commentCount: ask._count.comments,
+    loungePostId: ask.loungePost?.id ?? null,
+  };
+}
+
+const ASK_LOUNGE_TITLE = "Looking for a recommendation";
+
+/** The caller's own ask, or null. Someone else's is as good as missing. */
+async function ownAsk(prisma: PrismaClient, askId: number, userId: number) {
+  const ask = await prisma.shelfAsk.findUnique({ where: { id: askId }, select: askSelect });
+  return ask && ask.author.id === userId ? ask : null;
+}
+
+/**
+ * Cross-posts an ask to the Lounge. As with a review, the card is drawn from
+ * the ask through `shelfAskId`, and the post's own text is only the fallback.
+ */
+async function postAskToLounge(c: Context<ShelfEnv>, prisma: PrismaClient, ask: AskRow) {
+  const { config } = db(c);
+  const post = await prisma.post.create({
+    data: { title: ASK_LOUNGE_TITLE, content: ask.body, authorId: ask.author.id, published: true, shelfAskId: ask.id },
+    select: { id: true },
+  });
+  scheduleBackgroundWork(
+    c,
+    notifyFollowersOfNewPost({
+      databaseUrl: config.databaseUrl,
+      authorId: ask.author.id,
+      authorName: ask.author.name?.trim() || "Someone",
+      postId: post.id,
+      postTitle: ASK_LOUNGE_TITLE,
+      vapidConfig: {
+        vapidPublicKey: config.vapidPublicKey,
+        vapidPrivateKey: config.vapidPrivateKey,
+        vapidSubject: config.vapidSubject,
+      },
+    })
+  );
+  return post.id;
+}
+
+shelfRouter.post("/asks", async (c) => {
+  const parsed = createAskInput.safeParse(await readJson(c));
+  if (!parsed.success) return badRequest(c, "Say what you're looking for first.");
+  const userId = c.get("userId");
+  const { prisma, config } = db(c);
+  if ((await requireGroup(c, prisma)) === null) return notFound(c);
+
+  const ask = await prisma.shelfAsk.create({
+    data: { authorId: userId, body: parsed.data.body },
+    select: askSelect,
+  });
+  const loungePostId = parsed.data.lounge ? await postAskToLounge(c, prisma, ask) : null;
+  return c.json({ ask: { ...askView(ask, config.r2PublicBaseUrl), loungePostId } });
+});
+
+shelfRouter.get("/asks/:id", async (c) => {
+  const askId = idParam(c, "id");
+  if (!askId) return notFound(c);
+  const callerId = c.get("userId");
+  const { prisma, config } = db(c);
+  const groupId = await requireGroup(c, prisma);
+  if (groupId === null) return notFound(c);
+
+  const ask = await prisma.shelfAsk.findFirst({
+    where: { id: askId, author: { groupId } },
+    select: { ...askSelect, comments: { orderBy: { id: "asc" }, select: commentSelect } },
+  });
+  if (!ask) return notFound(c);
+  return c.json({
+    ask: {
+      ...askView(ask, config.r2PublicBaseUrl),
+      isMine: ask.author.id === callerId,
+      comments: ask.comments.map((comment) => commentView(comment, config.r2PublicBaseUrl)),
+    },
+  });
+});
+
+shelfRouter.put("/asks/:id", async (c) => {
+  const askId = idParam(c, "id");
+  if (!askId) return notFound(c);
+  const parsed = updateAskInput.safeParse(await readJson(c));
+  if (!parsed.success) return badRequest(c, "Say what you're looking for first.");
+  const { prisma, config } = db(c);
+  if (!(await ownAsk(prisma, askId, c.get("userId")))) return notFound(c);
+
+  const ask = await prisma.shelfAsk.update({
+    where: { id: askId },
+    data: { body: parsed.data.body, editedAt: new Date() },
+    select: askSelect,
+  });
+  // The Lounge card reads the ask live; this keeps the fallback text true too.
+  if (ask.loungePost) await prisma.post.update({ where: { id: ask.loungePost.id }, data: { content: ask.body } });
+  return c.json({ ask: askView(ask, config.r2PublicBaseUrl) });
+});
+
+/** Takes its discussion and its Lounge post with it (both cascade). */
+shelfRouter.delete("/asks/:id", async (c) => {
+  const askId = idParam(c, "id");
+  if (!askId) return notFound(c);
+  const { prisma } = db(c);
+  if (!(await ownAsk(prisma, askId, c.get("userId")))) return notFound(c);
+  await prisma.shelfAsk.delete({ where: { id: askId } });
+  return c.json({ ok: true });
+});
+
+shelfRouter.post("/asks/:id/lounge", async (c) => {
+  const askId = idParam(c, "id");
+  if (!askId) return notFound(c);
+  const { prisma } = db(c);
+  const ask = await ownAsk(prisma, askId, c.get("userId"));
+  if (!ask) return notFound(c);
+  if (ask.loungePost) return c.json({ postId: ask.loungePost.id });
+  return c.json({ postId: await postAskToLounge(c, prisma, ask) });
+});
+
+shelfRouter.post("/asks/:id/comments", async (c) => {
+  const askId = idParam(c, "id");
+  if (!askId) return notFound(c);
+  const parsed = reviewCommentInput.safeParse(await readJson(c));
+  if (!parsed.success) return badRequest(c, "Write something first.");
+  const userId = c.get("userId");
+  const { prisma, config } = db(c);
+  const groupId = await requireGroup(c, prisma);
+  if (groupId === null) return notFound(c);
+
+  const ask = await prisma.shelfAsk.findFirst({
+    where: { id: askId, author: { groupId } },
+    select: { authorId: true, comments: { select: { authorId: true } } },
+  });
+  if (!ask) return notFound(c);
+
+  const comment = await prisma.shelfAskComment.create({
+    data: { askId, authorId: userId, content: parsed.data.content },
+    select: commentSelect,
+  });
+  await notifyDiscussion(c, prisma, {
+    writerId: userId,
+    writerName: comment.author.name,
+    involved: [ask.authorId, ...ask.comments.map((other) => other.authorId)],
+    title: ask.authorId === userId ? "added to their ask" : "has a recommendation",
+    content: parsed.data.content,
+    openUrl: `/books/ask/${askId}`,
+    topic: `shelf-ask-${askId}`,
+  });
+  return c.json({ comment: commentView(comment, config.r2PublicBaseUrl) });
+});
+
+shelfRouter.put("/asks/:id/comments/:commentId", async (c) => {
+  const commentId = idParam(c, "commentId");
+  if (!commentId) return notFound(c);
+  const parsed = reviewCommentInput.safeParse(await readJson(c));
+  if (!parsed.success) return badRequest(c, "Write something first.");
+  const { prisma } = db(c);
+  const comment = await prisma.shelfAskComment.findUnique({
+    where: { id: commentId },
+    select: { authorId: true, askId: true },
+  });
+  if (!comment || comment.askId !== idParam(c, "id") || comment.authorId !== c.get("userId")) return notFound(c);
+  await prisma.shelfAskComment.update({
+    where: { id: commentId },
+    data: { content: parsed.data.content, editedAt: new Date() },
+  });
+  return c.json({ ok: true });
+});
+
+/** The writer can delete a comment, and so can the person who asked. */
+shelfRouter.delete("/asks/:id/comments/:commentId", async (c) => {
+  const commentId = idParam(c, "commentId");
+  if (!commentId) return notFound(c);
+  const userId = c.get("userId");
+  const { prisma } = db(c);
+  const comment = await prisma.shelfAskComment.findUnique({
+    where: { id: commentId },
+    select: { authorId: true, askId: true, ask: { select: { authorId: true } } },
+  });
+  if (!comment || comment.askId !== idParam(c, "id")) return notFound(c);
+  if (comment.authorId !== userId && comment.ask.authorId !== userId) return notFound(c);
+  await prisma.shelfAskComment.delete({ where: { id: commentId } });
+  return c.json({ ok: true });
+});
+
+// ---------------------------------------------------------------------------
+// The feed: reviews and asks, newest first
+// ---------------------------------------------------------------------------
+
+/**
+ * The feed pages two tables at once, so its cursor is two cursors: the oldest
+ * review id and the oldest ask id shown so far, "<review>.<ask>", either empty
+ * while none of that kind has been shown. Each list is consumed as a prefix of
+ * its own id order, so nothing is skipped or repeated however the two
+ * interleave.
+ */
+function feedCursor(raw: string | undefined) {
+  const [review, ask] = (raw ?? "").split(".").map((part) => {
+    const id = Number(part);
+    return part && Number.isInteger(id) && id > 0 ? id : undefined;
+  });
+  return { review, ask };
+}
+
+shelfRouter.get("/feed", async (c) => {
+  const callerId = c.get("userId");
+  const { prisma, config } = db(c);
+  const groupId = await requireGroup(c, prisma);
+  if (groupId === null) return notFound(c);
+
+  const ownerId = c.req.query("scope") === "mine" ? callerId : undefined;
+  const limit = pageLimit(c);
+  const cursor = feedCursor(c.req.query("cursor"));
+  const [reviews, asks] = await Promise.all([
+    findFeedReviews(prisma, { groupId, ownerId, cursor: cursor.review }, limit + 1),
+    prisma.shelfAsk.findMany({
+      where: {
+        author: { groupId },
+        ...(ownerId !== undefined ? { authorId: ownerId } : {}),
+        ...(cursor.ask ? { id: { lt: cursor.ask } } : {}),
+      },
+      orderBy: { id: "desc" },
+      take: limit + 1,
+      select: askSelect,
+    }),
+  ]);
+
+  // Merge the two newest-first lists by time, taking from the head of each.
+  const page: ({ kind: "review"; row: FeedReviewRow } | { kind: "ask"; row: AskRow })[] = [];
+  let r = 0;
+  let a = 0;
+  while (page.length < limit && (r < reviews.length || a < asks.length)) {
+    const review = reviews[r];
+    const ask = asks[a];
+    if (review && (!ask || review.createdAt >= ask.createdAt)) {
+      page.push({ kind: "review", row: review });
+      r += 1;
+    } else if (ask) {
+      page.push({ kind: "ask", row: ask });
+      a += 1;
+    }
+  }
+  const hasMore = r < reviews.length || a < asks.length;
+  const reviewCursor = r > 0 ? reviews[r - 1]?.id : cursor.review;
+  const askCursor = a > 0 ? asks[a - 1]?.id : cursor.ask;
+
+  const reviewViews = new Map(
+    (await feedReviewViews(prisma, reviews.slice(0, r), callerId, config.r2PublicBaseUrl)).map((view) => [view.id, view])
+  );
+  return c.json({
+    posts: page.map((post) =>
+      post.kind === "review"
+        ? { kind: "review" as const, ...reviewViews.get(post.row.id)! }
+        : { kind: "ask" as const, ...askView(post.row, config.r2PublicBaseUrl) }
+    ),
+    nextCursor: hasMore ? `${reviewCursor ?? ""}.${askCursor ?? ""}` : null,
+  });
 });
 
 // ---------------------------------------------------------------------------
