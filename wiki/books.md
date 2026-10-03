@@ -234,7 +234,23 @@ own. They apply across the tabs, and each tab counts its matches, so a book
 searched for in the wrong tab says where it is. They live in the URL, so
 coming back from a book returns to the same list.
 
-## Importing from Goodreads
+## The want list is a queue the reader arranges
+
+`ShelfEntry.wantRank` is the reader's order, lowest first. An entry without
+one sorts above every ranked one, newest wish first, so a book just wanted
+lands at the top and a list nobody has arranged keeps the order it always had.
+Wanting a book again clears its old rank for the same reason. The library's
+Want tab (`byWantOrder` in `frontend/src/components/books/LibraryScreen.tsx`)
+and Home (`GET /home`) sort the same way, and must keep doing so.
+
+`PUT /want-order` takes the whole list, not one move. A list another device
+changed since this one fetched it is refused with 409 rather than ranking some
+books and not others. Only ranks that changed are written. The handles show
+only on your own Want tab in its own order with no search or filter on, since
+moving a book among the matches of a search has no one meaning for the
+books hidden between them.
+
+
 
 `/books/import` reads a Goodreads library export
 (`goodreads_library_export.csv`) **in the browser**, in

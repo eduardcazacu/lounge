@@ -1,5 +1,19 @@
+import { useRef, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { useShelf } from "./api";
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { restrictToParentElement, restrictToVerticalAxis } from "@dnd-kit/modifiers";
+import { CSS } from "@dnd-kit/utilities";
+import { errorMessage, invalidateShelf, patchCached, shelfSend, useShelf } from "./api";
 import type { Library, LibraryEntry } from "./api";
 import { Cover, EmptyNote, PersonLine, RecommendBadge, Spinner, Stars, TopBar } from "./ui";
 import { byline, formatDay, percentText, usePalette } from "./format";
@@ -14,6 +28,10 @@ import { byline, formatDay, percentText, usePalette } from "./format";
 // across the tabs, and each tab's count is its matches, so a book that is not
 // in this tab says which one it is in. All of it lives in the URL, so coming
 // back from a book lands on the same list.
+//
+// Your own want list is a queue you arrange: drag a book by its handle, or
+// send it to the top. Arranging needs the whole list in its own order, so the
+// handles hide while a search, a filter or another sort is on.
 
 const TABS = [
   { key: "reading", label: "Reading", intent: "start", add: "Start a book" },
@@ -85,7 +103,18 @@ function matches(entry: LibraryEntry, tab: Tab, filters: Filters) {
   return true;
 }
 
+/** The order the reader arranged: unranked first, newest wish first, then by rank. Home sorts the same way. */
+function byWantOrder(a: LibraryEntry, b: LibraryEntry) {
+  if (a.wantRank !== b.wantRank) {
+    if (a.wantRank === null) return -1;
+    if (b.wantRank === null) return 1;
+    return a.wantRank - b.wantRank;
+  }
+  return (b.wantedAt ?? "").localeCompare(a.wantedAt ?? "");
+}
+
 function compare(a: LibraryEntry, b: LibraryEntry, tab: Tab, sort: Sort) {
+  if (tab === "want" && sort === "recent") return byWantOrder(a, b);
   const recent = sortKey(a, tab) < sortKey(b, tab) ? 1 : sortKey(a, tab) > sortKey(b, tab) ? -1 : 0;
   if (sort === "title") return fold(a.item.title).localeCompare(fold(b.item.title)) || recent;
   if (sort === "author") return surname(a).localeCompare(surname(b)) || fold(a.item.title).localeCompare(fold(b.item.title));
@@ -123,7 +152,19 @@ function FilterSelect({
   );
 }
 
-function Row({ entry, tab }: { entry: LibraryEntry; tab: Tab }) {
+function Row({
+  entry,
+  tab,
+  controls,
+  rowRef,
+  style,
+}: {
+  entry: LibraryEntry;
+  tab: Tab;
+  controls?: ReactNode;
+  rowRef?: (node: HTMLElement | null) => void;
+  style?: CSSProperties;
+}) {
   const active = entry.runs.find((run) => run.status === "active");
   const finishedRuns = entry.runs.filter((run) => run.status === "finished");
   const ended = lastEnded(entry);
@@ -135,8 +176,8 @@ function Row({ entry, tab }: { entry: LibraryEntry; tab: Tab }) {
   else if (ended) meta = `${tab === "dnf" ? "Stopped" : "Finished"} ${formatDay(ended.finishedOn)}${finishedRuns.length > 1 ? ` · read ${finishedRuns.length}×` : ""}`;
 
   return (
-    <li>
-      <Link to={`/books/item/${entry.id}`} className="flex gap-3 rounded-2xl bg-white p-3 shadow-sm">
+    <li ref={rowRef} style={style} className="flex rounded-2xl bg-white shadow-sm">
+      <Link to={`/books/item/${entry.id}`} className="flex min-w-0 flex-1 gap-3 p-3">
         <Cover item={entry.item} size="sm" />
         <div className="min-w-0 flex-1">
           <div className="line-clamp-2 font-semibold leading-snug">{entry.item.title}</div>
@@ -152,7 +193,90 @@ function Row({ entry, tab }: { entry: LibraryEntry; tab: Tab }) {
           </div>
         </div>
       </Link>
+      {controls}
     </li>
+  );
+}
+
+function SortableRow({ entry, first, onTop }: { entry: LibraryEntry; first: boolean; onTop: () => void }) {
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({
+    id: entry.id,
+  });
+  const style: CSSProperties = {
+    transform: CSS.Translate.toString(transform),
+    transition,
+    position: "relative",
+    zIndex: isDragging ? 10 : undefined,
+    boxShadow: isDragging ? "0 12px 28px rgba(15, 23, 42, 0.18)" : undefined,
+  };
+  return (
+    <Row
+      entry={entry}
+      tab="want"
+      rowRef={setNodeRef}
+      style={style}
+      controls={
+        <div className="flex shrink-0 flex-col items-center justify-center pr-1 text-slate-400">
+          {first ? (
+            <span className="h-10 w-10" />
+          ) : (
+            <button type="button" onClick={onTop} aria-label={`Move ${entry.item.title} to the top`} className="flex h-10 w-10 items-center justify-center">
+              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M6 4h12M12 20V9M7 13l5-5 5 5" />
+              </svg>
+            </button>
+          )}
+          {/* touch-none on the handle only: the rest of the row still scrolls the page. */}
+          <button
+            type="button"
+            ref={setActivatorNodeRef}
+            {...attributes}
+            {...listeners}
+            aria-label={`Reorder ${entry.item.title}`}
+            className="flex h-10 w-10 cursor-grab touch-none items-center justify-center active:cursor-grabbing"
+          >
+            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
+              {[6, 12, 18].flatMap((y) => [9, 15].map((x) => <circle key={`${x}-${y}`} cx={x} cy={y} r="1.6" />))}
+            </svg>
+          </button>
+        </div>
+      }
+    />
+  );
+}
+
+function ArrangeableWantList({ entries, onArrange }: { entries: LibraryEntry[]; onArrange: (ids: number[]) => void }) {
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+  const ids = entries.map((entry) => entry.id);
+
+  function onDragEnd({ active, over }: DragEndEvent) {
+    if (!over || active.id === over.id) return;
+    onArrange(arrayMove(ids, ids.indexOf(Number(active.id)), ids.indexOf(Number(over.id))));
+  }
+
+  return (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+      onDragEnd={onDragEnd}
+    >
+      <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+        <ul className="flex flex-col gap-2">
+          {entries.map((entry, index) => (
+            <SortableRow
+              key={entry.id}
+              entry={entry}
+              first={index === 0}
+              onTop={() => onArrange([entry.id, ...ids.filter((id) => id !== entry.id)])}
+            />
+          ))}
+        </ul>
+      </SortableContext>
+    </DndContext>
   );
 }
 
@@ -163,6 +287,9 @@ export function LibraryScreen() {
   const current = TABS.find((option) => option.key === params.get("tab")) ?? TABS[0];
   const tab: Tab = current.key;
   const { data: library, error } = useShelf<Library>(userId ? `/entries?userId=${userId}` : "/entries");
+  const [arrangeError, setArrangeError] = useState<string | null>(null);
+  // One arrangement at a time, so two quick moves reach the server in the order they were made.
+  const arranging = useRef(Promise.resolve());
 
   const query = params.get("q") ?? "";
   const ended = tab === "read" || tab === "dnf";
@@ -200,6 +327,26 @@ export function LibraryScreen() {
     }
   }
   shown.sort((a, b) => compare(a, b, tab, sort));
+  const arrangeable = !userId && tab === "want" && sort === "recent" && !filtering && shown.length > 1;
+
+  /** Shows the new order at once, then saves it. `ids` is the whole want list. */
+  function arrange(ids: number[]) {
+    const ranks = new Map(ids.map((id, rank) => [id, rank]));
+    patchCached<Library>("/entries", (value) => ({
+      ...value,
+      entries: value.entries.map((entry) => (ranks.has(entry.id) ? { ...entry, wantRank: ranks.get(entry.id)! } : entry)),
+    }));
+    setArrangeError(null);
+    arranging.current = arranging.current.then(async () => {
+      try {
+        await shelfSend("put", "/want-order", { entryIds: ids });
+      } catch (e) {
+        setArrangeError(errorMessage(e));
+        invalidateShelf();
+      }
+    });
+  }
+
   // Where the matches are, when none are here.
   const elsewhere = filtering && shown.length === 0 ? TABS.filter((option) => option.key !== tab && counts.get(option.key)) : [];
 
@@ -283,7 +430,7 @@ export function LibraryScreen() {
                 value={sort}
                 options={SORTS.filter((option) => ended || option.key !== "rating").map((option) => ({
                   value: option.key,
-                  label: option.key === "recent" ? "Sort: Recent" : `Sort: ${option.label}`,
+                  label: option.key === "recent" ? (tab === "want" ? "Sort: Your order" : "Sort: Recent") : `Sort: ${option.label}`,
                 }))}
                 onChange={(value) => update({ sort: value === "recent" ? null : value })}
               />
@@ -320,6 +467,11 @@ export function LibraryScreen() {
           </EmptyNote>
         ) : shown.length === 0 ? (
           <EmptyNote>{empty[tab]}</EmptyNote>
+        ) : arrangeable ? (
+          <>
+            {arrangeError ? <p className="pb-2 text-sm text-rose-600">{arrangeError}</p> : null}
+            <ArrangeableWantList entries={shown} onArrange={arrange} />
+          </>
         ) : (
           <ul className="flex flex-col gap-2">
             {shown.map((entry) => (
