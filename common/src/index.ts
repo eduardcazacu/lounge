@@ -322,7 +322,10 @@ export type WantOrderInput = z.infer<typeof wantOrderInput>
 export const addShelfEntryInput = z.object({
     // A candidate from search. For a manual entry the client sends source
     // "manual" and the server mints the externalId.
-    candidate: catalogCandidate,
+    candidate: catalogCandidate.optional(),
+    // Or a work already in the catalog, for adding from somebody else's
+    // shelf. Exactly one of the two.
+    itemId: z.number().int().positive().optional(),
     // "finished" and "dnf" are backfills of something read, or abandoned,
     // before it was on the shelf, and need the day it ended.
     intent: z.enum(["want", "start", "finished", "dnf"]),
@@ -334,6 +337,8 @@ export const addShelfEntryInput = z.object({
     // catalog's figure is used and marked unconfirmed.
     totalUnits: z.number().int().positive().max(100000).optional(),
     today: localDay,
+}).refine((value) => (value.candidate === undefined) !== (value.itemId === undefined), {
+    message: "Send either candidate or itemId.",
 })
 
 export type AddShelfEntryInput = z.infer<typeof addShelfEntryInput>

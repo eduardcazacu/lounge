@@ -66,7 +66,7 @@ export function ReviewScreen() {
             </Link>
             <span className="shrink-0 text-xs text-slate-500">{formatPostedTime(review.createdAt)}</span>
           </div>
-          <Link to={`/books/item/${review.entryId}`} className="mt-3 flex gap-3">
+          <Link to={review.isMine ? `/books/item/${review.entryId}` : `/books/work/${review.item.id}`} className="mt-3 flex gap-3">
             <Cover item={review.item} size="md" />
             <div className="min-w-0">
               <div className="font-semibold leading-snug">{review.item.title}</div>

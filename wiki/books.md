@@ -130,6 +130,16 @@ place of the work's wherever that entry is shown: library, home, their reviews
 in the feed and on the Lounge, the book club as they see it, and their stats.
 Nobody else's copy changes. An edition with no cover shows the work's.
 
+**Where nobody's copy is shown, an English edition is** — the work's page and
+Home's Trending card (`englishEditions` in `backend/src/route/shelf.ts`). The
+work's own title and cover can still be a translation's: a work filed from an
+import, from Google, or before search preferred English never had them
+swapped. So these pick from the English editions readers have brought into the
+catalog (adding from search, choosing one, importing by ISBN): one titled as
+the work is, then one with a cover, then the one most readers hold. Only
+editions we already have count; Open Library is not asked on a page view. A
+work nobody holds in English shows as it is.
+
 "Other editions" lists Open Library's editions of the work
 (`GET /catalog/editions?work=` from search, `GET /items/:id/editions` from the
 book's page), ranked by `rankEditions`: English first, then editions with no
@@ -224,6 +234,16 @@ linking to the book's page. Search answers are cached for everyone, so the
 response carries this separately (`onShelf` in `backend/src/route/shelf.ts`),
 worked out per request. A result counts if it is the same work or has the same
 title and author, which is the work adding it would land on.
+
+**A work's page adds that exact work.** The work's page (`/books/work/:itemId`)
+carries Want, Start and Read it, which behave as they do on the add screen.
+They send `itemId` instead of a candidate (`addShelfEntryInput`), so the book
+lands on that exact work, hand-made ones included. Two people adding a book by
+hand get two works, but adding it from a page someone else's copy led to is no
+guess, and puts them in one book club. The book arrives as the English
+edition the page showed, so the cover tapped is the cover on the shelf; an
+edition the reader already chose is never replaced. A reader who already has the book sees
+where it stands on their shelf instead (`mine` on `GET /items/:id`).
 
 ## Finding a book on a shelf
 
@@ -331,7 +351,7 @@ anyway" on the cover. "Finished" means any finished run of the work, the same
 test that gives a re-reader the whole book club; a DNF is not finished. The
 server decides per viewer (`coveredFor` in `backend/src/shelf-spoilers.ts`) and
 sends `covered` with every review it hands out: the feed, a review's page, a
-book's page, someone's library, and the Lounge card in `backend/src/route/blog.ts`.
+work's page, someone's library, and the Lounge card in `backend/src/route/blog.ts`.
 
 **The text is covered, not withheld.** It is sent and the client covers it,
 unlike book-club notes, which the server keeps back. A note is gated by how far
@@ -367,6 +387,31 @@ Home ends with everyone else in the group who has a read on their shelf
 `/books/people/:id`, as a reviewer's name does. A want list alone does not put
 someone there: it is a shelf with nothing read on it. Blocks hide people both
 ways, as for notifications.
+
+## A page per work, and a page per copy
+
+A book has two pages, split by whose they are:
+
+- **The work's** (`/books/work/:itemId`, `GET /items/:id`,
+  `frontend/src/components/books/WorkScreen.tsx`) is everyone's: an English
+  edition's title and cover, never the viewer's own; where it stands on your shelf, or
+  the quick add; who in the group is reading it now and who wants it
+  (`itemShelvers` in `backend/src/route/shelf.ts`); every review; the book
+  club. A review page, a friend's library and Home's Trending card open it.
+- **Your copy** (`/books/item/:entryId`, `GET /entries/:id`, `ItemScreen.tsx`)
+  is yours alone: the read in progress, logging, finishing, your edition and
+  your reads. `GET /entries/:id` answers 404 for anyone but the owner, and the
+  page links to the work's for friends and their reviews. A friend's reads of
+  a book, with their dates, are in their library (`GET /entries?userId=`).
+
+**Home's Trending card** (`trendingItems`, sent on `GET /home`) is works two
+or more people are reading now, most readers first, then works two or more
+want that are not already on the card for being read. The viewer counts:
+popularity is the group's, not everyone-but-me's. One reader is not a trend,
+and the card is absent rather than padded when nothing qualifies.
+
+Trending and the work's list of friends both hide blocked people both ways,
+as notifications do.
 
 ## On the Lounge
 

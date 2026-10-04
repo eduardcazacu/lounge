@@ -6,6 +6,7 @@ import { Avatar } from "../BlogCard";
 import { getThemePalette } from "../../themes";
 import { getTransformedImageUrl } from "../../lib/content";
 import type { Item, Person } from "./api";
+import { byline, usePalette } from "./format";
 
 // The pieces every /books screen is built from. The look is the Lounge's own —
 // white cards on the reader's palette, the accent on whatever is pressable —
@@ -230,6 +231,35 @@ export function PersonLine({ person, suffix }: { person: Person; suffix?: ReactN
       </span>
       {suffix}
     </span>
+  );
+}
+
+/**
+ * A book's cover, title, author, year, length and genres, at the top of its
+ * page. `children` go under the length: the edition line, on your own copy.
+ */
+export function BookHeader({ item, children }: { item: Item; children?: ReactNode }) {
+  const palette = usePalette();
+  const pages = item.edition?.totalUnits ?? item.totalUnits;
+  return (
+    <div className="flex gap-4 pt-5">
+      <Cover item={item} size="lg" />
+      <div className="min-w-0 flex-1">
+        <h2 className="text-xl font-semibold leading-snug">{item.title}</h2>
+        <p className="text-[15px] text-slate-600">{byline(item)}</p>
+        <p className="mt-1 text-sm text-slate-500">{[item.year, pages ? `${pages} pages` : null].filter(Boolean).join(" · ")}</p>
+        {children}
+        {item.genres.length ? (
+          <div className="mt-2 flex flex-wrap gap-1">
+            {item.genres.map((genre) => (
+              <span key={genre} className="rounded-full px-2 py-0.5 text-xs" style={{ background: palette.postBg, color: palette.text }}>
+                {genre}
+              </span>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </div>
   );
 }
 

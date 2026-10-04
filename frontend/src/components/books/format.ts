@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { getThemePalette } from "../../themes";
-import type { CatalogEdition, Item } from "./api";
+import type { CatalogEdition, Item, ShelfStatus } from "./api";
 
 // Formatting and the reader's palette: the non-component half of ui.tsx.
 
@@ -18,6 +18,14 @@ export function usePalette() {
   }, []);
   return getThemePalette(themeKey);
 }
+
+/** Where a book stands on a shelf, as a tag says it. */
+export const SHELF_LABEL: Record<ShelfStatus, string> = {
+  reading: "Reading",
+  read: "Read",
+  dnf: "Didn't finish",
+  want: "Want to read",
+};
 
 export function byline(item: Pick<Item, "creators">) {
   return item.creators.length ? item.creators.slice(0, 2).join(", ") : "";

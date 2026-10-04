@@ -8,6 +8,7 @@ import { usePalette } from "./format";
 import { HomeScreen } from "./HomeScreen";
 import { AddScreen } from "./AddScreen";
 import { ItemScreen } from "./ItemScreen";
+import { WorkScreen } from "./WorkScreen";
 import { ClubScreen } from "./ClubScreen";
 import { FinishScreen } from "./FinishScreen";
 import { FeedScreen } from "./FeedScreen";
@@ -195,6 +196,7 @@ export function BooksApp() {
           <Route index element={<HomeScreen />} />
           <Route path="add" element={<AddScreen />} />
           <Route path="item/:entryId" element={<ItemScreen />} />
+          <Route path="work/:itemId" element={<WorkScreen />} />
           <Route path="club/:itemId" element={<ClubScreen />} />
           <Route path="finish/:runId" element={<FinishScreen />} />
           <Route path="feed" element={<FeedScreen />} />

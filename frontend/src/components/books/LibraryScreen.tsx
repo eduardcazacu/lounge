@@ -155,12 +155,15 @@ function FilterSelect({
 function Row({
   entry,
   tab,
+  mine,
   controls,
   rowRef,
   style,
 }: {
   entry: LibraryEntry;
   tab: Tab;
+  /** Your own library opens your copy; a friend's opens the work, where you can add it. */
+  mine: boolean;
   controls?: ReactNode;
   rowRef?: (node: HTMLElement | null) => void;
   style?: CSSProperties;
@@ -177,7 +180,7 @@ function Row({
 
   return (
     <li ref={rowRef} style={style} className="flex rounded-2xl bg-white shadow-sm">
-      <Link to={`/books/item/${entry.id}`} className="flex min-w-0 flex-1 gap-3 p-3">
+      <Link to={mine ? `/books/item/${entry.id}` : `/books/work/${entry.item.id}`} className="flex min-w-0 flex-1 gap-3 p-3">
         <Cover item={entry.item} size="sm" />
         <div className="min-w-0 flex-1">
           <div className="line-clamp-2 font-semibold leading-snug">{entry.item.title}</div>
@@ -213,6 +216,7 @@ function SortableRow({ entry, first, onTop }: { entry: LibraryEntry; first: bool
     <Row
       entry={entry}
       tab="want"
+      mine
       rowRef={setNodeRef}
       style={style}
       controls={
@@ -475,7 +479,7 @@ export function LibraryScreen() {
         ) : (
           <ul className="flex flex-col gap-2">
             {shown.map((entry) => (
-              <Row key={entry.id} entry={entry} tab={tab} />
+              <Row key={entry.id} entry={entry} tab={tab} mine={!userId} />
             ))}
           </ul>
         )}

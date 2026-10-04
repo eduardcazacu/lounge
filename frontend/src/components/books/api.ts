@@ -108,6 +108,17 @@ export type ReaderSettings = {
   }[];
 };
 
+/** Where a work stands on one shelf. */
+export type ShelfStatus = "reading" | "read" | "dnf" | "want";
+
+/** One of the group's popular books on Home: two or more reading it, or wanting it. */
+export type TrendingItem = {
+  kind: "reading" | "want";
+  count: number;
+  item: Item;
+  people: Person[];
+};
+
 export type Home = {
   today: string;
   reading: HomeReading[];
@@ -115,6 +126,7 @@ export type Home = {
   readerPending: ReaderPending[];
   /** Everyone else in the group with a read on their shelf, most recently active first. */
   readers: Person[];
+  trending: TrendingItem[];
   highlights: { year: number; booksThisYear: number; pagesThisWeek: number; streak: number };
 };
 
@@ -129,11 +141,19 @@ export type ProgressLogRow = {
   createdAt: string;
 };
 
+/** A work as anyone in the group sees it: an English edition's title and cover where there is one, never the viewer's. */
+export type WorkDetail = {
+  item: Item;
+  /** The caller's own entry for the work, and where it stands; null when it is not on their shelf. */
+  mine: { entryId: number; status: ShelfStatus } | null;
+  /** Everyone else in the group reading it now, or wanting to. */
+  shelvers: { reading: Person[]; want: Person[] };
+};
+
+/** One work on the caller's own shelf. */
 export type EntryDetail = {
   id: number;
-  isMine: boolean;
   wantedAt: string | null;
-  owner: Person;
   item: Item;
   runs: (Run & {
     number: number;

@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { errorMessage, invalidateShelf, localDay, shelfGet, shelfSend } from "./api";
-import type { CatalogCandidate } from "./api";
+import type { CatalogCandidate, ShelfStatus } from "./api";
 import { Cover, Sheet, TopBar } from "./ui";
 import { CopyPagesSheet } from "./CopyPagesSheet";
 import { EditionSheet } from "./EditionSheet";
-import { byline, languageName, usePalette } from "./format";
+import { SHELF_LABEL, byline, languageName, usePalette } from "./format";
 
 // Adding a book is one search and one tap. Type a title or an author, and each
 // result carries the three things you might mean: Want, Start, Read it. Cover,
@@ -40,14 +40,7 @@ const DEBOUNCE_MS = 350;
 
 /** A result as the reader will see it on their shelf: its edition's title, cover and length. */
 /** Results already on the reader's shelf, by `source:externalId`, from the search response. */
-type OnShelf = Record<string, { entryId: number; status: "reading" | "read" | "dnf" | "want" }>;
-
-const SHELF_LABEL: Record<OnShelf[string]["status"], string> = {
-  reading: "Reading",
-  read: "Read",
-  dnf: "Didn't finish",
-  want: "Want to read",
-};
+type OnShelf = Record<string, { entryId: number; status: ShelfStatus }>;
 
 function asShown(candidate: CatalogCandidate) {
   const { edition } = candidate;
@@ -58,14 +51,20 @@ function asShown(candidate: CatalogCandidate) {
   };
 }
 
-/** When a past read ended — and, for one put down, how far it got. */
-function EndedSheet({
-  candidate,
+/**
+ * When a past read ended — and, for one put down, how far it got. `target` is
+ * what `POST /entries` adds: a search result, or a work already in the catalog
+ * when the book is added from a friend's copy of it.
+ */
+export function EndedSheet({
+  book,
+  target,
   intent,
   onClose,
   onDone,
 }: {
-  candidate: CatalogCandidate;
+  book: { title: string; coverUrl: string | null; totalUnits: number | null; creators: string[] };
+  target: { candidate: CatalogCandidate } | { itemId: number };
   intent: "finished" | "dnf";
   onClose: () => void;
   onDone: (runId: number) => void;
@@ -82,7 +81,7 @@ function EndedSheet({
     setError(null);
     try {
       const result = await shelfSend<{ runId: number }>("post", "/entries", {
-        candidate,
+        ...target,
         intent,
         finishedOn,
         ...(intent === "dnf" && stoppedAtPage > 0 ? { stoppedAt: stoppedAtPage } : {}),
@@ -125,10 +124,10 @@ function EndedSheet({
       }
     >
       <div className="flex items-center gap-3 pb-4">
-        <Cover item={asShown(candidate)} size="sm" />
+        <Cover item={book} size="sm" />
         <div className="min-w-0">
-          <div className="truncate font-semibold">{asShown(candidate).title}</div>
-          <div className="truncate text-sm text-slate-500">{byline(candidate)}</div>
+          <div className="truncate font-semibold">{book.title}</div>
+          <div className="truncate text-sm text-slate-500">{byline(book)}</div>
         </div>
       </div>
       <div className="flex flex-wrap gap-2 pb-3">
@@ -156,7 +155,7 @@ function EndedSheet({
             inputMode="numeric"
             value={stoppedAt}
             onChange={(event) => setStoppedAt(event.target.value.replace(/[^0-9]/g, ""))}
-            placeholder={asShown(candidate).totalUnits ? `of ${asShown(candidate).totalUnits}` : ""}
+            placeholder={book.totalUnits ? `of ${book.totalUnits}` : ""}
             className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2.5 text-[16px]"
           />
         </label>
@@ -447,7 +446,8 @@ export function AddScreen() {
 
       {ending ? (
         <EndedSheet
-          candidate={ending.candidate}
+          book={{ ...asShown(ending.candidate), creators: ending.candidate.creators }}
+          target={{ candidate: ending.candidate }}
           intent={ending.intent}
           onClose={() => setEnding(null)}
           onDone={(runId) => landed(ending.intent, runId)}

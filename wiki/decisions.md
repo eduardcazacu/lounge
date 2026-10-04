@@ -1022,6 +1022,29 @@ job.
 
 ---
 
+## A page per work, apart from your copy of it
+
+**Chosen** two pages for a book: the work's (`/books/work/:itemId`), which
+everyone sees, and your copy (`/books/item/:entryId`), which only you do.
+
+**Rejected** one page per shelf entry, opened for anyone's copy and branching
+on whose it was, with Trending and reviews opening a friend's copy when the
+viewer had none.
+
+**Because** the book club, the reviews, who has the book and the quick add are
+all properties of the work. Hung off one person's entry, the page grew a branch
+for every one of them, and a link chosen because a friend wanted the book broke
+when they stopped wanting it.
+
+**Cost paid** a friend's reads of a book are seen in their library rather
+than on a page of their copy, and a reader who chose an edition sees the
+group's English one on the work's page instead of their own.
+
+**Would reopen if** the group wanted a friend's copy as a page of its own
+again — their log, say, which no page shows to anyone else today.
+
+---
+
 ## Import looks books up as free text, like search
 
 **Chosen** one free-text `q=<title> <author>` query with search's fields and

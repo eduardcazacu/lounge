@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Avatar } from "../BlogCard";
 import { invalidateShelf, localDay, shelfSend, useShelf } from "./api";
-import type { Home, HomeReading, Person, ReaderPending } from "./api";
+import type { Home, HomeReading, Person, ReaderPending, TrendingItem } from "./api";
 import { AccountButton } from "./BooksApp";
 import { LogSheet } from "./LogSheet";
 import { CopyPagesSheet } from "./CopyPagesSheet";
@@ -11,9 +11,10 @@ import { dismissNotificationsCard, isNotificationsCardDismissed, usePushState } 
 import { Card, Cover, EmptyNote, ProgressBar, SectionTitle, Spinner } from "./ui";
 import { agoText, byline, percentText, usePalette } from "./format";
 
-// Home: what is being read, how far, and a button to log more — then three
-// numbers, then the want list. Everything else is a tap away. The book club
-// is a chip on the card that opens it; nothing anyone wrote is shown here.
+// Home: what is being read, how far, and a button to log more — then what the
+// group is reading, three numbers, and the want list. Everything else is a tap
+// away. The book club is a chip on the card that opens it; nothing anyone
+// wrote is shown here.
 
 function ReadingCard({ reading, onLog }: { reading: HomeReading; onLog: () => void }) {
   const palette = usePalette();
@@ -219,6 +220,50 @@ function Highlights({ home }: { home: Home }) {
 }
 
 /**
+ * The group's popular books, one line each: those several people are reading
+ * first, then those several want. The tag says which, since "three people"
+ * means something different for each. A row opens the book's page, where it
+ * can be added in a tap.
+ */
+function TrendingCard({ trending }: { trending: TrendingItem[] }) {
+  const palette = usePalette();
+  return (
+    <Card className="!p-0">
+      <ul className="divide-y divide-slate-100">
+        {trending.map((row) => (
+          <li key={row.item.id}>
+            <Link to={`/books/work/${row.item.id}`} className="flex items-center gap-3 px-3 py-2">
+              <Cover item={row.item} size="xs" />
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[15px] font-medium leading-tight text-slate-900">{row.item.title}</div>
+                <div className="truncate text-xs text-slate-500">{byline(row.item)}</div>
+              </div>
+              <span className="flex shrink-0 -space-x-1.5">
+                {row.people.slice(0, 3).map((person) => (
+                  <span key={person.id} className="rounded-full ring-2 ring-white">
+                    <Avatar size="small" name={person.name ?? "?"} themeKey={person.themeKey} imageUrl={person.profilePictureUrl} />
+                  </span>
+                ))}
+              </span>
+              <span
+                className="w-[74px] shrink-0 rounded-full px-2 py-0.5 text-center text-[11px] font-medium tabular-nums"
+                style={
+                  row.kind === "reading"
+                    ? { background: palette.accent, color: "white" }
+                    : { background: palette.postBg, color: palette.text }
+                }
+              >
+                {row.count} {row.kind === "reading" ? "reading" : "want it"}
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
+/**
  * Everyone else in the group who reads here, as the Lounge's blog shows its
  * authors: a row of avatars that scrolls sideways. Each opens that person's
  * library.
@@ -299,6 +344,13 @@ export function HomeScreen() {
             )}
 
             <NotificationsCard home={home} />
+
+            {home.trending?.length ? (
+              <>
+                <SectionTitle>Trending</SectionTitle>
+                <TrendingCard trending={home.trending} />
+              </>
+            ) : null}
 
             <SectionTitle>This year</SectionTitle>
             <Highlights home={home} />

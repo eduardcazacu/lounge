@@ -1,16 +1,17 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { errorMessage, invalidateShelf, localDay, shelfSend, useShelf } from "./api";
-import type { CatalogEdition, EntryDetail, FeedReview, ProgressLogRow } from "./api";
+import type { CatalogEdition, EntryDetail, ProgressLogRow } from "./api";
 import { LogSheet } from "./LogSheet";
 import { CopyPagesSheet } from "./CopyPagesSheet";
 import { EditionSheet } from "./EditionSheet";
-import { Card, Cover, PersonLine, ProgressBar, RecommendBadge, ReviewBody, SectionTitle, Sheet, Spinner, SpoilerTag, Stars, TopBar } from "./ui";
-import { byline, editionLine, formatDay, percentText, usePalette } from "./format";
+import { BookHeader, Card, ProgressBar, RecommendBadge, ReviewBody, SectionTitle, Sheet, Spinner, SpoilerTag, Stars, TopBar } from "./ui";
+import { editionLine, formatDay, percentText, usePalette } from "./format";
 
-// One work on one person's shelf. For your own: the read in progress and what
-// can be done to it, every earlier read with its review, and the way into the
-// book club. For somebody else's: their reads and reviews, read-only.
+// One work on your own shelf: the read in progress and what can be done to
+// it, every earlier read with its review, and the ways into the book club and
+// the work's page (WorkScreen), which is where friends and their reviews are.
+// Nobody else opens this page; a friend's reads are in their library.
 //
 // The cover and title are the reader's edition's, which they can change here.
 // Changing it offers the new edition's length for the read in progress rather
@@ -193,7 +194,7 @@ function LogRow({ log, isLatest }: { log: ProgressLogRow; isLatest: boolean }) {
   );
 }
 
-function PastRun({ run, isMine }: { run: RunWithReview; isMine: boolean }) {
+function PastRun({ run }: { run: RunWithReview }) {
   const palette = usePalette();
   const navigate = useNavigate();
   const [editingDate, setEditingDate] = useState(false);
@@ -234,19 +235,17 @@ function PastRun({ run, isMine }: { run: RunWithReview; isMine: boolean }) {
           </p>
         </Link>
       ) : null}
-      {isMine ? (
-        <div className="mt-2 flex gap-4 text-sm">
-          <Link to={`/books/finish/${run.id}?edit=1`} className="font-medium" style={{ color: palette.accent }}>
-            {hasReview ? "Edit review" : "Write a review"}
-          </Link>
-          <button type="button" onClick={() => setEditingDate(true)} className="font-medium text-slate-500">
-            Change date
-          </button>
-          <button type="button" onClick={remove} className="ml-auto text-slate-400">
-            Delete
-          </button>
-        </div>
-      ) : null}
+      <div className="mt-2 flex gap-4 text-sm">
+        <Link to={`/books/finish/${run.id}?edit=1`} className="font-medium" style={{ color: palette.accent }}>
+          {hasReview ? "Edit review" : "Write a review"}
+        </Link>
+        <button type="button" onClick={() => setEditingDate(true)} className="font-medium text-slate-500">
+          Change date
+        </button>
+        <button type="button" onClick={remove} className="ml-auto text-slate-400">
+          Delete
+        </button>
+      </div>
       {editingDate ? <FinishDateSheet run={run} onClose={() => setEditingDate(false)} /> : null}
     </Card>
   );
@@ -297,7 +296,6 @@ export function ItemScreen() {
   const palette = usePalette();
   const navigate = useNavigate();
   const { data: entry, error } = useShelf<EntryDetail>(`/entries/${entryId}`);
-  const others = useShelf<{ reviews: FeedReview[] }>(entry ? `/reviews?scope=everyone&itemId=${entry.item.id}&limit=10` : null);
   const [logging, setLogging] = useState(false);
   const [ending, setEnding] = useState(false);
   const [copyLength, setCopyLength] = useState<{ initial: number | null; note?: string } | null>(null);
@@ -317,7 +315,6 @@ export function ItemScreen() {
   const { item } = entry;
   const active = entry.runs.find((run) => run.status === "active");
   const past = entry.runs.filter((run) => run.status !== "active");
-  const otherReviews = (others.data?.reviews ?? []).filter((review) => review.reviewer.id !== entry.owner.id);
 
   // The last read's length if it was the reader's own; otherwise the
   // catalog's, to be confirmed or corrected.
@@ -355,44 +352,25 @@ export function ItemScreen() {
 
   return (
     <>
-      <TopBar title={entry.isMine ? item.title : <PersonLine person={entry.owner} />} />
+      <TopBar title={item.title} />
       <main className="mx-auto max-w-xl px-4 pb-8">
-        <div className="flex gap-4 pt-5">
-          <Cover item={item} size="lg" />
-          <div className="min-w-0 flex-1">
-            <h2 className="text-xl font-semibold leading-snug">{item.title}</h2>
-            <p className="text-[15px] text-slate-600">{byline(item)}</p>
-            <p className="mt-1 text-sm text-slate-500">
-              {[item.year, (item.edition?.totalUnits ?? item.totalUnits) ? `${item.edition?.totalUnits ?? item.totalUnits} pages` : null]
-                .filter(Boolean)
-                .join(" · ")}
+        <BookHeader item={item}>
+          {item.source === "openlibrary" || item.edition ? (
+            <p className="mt-0.5 text-xs text-slate-500">
+              {item.edition ? editionLine({ ...item.edition, totalUnits: null }) : null}
+              {item.source === "openlibrary" ? (
+                <>
+                  {item.edition ? " · " : null}
+                  <button type="button" onClick={() => setChoosingEdition(true)} className="font-medium" style={{ color: palette.accent }}>
+                    {item.edition ? "Change edition" : "Choose your edition"}
+                  </button>
+                </>
+              ) : null}
             </p>
-            {item.edition || (entry.isMine && item.source === "openlibrary") ? (
-              <p className="mt-0.5 text-xs text-slate-500">
-                {item.edition ? editionLine({ ...item.edition, totalUnits: null }) : null}
-                {entry.isMine && item.source === "openlibrary" ? (
-                  <>
-                    {item.edition ? " · " : null}
-                    <button type="button" onClick={() => setChoosingEdition(true)} className="font-medium" style={{ color: palette.accent }}>
-                      {item.edition ? "Change edition" : "Choose your edition"}
-                    </button>
-                  </>
-                ) : null}
-              </p>
-            ) : null}
-            {item.genres.length ? (
-              <div className="mt-2 flex flex-wrap gap-1">
-                {item.genres.map((genre) => (
-                  <span key={genre} className="rounded-full px-2 py-0.5 text-xs" style={{ background: palette.postBg, color: palette.text }}>
-                    {genre}
-                  </span>
-                ))}
-              </div>
-            ) : null}
-          </div>
-        </div>
+          ) : null}
+        </BookHeader>
 
-        {entry.isMine && active ? (
+        {active ? (
           <>
             <SectionTitle>{entry.runs.length > 1 ? `Reading again · #${entry.runs.length}` : "Reading"}</SectionTitle>
             <Card>
@@ -429,7 +407,7 @@ export function ItemScreen() {
           </>
         ) : null}
 
-        {entry.isMine && !active ? (
+        {!active ? (
           <div className="mt-5 flex gap-2">
             <button
               type="button"
@@ -448,7 +426,7 @@ export function ItemScreen() {
           </div>
         ) : null}
 
-        {entry.isMine && item.source === "manual" ? <FindInCatalogCard entryId={entry.id} /> : null}
+        {item.source === "manual" ? <FindInCatalogCard entryId={entry.id} /> : null}
 
         <Link to={`/books/club/${item.id}`} className="mt-4 flex items-center justify-between rounded-2xl border border-slate-200/70 bg-white px-4 py-3 shadow-sm">
           <span>
@@ -457,39 +435,25 @@ export function ItemScreen() {
           </span>
           <span className="text-slate-400">›</span>
         </Link>
+        <Link to={`/books/work/${item.id}`} className="mt-2 flex items-center justify-between rounded-2xl border border-slate-200/70 bg-white px-4 py-3 shadow-sm">
+          <span>
+            <span className="font-medium">👥 Friends and reviews</span>
+            <span className="block text-xs text-slate-500">Who else is reading it or wants to, and what everyone thought.</span>
+          </span>
+          <span className="text-slate-400">›</span>
+        </Link>
 
         {past.length ? (
           <>
-            <SectionTitle>{entry.isMine ? "Your reads" : "Their reads"}</SectionTitle>
+            <SectionTitle>Your reads</SectionTitle>
             <div className="flex flex-col gap-2">
               {past.map((run) => (
-                <PastRun key={run.id} run={run} isMine={entry.isMine} />
+                <PastRun key={run.id} run={run} />
               ))}
             </div>
           </>
         ) : null}
 
-        {otherReviews.length ? (
-          <>
-            <SectionTitle>What others thought</SectionTitle>
-            <div className="flex flex-col gap-2">
-              {otherReviews.map((review) => (
-                <Link key={review.id} to={`/books/review/${review.id}`}>
-                  <Card className="!p-3.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <PersonLine person={review.reviewer} />
-                      <Stars rating={review.rating} />
-                    </div>
-                    <ReviewBody review={review} className="mt-1.5 line-clamp-2 text-sm text-slate-700" />
-                    <div className="mt-1.5">
-                      <RecommendBadge recommend={review.recommend} />
-                    </div>
-                  </Card>
-                </Link>
-              ))}
-            </div>
-          </>
-        ) : null}
       </main>
 
       {logging && active ? <LogSheet run={active} item={item} onClose={() => setLogging(false)} /> : null}

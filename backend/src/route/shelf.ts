@@ -195,6 +195,40 @@ function itemView(item: ItemRow, edition?: EditionRow | null) {
   };
 }
 
+/**
+ * The English edition to show a work as, where nobody's copy is what is being
+ * shown (its page, Trending), by work id. The work's own title and cover
+ * belong to whichever edition Open Library catalogued first, often a
+ * translation's, and a work filed from an import or from Google never had
+ * them swapped for an English one. So among the English editions readers
+ * have brought into the catalog: one titled as the work is (the work is
+ * already English, and that is its edition), then one with a cover, then the
+ * one most readers hold. No English edition, no entry: the work shows as it
+ * is. Only editions we hold are considered; Open Library is never asked here.
+ */
+async function englishEditions(prisma: PrismaClient | Prisma.TransactionClient, items: { id: number; title: string }[]) {
+  const chosen = new Map<number, EditionRow>();
+  if (items.length === 0) return chosen;
+  const editions = await prisma.catalogEdition.findMany({
+    where: { itemId: { in: items.map((item) => item.id) }, language: "eng" },
+    select: { ...editionSelect, itemId: true, _count: { select: { entries: true } } },
+  });
+  const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+  for (const item of items) {
+    const [best] = editions
+      .filter((edition) => edition.itemId === item.id)
+      .sort(
+        (a, b) =>
+          Number(same(b.title, item.title)) - Number(same(a.title, item.title)) ||
+          Number(b.coverUrl !== null) - Number(a.coverUrl !== null) ||
+          b._count.entries - a._count.entries ||
+          b.id - a.id
+      );
+    if (best) chosen.set(item.id, best);
+  }
+  return chosen;
+}
+
 type RunRow = {
   id: number;
   status: string;
@@ -333,6 +367,20 @@ function catalogUnavailable(c: Context<ShelfEnv>, error: CatalogUnavailable) {
  * Open Library — which limits by IP — never sees. Only complete answers are
  * cached; see `BookSearchResult.complete`.
  */
+/** Where a work stands on one shelf: its runs are newest first. */
+function shelfStatus(entry: { wantedAt: Date | null; runs: { status: string }[] }) {
+  const latest = entry.runs[0]?.status;
+  return entry.runs.some((run) => run.status === "active")
+    ? "reading"
+    : latest === "finished"
+      ? "read"
+      : latest === "dnf"
+        ? "dnf"
+        : entry.wantedAt
+          ? "want"
+          : null;
+}
+
 /**
  * Which search results are already on the caller's shelf, keyed as the client
  * keys results (`source:externalId`), and where the book stands there. A result
@@ -358,16 +406,7 @@ async function onShelf(prisma: PrismaClient, userId: number, results: CatalogCan
       entries.find((mine) => mine.item.source === result.source && mine.item.externalId === result.externalId) ??
       entries.find((mine) => sameBook(result, { title: mine.item.title, author_name: mine.item.creators }));
     if (!entry) continue;
-    const latest = entry.runs[0]?.status;
-    const status = entry.runs.some((run) => run.status === "active")
-      ? "reading"
-      : latest === "finished"
-        ? "read"
-        : latest === "dnf"
-          ? "dnf"
-          : entry.wantedAt
-            ? "want"
-            : null;
+    const status = shelfStatus(entry);
     if (status) shelf[`${result.source}:${result.externalId}`] = { entryId: entry.id, status };
   }
   return shelf;
@@ -490,7 +529,7 @@ function scheduleCoverCopies(c: Context<ShelfEnv>, prisma: PrismaClient, itemIds
 shelfRouter.post("/entries", async (c) => {
   const parsed = addShelfEntryInput.safeParse(await readJson(c));
   if (!parsed.success) return badRequest(c, "Inputs are incorrect.");
-  const { candidate, intent, startedOn, finishedOn, stoppedAt, today, totalUnits: copyUnits } = parsed.data;
+  const { candidate, itemId, intent, startedOn, finishedOn, stoppedAt, today, totalUnits: copyUnits } = parsed.data;
   if ((intent === "finished" || intent === "dnf") && !finishedOn) return badRequest(c, "When did you finish it?");
 
   const userId = c.get("userId");
@@ -498,26 +537,41 @@ shelfRouter.post("/entries", async (c) => {
 
   // A hand-typed work gets an id of its own. Matching it to someone else's
   // hand-typed "same" work by title would be a guess, and a wrong guess merges
-  // two people's book clubs.
-  const externalId = candidate.source === "manual" ? `manual:${crypto.randomUUID()}` : candidate.externalId;
+  // two people's book clubs. Adding by `itemId`, from a friend's copy, is no
+  // guess: it is that work, hand-made or not, and the same book club.
+  const externalId = candidate?.source === "manual" ? `manual:${crypto.randomUUID()}` : candidate?.externalId;
+  if (itemId !== undefined && !(await prisma.catalogItem.findUnique({ where: { id: itemId }, select: { id: true } }))) {
+    return notFound(c, "That book isn't here any more.");
+  }
 
   let needsCover: number | null = null;
   let editionNeedsCover: number | null = null;
   // Set when this request began a read, so friends who want the book hear.
   let startedItemId: number | null = null;
   const result = await prisma.$transaction(async (tx) => {
-    const item = await resolveCandidate(tx, { ...candidate, externalId });
+    const byId = candidate
+      ? null
+      : await tx.catalogItem.findUniqueOrThrow({
+          where: { id: itemId },
+          select: { id: true, title: true, totalUnits: true, coverUrl: true, coverKey: true },
+        });
+    const item = byId ?? (await resolveCandidate(tx, { ...candidate!, externalId: externalId! }));
     if (item.coverUrl && !item.coverKey) needsCover = item.id;
     // The edition the reader chose, or the English one search offered. On a
     // book already on the shelf it replaces the one there: picking it again
-    // from search is a way of saying which copy this is.
-    const edition = candidate.edition && candidate.source !== "manual" ? await saveEdition(tx, item.id, candidate.edition) : null;
+    // from search is a way of saying which copy this is. A book added by id,
+    // from the work's page, gets the English edition that page showed, so
+    // the cover tapped is the cover on the shelf. It is set only on an entry
+    // this creates, never over an edition the reader chose.
+    const shown = byId ? (await englishEditions(tx, [byId])).get(byId.id) : undefined;
+    const edition = candidate?.edition && candidate.source !== "manual" ? await saveEdition(tx, item.id, candidate.edition) : null;
     if (edition?.coverUrl && !edition.coverKey) editionNeedsCover = edition.id;
     const editionData = edition ? { editionId: edition.id } : {};
+    const shownEdition = shown ? { editionId: shown.id } : {};
 
     const entry = await tx.shelfEntry.upsert({
       where: { userId_itemId: { userId, itemId: item.id } },
-      create: { userId, itemId: item.id, wantedAt: intent === "want" ? new Date() : null, ...editionData },
+      create: { userId, itemId: item.id, wantedAt: intent === "want" ? new Date() : null, ...editionData, ...shownEdition },
       update: intent === "want" ? editionData : { wantedAt: null, ...editionData },
       select: { id: true, wantedAt: true },
     });
@@ -544,7 +598,7 @@ shelfRouter.post("/entries", async (c) => {
           // The reader's own copy when they gave it at Start; otherwise the
           // edition's or the catalog's figure, unconfirmed, which the book
           // club allows for.
-          totalUnits: copyUnits ?? candidate.edition?.totalUnits ?? candidate.totalUnits ?? item.totalUnits,
+          totalUnits: copyUnits ?? candidate?.edition?.totalUnits ?? candidate?.totalUnits ?? shown?.totalUnits ?? item.totalUnits,
           unitsConfirmed: copyUnits !== undefined,
         },
         select: { id: true },
@@ -558,7 +612,7 @@ shelfRouter.post("/entries", async (c) => {
     // year it was read in counts its pages as well as the book. A DNF's
     // closing log covers only as far as the reader says they got, if they
     // say.
-    const totalUnits = copyUnits ?? candidate.edition?.totalUnits ?? candidate.totalUnits ?? item.totalUnits;
+    const totalUnits = copyUnits ?? candidate?.edition?.totalUnits ?? candidate?.totalUnits ?? shown?.totalUnits ?? item.totalUnits;
     const reached =
       intent === "finished"
         ? totalUnits ?? 0
@@ -796,19 +850,90 @@ shelfRouter.get("/entries", async (c) => {
   });
 });
 
-/** One work on one person's shelf: every run, its review, and today's logs. */
+/**
+ * Who in the group is reading a work now, and who wants to, for its page.
+ * Everyone but the caller, whose own place is shown apart; blocks hide people
+ * both ways. A name opens that person's library.
+ */
+async function itemShelvers(prisma: PrismaClient, callerId: number, groupId: number, itemId: number, r2: string | undefined) {
+  const [entries, blocked] = await Promise.all([
+    prisma.shelfEntry.findMany({
+      where: {
+        itemId,
+        userId: { not: callerId },
+        user: { groupId, status: "approved" },
+        OR: [{ wantedAt: { not: null } }, { runs: { some: { status: "active" } } }],
+      },
+      select: {
+        wantedAt: true,
+        user: { select: personSelect },
+        runs: { where: { status: "active" }, select: { id: true } },
+      },
+    }),
+    blockedUserIds(prisma, callerId),
+  ]);
+  const visible = entries.filter((entry) => !blocked.has(entry.user.id));
+  const view = (entry: (typeof visible)[number]) => personView(entry.user, r2);
+  return {
+    // Most recently started first, then most recently wanted.
+    reading: visible
+      .filter((entry) => entry.runs.length > 0)
+      .sort((a, b) => b.runs[0].id - a.runs[0].id)
+      .map(view),
+    want: visible
+      .filter((entry) => entry.runs.length === 0 && entry.wantedAt)
+      .sort((a, b) => b.wantedAt!.getTime() - a.wantedAt!.getTime())
+      .map(view),
+  };
+}
+
+/**
+ * A work, as anyone in the group sees it: the work's own title and cover,
+ * where it stands on the caller's shelf, and who else is reading it or wants
+ * to. Reviews and the book club have endpoints of their own
+ * (`GET /reviews?itemId=`, `GET /items/:id/club`).
+ */
+shelfRouter.get("/items/:id", async (c) => {
+  const itemId = idParam(c, "id");
+  if (!itemId) return notFound(c);
+  const callerId = c.get("userId");
+  const { prisma, config } = db(c);
+  const groupId = await requireGroup(c, prisma);
+  if (groupId === null) return notFound(c);
+  const [item, mine, shelvers] = await Promise.all([
+    prisma.catalogItem.findUnique({ where: { id: itemId }, select: itemSelect }),
+    prisma.shelfEntry.findUnique({
+      where: { userId_itemId: { userId: callerId, itemId } },
+      select: { id: true, wantedAt: true, runs: { orderBy: { id: "desc" }, select: { status: true } } },
+    }),
+    itemShelvers(prisma, callerId, groupId, itemId, config.r2PublicBaseUrl),
+  ]);
+  if (!item) return notFound(c, "That book isn't here any more.");
+  const status = mine ? shelfStatus(mine) : null;
+  const english = await englishEditions(prisma, [item]);
+  return c.json({
+    item: itemView(item, english.get(item.id)),
+    mine: mine && status ? { entryId: mine.id, status } : null,
+    shelvers,
+  });
+});
+
+/**
+ * One work on the caller's own shelf: every run, its review, and today's logs.
+ * Only the owner's: anyone else looks at the work (`GET /items/:id`), and at a
+ * friend's reads of it in that friend's library.
+ */
 shelfRouter.get("/entries/:id", async (c) => {
   const entryId = idParam(c, "id");
   if (!entryId) return notFound(c);
   const callerId = c.get("userId");
-  const { prisma, config } = db(c);
+  const { prisma } = db(c);
   const entry = await prisma.shelfEntry.findUnique({
     where: { id: entryId },
     select: {
       id: true,
       userId: true,
       wantedAt: true,
-      user: { select: { ...personSelect, groupId: true } },
       item: { select: itemSelect },
       edition: { select: editionSelect },
       runs: {
@@ -838,33 +963,24 @@ shelfRouter.get("/entries/:id", async (c) => {
       },
     },
   });
-  if (!entry) return notFound(c);
-  const isMine = entry.userId === callerId;
-  if (!isMine) {
-    const groupId = await requireGroup(c, prisma);
-    if (groupId === null || groupId !== entry.user.groupId) return notFound(c);
-  }
+  if (!entry || entry.userId !== callerId) return notFound(c);
 
-  const finished = isMine ? new Set<number>() : await finishedItemIds(prisma, callerId, [entry.item.id]);
   const activeRun = entry.runs.find((run) => run.status === "active");
   // The most recent logs of the run in progress, so the last one can be
-  // undone and a note edited. Only the owner sees them here; everyone else
-  // sees notes through the book club, which gates them.
-  const recentLogs =
-    isMine && activeRun
-      ? await prisma.progressLog.findMany({
-          where: { runId: activeRun.id },
-          orderBy: { id: "desc" },
-          take: 10,
-          select: { id: true, loggedOn: true, fromPosition: true, toPosition: true, note: true, source: true, createdAt: true },
-        })
-      : [];
+  // undone and a note edited. Everyone else sees notes through the book club,
+  // which gates them.
+  const recentLogs = activeRun
+    ? await prisma.progressLog.findMany({
+        where: { runId: activeRun.id },
+        orderBy: { id: "desc" },
+        take: 10,
+        select: { id: true, loggedOn: true, fromPosition: true, toPosition: true, note: true, source: true, createdAt: true },
+      })
+    : [];
 
   return c.json({
     id: entry.id,
-    isMine,
     wantedAt: entry.wantedAt ? entry.wantedAt.toISOString() : null,
-    owner: personView(entry.user, config.r2PublicBaseUrl),
     item: itemView(entry.item, entry.edition),
     runs: entry.runs.map((run, index) => ({
       ...runView(run, entry.item.totalUnits),
@@ -872,7 +988,8 @@ shelfRouter.get("/entries/:id", async (c) => {
       number: entry.runs.length - index,
       review: run.review
         ? {
-            ...reviewView(run.review, coveredFor(run.review, entry.userId, entry.item.id, callerId, finished)),
+            // Your own review is never covered from you.
+            ...reviewView(run.review),
             loungePostId: run.review.loungePost?.id ?? null,
             commentCount: run.review._count.comments,
           }
@@ -918,6 +1035,71 @@ async function groupReaders(prisma: PrismaClient, userId: number, groupId: numbe
     .filter((person) => !blocked.has(person.id))
     .sort((a, b) => (latest.get(b.id) ?? 0) - (latest.get(a.id) ?? 0))
     .map((person) => personView(person, r2));
+}
+
+const TRENDING_LIMIT = 6;
+
+/**
+ * The group's popular books, for Home's Trending card: works two or more
+ * people are reading now, most readers first, then works two or more want
+ * and nobody's reading-count has already put on the card. The caller counts,
+ * since popularity is the group's. Blocked people do not, both ways.
+ *
+ * Each row opens the work's page, which says where it stands on the
+ * caller's shelf and offers the quick add.
+ */
+async function trendingItems(prisma: PrismaClient, userId: number, groupId: number, r2: string | undefined) {
+  const inGroup = { user: { groupId, status: "approved" } };
+  const [activeRuns, wanted, blocked] = await Promise.all([
+    prisma.shelfRun.findMany({
+      where: { status: "active", entry: inGroup },
+      orderBy: { id: "desc" },
+      select: { entry: { select: { userId: true, itemId: true, user: { select: personSelect } } } },
+    }),
+    prisma.shelfEntry.findMany({
+      where: { wantedAt: { not: null }, ...inGroup },
+      orderBy: { wantedAt: "desc" },
+      select: { userId: true, itemId: true, user: { select: personSelect } },
+    }),
+    blockedUserIds(prisma, userId),
+  ]);
+
+  type Shelver = (typeof wanted)[number];
+  // Item → its entries, newest first, one per person (a run per entry is at
+  // most one active, so an entry never appears twice).
+  const tally = (entries: Shelver[]) => {
+    const byItem = new Map<number, Shelver[]>();
+    for (const entry of entries) {
+      if (blocked.has(entry.userId)) continue;
+      byItem.set(entry.itemId, [...(byItem.get(entry.itemId) ?? []), entry]);
+    }
+    // Map order is first sighting, i.e. the most recent activity, which
+    // breaks ties in the sort below (Array.prototype.sort is stable).
+    return [...byItem].filter(([, entries]) => entries.length >= 2).sort((a, b) => b[1].length - a[1].length);
+  };
+  const reading = tally(activeRuns.map((run) => run.entry));
+  const readingIds = new Set(reading.map(([itemId]) => itemId));
+  const wantedRows = tally(wanted).filter(([itemId]) => !readingIds.has(itemId));
+  const picked = [
+    ...reading.map(([itemId, entries]) => ({ itemId, entries, kind: "reading" as const })),
+    ...wantedRows.map(([itemId, entries]) => ({ itemId, entries, kind: "want" as const })),
+  ].slice(0, TRENDING_LIMIT);
+  if (picked.length === 0) return [];
+
+  const items = await prisma.catalogItem.findMany({ where: { id: { in: picked.map((row) => row.itemId) } }, select: itemSelect });
+  const english = await englishEditions(prisma, items);
+  return picked.flatMap((row) => {
+    const item = items.find((candidate) => candidate.id === row.itemId);
+    if (!item) return [];
+    return [
+      {
+        kind: row.kind,
+        count: row.entries.length,
+        item: itemView(item, english.get(item.id)),
+        people: row.entries.map((entry) => personView(entry.user, r2)),
+      },
+    ];
+  });
 }
 
 shelfRouter.get("/home", async (c) => {
@@ -973,7 +1155,7 @@ shelfRouter.get("/home", async (c) => {
   ]);
 
   const entryIds = activeRuns.map((run) => run.entry.id);
-  const [readerLinks, readerPending, readers] = await Promise.all([
+  const [readerLinks, readerPending, readers, trending] = await Promise.all([
     entryIds.length
       ? prisma.readerDocument.findMany({
           where: { userId, entryId: { in: entryIds }, ignored: false },
@@ -983,6 +1165,7 @@ shelfRouter.get("/home", async (c) => {
       : [],
     pendingDocuments(prisma, userId),
     groupReaders(prisma, userId, groupId, config.r2PublicBaseUrl),
+    trendingItems(prisma, userId, groupId, config.r2PublicBaseUrl),
   ]);
 
   const itemIds = activeRuns.map((run) => run.entry.item.id);
@@ -1069,6 +1252,7 @@ shelfRouter.get("/home", async (c) => {
     want: wanted.map((entry) => ({ entryId: entry.id, item: itemView(entry.item, entry.edition) })),
     readerPending,
     readers,
+    trending,
     highlights: {
       year,
       booksThisYear: finishedThisYear,
