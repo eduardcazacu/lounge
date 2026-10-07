@@ -15,6 +15,15 @@ import { del, get, set } from "idb-keyval";
 const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
 const STORAGE_KEY = "lounge-query-cache";
 
+/**
+ * Bump this when a persisted response changes shape — a field renamed, removed
+ * or newly relied on — under `blogs`, `blog`, `users` or `shelf`. A cache
+ * written by an older build is then discarded rather than drawn. It is not the
+ * commit: that threw the cache away on every deploy, so the first launch after
+ * each one drew a skeleton instead of the feed (wiki/gotchas.md).
+ */
+const CACHE_VERSION = "1";
+
 // Only these are written to disk. Anything new — admin, Instant — stays in
 // memory unless it is added here on purpose.
 const PERSISTED = new Set(["blogs", "blog", "users", "shelf"]);
@@ -51,9 +60,7 @@ const persister = createAsyncStoragePersister({
 export const persistOptions: PersistQueryClientProviderProps["persistOptions"] = {
   persister,
   maxAge: SEVEN_DAYS,
-  // A deploy can change a response's shape; a cache written by another build
-  // is discarded rather than drawn.
-  buster: __BUILD_ID__,
+  buster: CACHE_VERSION,
   dehydrateOptions: {
     shouldDehydrateQuery: (query: Query) =>
       query.state.status === "success" && PERSISTED.has(String(query.queryKey[2])),

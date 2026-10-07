@@ -242,8 +242,10 @@ so no screen changed. Instant is not: `useInstant.ts` is a socket store.
   next account the last one's posts.
 - **The cache is persisted to IndexedDB** so a launch from the home screen draws
   before the network answers. Only the key prefixes in `PERSISTED` are written;
-  anything new stays in memory unless added there. The `buster` is the build's
-  commit, so a deploy never draws a response shape it does not know. The feed
+  anything new stays in memory unless added there. The `buster` is
+  `CACHE_VERSION`, bumped by hand when a persisted response changes shape. It
+  was the build's commit, which threw the cache away on every deploy, so the
+  first launch after each one drew a skeleton. The feed
   is written as its **first page only**: a refetch asks for every page an
   infinite query holds, so a whole feed on disk made every launch re-request
   the deepest scroll ever reached. Back within a session still has every page.

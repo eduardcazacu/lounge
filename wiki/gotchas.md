@@ -234,6 +234,13 @@ the 5-second poll in `useSignedInUserId` and the re-check mid-keygen.
 routinely fail to send the refresh cookie. Clearing would sign people out for a
 transient reason.
 
+**A persisted response that changes shape needs `CACHE_VERSION` bumped**
+(`frontend/src/lib/query.ts`). The cache on disk outlives deploys, and a launch
+draws it before anything is fetched, so a renamed or removed field — or one the
+new code assumes is there — reaches the page as `undefined` from the previous
+build's answer until the refetch lands. Adding a field the code treats as
+optional needs nothing.
+
 **An infinite query refetches every page it holds, one after another**, and a
 refetch keeps the page count. A feed persisted whole therefore came back at each
 launch as one request per page of the deepest scroll it had ever had, and the
