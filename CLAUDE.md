@@ -40,9 +40,11 @@ cd frontend && npm run dev     # :5173, expects the API on :8787
 npm run build                  # tsc -b && vite build
 npm run lint
 
-# iOS: only the suites you touched, optimized, no failure-diagnostics wait
+# iOS: only the suites you touched, optimized, no failure-diagnostics wait.
+# Simulator names change with every Xcode, so take the newest runtime's last iPhone.
+SIM=$(xcrun simctl list devices available | grep -E '^ +iPhone' | tail -1 | grep -oE '[0-9A-F-]{36}')
 xcodebuild test -project ios/Instant.xcodeproj -scheme Instant \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  -destination "platform=iOS Simulator,id=$SIM" \
   -only-testing:InstantTests/<SuiteStruct> \
   SWIFT_OPTIMIZATION_LEVEL=-O SWIFT_COMPILATION_MODE=wholemodule ENABLE_TESTABILITY=YES \
   -collect-test-diagnostics never -parallel-testing-enabled NO \

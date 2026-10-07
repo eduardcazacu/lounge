@@ -829,9 +829,14 @@ Day to day, run only the suites the change touches, as an optimized build that
 reports a failure immediately instead of collecting diagnostics for about ten
 minutes first. The trade-off is in [decisions.md](decisions.md).
 
+Simulator names change with every Xcode, so the commands look one up rather
+than naming it: the last iPhone `simctl` lists, which is on the newest runtime
+installed.
+
 ```bash
+SIM=$(xcrun simctl list devices available | grep -E '^ +iPhone' | tail -1 | grep -oE '[0-9A-F-]{36}')
 xcodebuild test -project ios/Instant.xcodeproj -scheme Instant \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  -destination "platform=iOS Simulator,id=$SIM" \
   -only-testing:InstantTests/DeepLinkTests \
   SWIFT_OPTIMIZATION_LEVEL=-O SWIFT_COMPILATION_MODE=wholemodule ENABLE_TESTABILITY=YES \
   -collect-test-diagnostics never -parallel-testing-enabled NO \
@@ -846,8 +851,9 @@ that matches nothing still passes (see [gotchas.md](gotchas.md)).
 Run the full suite when a change crosses areas, and before merging to `main`:
 
 ```bash
+SIM=$(xcrun simctl list devices available | grep -E '^ +iPhone' | tail -1 | grep -oE '[0-9A-F-]{36}')
 xcodebuild test -project ios/Instant.xcodeproj -scheme Instant \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -enableCodeCoverage YES
+  -destination "platform=iOS Simulator,id=$SIM" -enableCodeCoverage YES
 ```
 
 The **crypto interop suite is the load-bearing part** — everything else can look

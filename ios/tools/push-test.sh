@@ -3,7 +3,10 @@
 # home-screen widget. No Apple Developer account needed: simctl injects the
 # payload locally.
 #
-#   ios/tools/push-test.sh ["iPhone 17"]
+#   ios/tools/push-test.sh ["<Simulator name>"]
+#
+# Without a name it uses the last iPhone `simctl` lists, which is on the newest
+# runtime installed: names change with every Xcode, so none is a safe default.
 #
 # One manual step. `simctl push` refuses to deliver to an app that has not been
 # granted notification permission, and simctl has no way to grant it — there is
@@ -12,16 +15,25 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-DEVICE="${1:-iPhone 17}"
+DEVICE="${1:-}"
 BUNDLE="com.eduardcazacu.instant"
 DERIVED="${DERIVED_DATA:-/tmp/instant-push-test}"
 
+if [ -n "$DEVICE" ]; then
+  UDID=$(xcrun simctl list devices available | grep -m1 "$DEVICE (" | grep -oE "[0-9A-F-]{36}" || true)
+else
+  UDID=$(xcrun simctl list devices available | grep -E '^ +iPhone' | tail -1 | grep -oE "[0-9A-F-]{36}" || true)
+fi
+if [ -z "$UDID" ]; then
+  echo "No available Simulator matches '${DEVICE:-iPhone}'; see xcrun simctl list devices available" >&2
+  exit 1
+fi
+
 echo "==> building"
 xcodebuild build -project Instant.xcodeproj -scheme Instant \
-  -destination "platform=iOS Simulator,name=$DEVICE" \
+  -destination "platform=iOS Simulator,id=$UDID" \
   -derivedDataPath "$DERIVED" -quiet
 
-UDID=$(xcrun simctl list devices | grep -m1 "$DEVICE (" | grep -oE "[0-9A-F-]{36}")
 xcrun simctl boot "$UDID" 2>/dev/null || true
 open -a Simulator || true
 xcrun simctl bootstatus "$UDID" -b >/dev/null

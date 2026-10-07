@@ -21,9 +21,10 @@ Submission checklist, review notes and privacy answers: [`APP_STORE.md`](APP_STO
 ## Running it
 
 ```bash
-open ios/Instant.xcodeproj      # or:
+open ios/Instant.xcodeproj      # or, on the newest installed iPhone Simulator:
+SIM=$(xcrun simctl list devices available | grep -E '^ +iPhone' | tail -1 | grep -oE '[0-9A-F-]{36}')
 xcodebuild build -project ios/Instant.xcodeproj -scheme Instant \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
+  -destination "platform=iOS Simulator,id=$SIM"
 ```
 
 Points at `https://api.lounge.eduardcazacu.com` by default; switch
@@ -38,8 +39,9 @@ takes when camera permission is refused.
 ```bash
 # Day to day: only the suites you touched, optimized, with no ten-minute
 # diagnostics wait after a failure
+SIM=$(xcrun simctl list devices available | grep -E '^ +iPhone' | tail -1 | grep -oE '[0-9A-F-]{36}')
 xcodebuild test -project ios/Instant.xcodeproj -scheme Instant \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  -destination "platform=iOS Simulator,id=$SIM" \
   -only-testing:InstantTests/DeepLinkTests \
   SWIFT_OPTIMIZATION_LEVEL=-O SWIFT_COMPILATION_MODE=wholemodule ENABLE_TESTABILITY=YES \
   -collect-test-diagnostics never -parallel-testing-enabled NO \
@@ -48,7 +50,7 @@ xcodebuild test -project ios/Instant.xcodeproj -scheme Instant \
 
 # Full suite: changes that cross areas, and before merging to main
 xcodebuild test -project ios/Instant.xcodeproj -scheme Instant \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -enableCodeCoverage YES
+  -destination "platform=iOS Simulator,id=$SIM" -enableCodeCoverage YES
 ```
 
 Why the two modes exist, and how to tell whether a filter matched anything:
