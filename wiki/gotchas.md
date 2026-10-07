@@ -234,6 +234,14 @@ the 5-second poll in `useSignedInUserId` and the re-check mid-keygen.
 routinely fail to send the refresh cookie. Clearing would sign people out for a
 transient reason.
 
+**An infinite query refetches every page it holds, one after another**, and a
+refetch keeps the page count. A feed persisted whole therefore came back at each
+launch as one request per page of the deepest scroll it had ever had, and the
+number never went down. `serializeData` in `frontend/src/lib/query.ts` writes
+the feed to disk as its first page. Every request is several Hyperdrive
+queries, and past the Free plan's daily allowance queries fail rather than slow
+down.
+
 **iOS reports stale landscape `videoWidth`/`videoHeight`.** They arrive in the
 camera's native orientation and are updated after the fact, so any aspect ratio
 read from them is both wrong to begin with and stale after a rotation.

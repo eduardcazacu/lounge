@@ -1,4 +1,4 @@
-import { QueryClient, type Query } from "@tanstack/react-query";
+import { QueryClient, type InfiniteData, type Query } from "@tanstack/react-query";
 import { createAsyncStoragePersister } from "@tanstack/query-async-storage-persister";
 import type { PersistQueryClientProviderProps } from "@tanstack/react-query-persist-client";
 import axios from "axios";
@@ -57,8 +57,24 @@ export const persistOptions: PersistQueryClientProviderProps["persistOptions"] =
   dehydrateOptions: {
     shouldDehydrateQuery: (query: Query) =>
       query.state.status === "success" && PERSISTED.has(String(query.queryKey[2])),
+    serializeData: firstPageOnly,
   },
 };
+
+/**
+ * The feed goes to disk as its first page. A refetch asks again for every page
+ * an infinite query holds, so a feed persisted whole came back at every launch
+ * as many requests as the deepest scroll it had ever had — and never fewer,
+ * because a refetch keeps the page count. Back within a session still has
+ * every page, from memory.
+ */
+function firstPageOnly(data: unknown) {
+  if (data && typeof data === "object" && "pages" in data && "pageParams" in data) {
+    const feed = data as InfiniteData<unknown>;
+    return { pages: feed.pages.slice(0, 1), pageParams: feed.pageParams.slice(0, 1) };
+  }
+  return data;
+}
 
 /** Forget everything, in memory and on disk. Called when the token is cleared. */
 export function clearQueryCache() {

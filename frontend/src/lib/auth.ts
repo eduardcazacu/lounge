@@ -91,7 +91,7 @@ export function getCachedProfile() {
   };
 }
 
-export function getCurrentUserId() {
+function storedTokenPayload(): { id?: unknown; exp?: unknown } | null {
   const token = normalizeToken(localStorage.getItem("token"));
   if (!token) {
     return null;
@@ -104,13 +104,35 @@ export function getCurrentUserId() {
 
   try {
     const payloadBase64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-    const payloadJson = atob(payloadBase64);
-    const payload = JSON.parse(payloadJson) as { id?: unknown };
-    const userId = Number(payload?.id);
-    return Number.isFinite(userId) ? userId : null;
+    return JSON.parse(atob(payloadBase64)) as { id?: unknown; exp?: unknown };
   } catch {
     return null;
   }
+}
+
+export function getCurrentUserId() {
+  const userId = Number(storedTokenPayload()?.id);
+  return Number.isFinite(userId) ? userId : null;
+}
+
+// Early enough that a request sent just after this check still arrives with a
+// live token; the interceptor's refresh-on-403 covers anything later.
+const REFRESH_MARGIN_SECONDS = 120;
+
+/**
+ * Refreshes only when the stored token is missing or about to expire.
+ *
+ * Every refresh rotates the session — a lookup, a revoke and an insert, and a
+ * new `sessions` row — so answering every launch and every return to the tab
+ * with one spent the database's daily query budget on tokens that still had
+ * most of their fifteen minutes left.
+ */
+export async function refreshAccessTokenIfStale() {
+  const exp = Number(storedTokenPayload()?.exp);
+  if (Number.isFinite(exp) && exp - Date.now() / 1000 > REFRESH_MARGIN_SECONDS) {
+    return normalizeToken(localStorage.getItem("token"));
+  }
+  return refreshAccessToken();
 }
 
 export function clearAuthStorage() {
