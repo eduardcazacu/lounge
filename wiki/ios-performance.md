@@ -33,8 +33,8 @@ things moved but not enough for tail latencies.
 **Hyperdrive about halved every request.** `GET /keys/:userId` went from
 0.8–1.0 s to 0.36–0.55 s. Uploading about 200 KB went from 0.9–1.2 s to
 0.5–0.6 s. Downloading a photo, 20–240 KB, took 0.24–0.65 s. Even so, a request
-still costs roughly 100 ms per query it makes: `/keys/:userId` runs four in a
-row, and `POST /user/refresh` (a transaction) takes 0.87 s. See opportunity 2.
+still cost roughly 100 ms per query it made: `/keys/:userId` then ran four in a
+row, and `POST /user/refresh` (then a transaction) took 0.87 s. See opportunity 2.
 
 **In build 1.4 (7), the viewer on the tap worked only when the main actor was
 free.** On a warm start it was on screen within a frame. On a cold start it
@@ -79,6 +79,14 @@ request — `wiki/accounts.md`), and the database host itself. A
 `Server-Timing` header on `/keys/:userId`, reporting the time before the first
 query and the time for each query, would show which one it is before anything
 is changed.
+
+Since those timings, the queries that do not depend on each other run side by
+side: `/keys/:userId` in two rounds instead of four, `POST /instant`'s checks
+in one, and the inbox's device and block lookups together; refresh is three
+statements in a row instead of a lookup and a transaction. If the next timings
+fall with the number of rounds, the cost is per round trip, and the next
+candidate is the feed: Prisma fetches each nested relation of `/blog/bulk`'s
+select as a query of its own unless the `relationJoins` preview feature is on.
 
 ### 3. Don't fetch the inbox more than once at launch or on return
 

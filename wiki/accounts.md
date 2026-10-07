@@ -25,8 +25,10 @@ digest in `sessions.token_hash`, 30 days, delivered as an httpOnly `refresh_toke
 cookie (`SameSite=Lax`; `secure` only when the request URL is https, so local
 http development works).
 
-`POST /api/v1/user/refresh` **rotates**: inside one `prisma.$transaction` it
-revokes the old session and creates a new one, and re-checks that the account is
+`POST /api/v1/user/refresh` **rotates**: it creates a new session and then
+revokes the old one — two statements, not a transaction, which cost four round
+trips, and in that order so a failure between them leaves a spare session rather
+than revoking the one the client still holds — and re-checks that the account is
 still verified and still approved. Suspending someone therefore stops their next
 refresh, though their current access token keeps working for up to 15 minutes.
 A revoked or expired row can never be used again, and every refresh leaves one,

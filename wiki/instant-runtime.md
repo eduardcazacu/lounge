@@ -63,9 +63,10 @@ is shown for `1s`, `5s` or until closed (`durationModeFitsMediaType` in
 `common/src/index.ts`). A viewer decides how to show an instant from the two
 together, and a photo told to loop has no answer.
 
-The checks, in order: recipient is in the same group, approved and verified;
-no block exists in either direction; and **every envelope targets a distinct
-device actually owned by the recipient**. A block answers 404 — identical to the
+The checks: the envelopes name distinct devices, then — together, as one round
+of queries — the recipient is in the caller's group, approved and verified; no
+block exists in either direction; and **every envelope targets a device actually
+owned by the recipient**. A block answers 404 — identical to the
 response for a user who does not exist — so a block cannot be probed for.
 
 Then the object goes to R2 at `instant/<uuid>` with `cacheControl: no-store`,

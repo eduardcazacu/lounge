@@ -239,15 +239,26 @@ instantRouter.get("/keys/:userId", async (c) => {
     const { databaseUrl } = getConfig(c);
     const prisma = getPrismaClient(databaseUrl);
     const userId = c.get("userId");
-    const groupId = await getUserGroupId(prisma, userId);
+    const deviceSelect = { id: true, deviceId: true, publicKey: true, createdAt: true } as const;
+
+    // Side by side: every query here costs a round trip of its own, and this is
+    // what a send waits on before it can seal anything (wiki/ios-performance.md).
+    const [groupId, blocked, ownDevices] = await Promise.all([
+      getUserGroupId(prisma, userId),
+      // Across a block there is nobody to encrypt to.
+      targetId !== userId ? isBlockedEitherWay(prisma, userId, targetId) : false,
+      prisma.instantDeviceKey.findMany({
+        where: { userId },
+        select: deviceSelect,
+        orderBy: { id: "asc" },
+        take: MAX_DEVICES_PER_USER,
+      }),
+    ]);
     if (groupId === null) {
       c.status(403);
       return c.json({ msg: "Invalid user" });
     }
 
-    const deviceSelect = { id: true, deviceId: true, publicKey: true, createdAt: true } as const;
-    // Across a block there is nobody to encrypt to.
-    const blocked = targetId !== userId && (await isBlockedEitherWay(prisma, userId, targetId));
     const devices = blocked ? [] : await prisma.instantDeviceKey.findMany({
       where: {
         userId: targetId,
@@ -259,15 +270,9 @@ instantRouter.get("/keys/:userId", async (c) => {
       take: MAX_DEVICES_PER_USER,
     });
 
-    const myDevices =
-      targetId === userId
-        ? devices
-        : await prisma.instantDeviceKey.findMany({
-            where: { userId },
-            select: deviceSelect,
-            orderBy: { id: "asc" },
-            take: MAX_DEVICES_PER_USER,
-          });
+    // Asking for your own keys still goes through the group check above, as it
+    // did when this list was the same query.
+    const myDevices = targetId === userId ? devices : ownDevices;
 
     return c.json({ userId: targetId, devices, myDevices });
   } catch (e) {
@@ -454,18 +459,6 @@ instantRouter.post("/", async (c) => {
       return c.json({ msg: "A photo is shown for 1s, 5s or until closed; a video plays once or loops." });
     }
 
-    const groupId = await getUserGroupId(prisma, userId);
-    const recipient = groupId === null ? null : await prisma.user.findFirst({
-      where: { id: recipientId, groupId, status: "approved", emailVerifiedAt: { not: null } },
-      select: { id: true },
-    });
-    // A block reads exactly like someone who does not exist, so it cannot be
-    // probed for.
-    if (!recipient || (await isBlockedEitherWay(prisma, userId, recipientId))) {
-      c.status(404);
-      return c.json({ msg: "Recipient not found" });
-    }
-
     // Every envelope must be addressed to a distinct device owned by the
     // recipient — otherwise a sender could ask us to hand a wrapped key to
     // somebody else's device.
@@ -474,10 +467,32 @@ instantRouter.post("/", async (c) => {
       c.status(400);
       return c.json({ msg: "Envelopes must target distinct devices" });
     }
-    const devices = await prisma.instantDeviceKey.findMany({
-      where: { id: { in: deviceKeyIds }, userId: recipientId },
-      select: { id: true, deviceId: true },
-    });
+
+    // Side by side, since none needs another's answer and each is a round
+    // trip. The recipient's group is the caller's, so it can be matched in the
+    // same query rather than looked up first.
+    const [recipient, blocked, devices] = await Promise.all([
+      prisma.user.findFirst({
+        where: {
+          id: recipientId,
+          group: { users: { some: { id: userId } } },
+          status: "approved",
+          emailVerifiedAt: { not: null },
+        },
+        select: { id: true },
+      }),
+      isBlockedEitherWay(prisma, userId, recipientId),
+      prisma.instantDeviceKey.findMany({
+        where: { id: { in: deviceKeyIds }, userId: recipientId },
+        select: { id: true, deviceId: true },
+      }),
+    ]);
+    // A block reads exactly like someone who does not exist, so it cannot be
+    // probed for.
+    if (!recipient || blocked) {
+      c.status(404);
+      return c.json({ msg: "Recipient not found" });
+    }
     if (devices.length !== deviceKeyIds.length) {
       c.status(400);
       return c.json({ msg: "One or more envelopes are not addressed to this recipient's devices" });
@@ -628,10 +643,13 @@ instantRouter.get("/inbox", async (c) => {
     const prisma = getPrismaClient(databaseUrl);
     const userId = c.get("userId");
 
-    const device = await prisma.instantDeviceKey.findUnique({
-      where: { userId_deviceId: { userId, deviceId } },
-      select: { id: true },
-    });
+    const [device, blocked] = await Promise.all([
+      prisma.instantDeviceKey.findUnique({
+        where: { userId_deviceId: { userId, deviceId } },
+        select: { id: true },
+      }),
+      blockedUserIds(prisma, userId),
+    ]);
     if (!device) {
       c.status(404);
       return c.json({ msg: "Unknown device" });
@@ -641,7 +659,6 @@ instantRouter.get("/inbox", async (c) => {
       prisma.instantDeviceKey.update({ where: { id: device.id }, data: { lastSeenAt: new Date() } })
     );
 
-    const blocked = await blockedUserIds(prisma, userId);
     const rows = await prisma.instant.findMany({
       where: {
         recipientId: userId,

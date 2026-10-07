@@ -454,19 +454,20 @@ userRouter.post("/refresh", async (c) => {
 		const nextRefreshToken = createRefreshToken();
 		const nextRefreshTokenHash = await sha256Hex(nextRefreshToken);
 		const nextRefreshExpiry = new Date(Date.now() + REFRESH_TOKEN_TTL_MS);
-		await prisma.$transaction([
-			prisma.session.update({
-				where: { id: existing.id },
-				data: { revokedAt: now },
-			}),
-			prisma.session.create({
-				data: {
-					userId: existing.userId,
-					tokenHash: nextRefreshTokenHash,
-					expiresAt: nextRefreshExpiry,
-				},
-			}),
-		]);
+		// Two statements rather than a transaction, which is four round trips —
+		// and in this order, so that a failure between them can only leave a
+		// spare session behind, never revoke the one the client still holds.
+		await prisma.session.create({
+			data: {
+				userId: existing.userId,
+				tokenHash: nextRefreshTokenHash,
+				expiresAt: nextRefreshExpiry,
+			},
+		});
+		await prisma.session.update({
+			where: { id: existing.id },
+			data: { revokedAt: now },
+		});
 
 		setRefreshTokenCookie(c, nextRefreshToken);
 		const nowSeconds = Math.floor(Date.now() / 1000);
