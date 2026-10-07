@@ -58,10 +58,6 @@ app.route("api/v1/shelf", shelfRouter)
 // KOReader's progress sync, at the path KOReader is pointed at: see route/kosync.ts.
 app.route("kosync", kosyncRouter)
 
-app.use('/message/*', async (c, next) => {
-  await next()
-})
-
 // This module stays runnable under plain Node (src/server.ts): it must not pull
 // in anything from `cloudflare:workers`. The Worker entrypoint is src/worker.ts,
 // which adds the Durable Object and the cron handler on top of this app.

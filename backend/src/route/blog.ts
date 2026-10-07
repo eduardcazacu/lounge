@@ -497,7 +497,7 @@ blogRouter.post('/:id/comments/:commentId/likes/toggle', async (c) => {
     const body = await c.req.json()
     const parsed = createBlogInput.safeParse(body)
     if(!parsed.success){
-        c.status(411);
+        c.status(400);
         return c.json({
             msg: "Inputs are Incorrect"
         })
@@ -583,7 +583,7 @@ blogRouter.post('/:id/comments/:commentId/likes/toggle', async (c) => {
       id: postId,
     })
     if(!parsed.success){
-        c.status(411);
+        c.status(400);
         return c.json({
             msg: "Inputs are Incorrect"
         })
@@ -935,9 +935,9 @@ blogRouter.post('/:id/comments/:commentId/likes/toggle', async (c) => {
         });
     } catch(e){
         console.error(e);
-        c.status(411);
+        c.status(500);
         return c.json({
-            msg: "Error while fecthing the blog post"
+            msg: "Error while fetching the blog post"
         })
     }
 })
