@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { getThemePalette } from "../../themes";
-import { Avatar } from "../BlogCard";
+import { Avatar } from "../Avatar";
 import { errorMessage, invalidateShelf, localDay, shelfSend, useShelf } from "./api";
 import type { Club, Run } from "./api";
 import { Cover, EmptyNote, Spinner, TopBar } from "./ui";

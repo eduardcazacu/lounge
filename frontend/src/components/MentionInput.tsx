@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import type { ChangeEvent, KeyboardEvent } from "react";
 import { useUsers, type UserListItem } from "../hooks";
-import { Avatar } from "./BlogCard";
+import { Avatar } from "./Avatar";
 
 type MentionedUser = { id: number; name: string };
 

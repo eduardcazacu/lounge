@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import { Appbar } from "../components/Appbar";
-import { Avatar } from "../components/BlogCard";
+import { Avatar } from "../components/Avatar";
 import { Logout } from "../components/Logout";
 import { BACKEND_URL } from "../config";
 import { clearAuthStorage, getAuthHeader, isAuthErrorStatus } from "../lib/auth";

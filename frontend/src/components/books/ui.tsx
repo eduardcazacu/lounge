@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
-import { Avatar } from "../BlogCard";
+import { Avatar } from "../Avatar";
 import { getThemePalette } from "../../themes";
 import { getTransformedImageUrl } from "../../lib/content";
 import type { Item, Person } from "./api";
