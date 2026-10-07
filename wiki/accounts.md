@@ -29,6 +29,8 @@ http development works).
 revokes the old session and creates a new one, and re-checks that the account is
 still verified and still approved. Suspending someone therefore stops their next
 refresh, though their current access token keeps working for up to 15 minutes.
+A revoked or expired row can never be used again, and every refresh leaves one,
+so `runSessionSweep` in `backend/src/scheduled.ts` deletes them hourly.
 
 **Passwords** — bcryptjs at 12 rounds (`backend/src/password.ts`). A legacy
 plaintext row is accepted once and silently upgraded on successful sign-in.

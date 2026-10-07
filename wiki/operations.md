@@ -117,8 +117,8 @@ Cron triggers fire under neither `npm run dev` nor `wrangler dev`, so the sweep
 is also reachable as `POST /api/v1/admin/instant/sweep` (admin only). It runs
 exactly the same function the schedule does. The same cron also runs Books'
 `runShelfSweep` (cover copies, expired searches, week-old notification
-throttle rows). It has no admin route; it is
-harmless to wait an hour for.
+throttle rows) and `runSessionSweep` (revoked and expired refresh sessions).
+Neither has an admin route; both are harmless to wait an hour for.
 
 ## Local development
 

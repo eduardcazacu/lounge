@@ -119,6 +119,7 @@ model Post {
   shelfReview ShelfReview? @relation(fields: [shelfReviewId], references: [id], onDelete: SetNull)
   shelfAsk    ShelfAsk?    @relation(fields: [shelfAskId], references: [id], onDelete: Cascade)
 
+  @@index([authorId])
   @@map("posts")
 }
 
@@ -134,6 +135,7 @@ model Comment {
   author    User     @relation("CommentAuthor", fields: [authorId], references: [id], onDelete: Cascade)
   likes     CommentLike[]
 
+  @@index([postId])
   @@map("comments")
 }
 
@@ -173,6 +175,7 @@ model Session {
 
   user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId])
   @@map("sessions")
 }
 
@@ -226,6 +229,7 @@ model Instant {
   @@index([recipientId, openedAt])
   @@index([expiresAt])
   @@index([createdAt])
+  @@index([senderId])
   @@map("instants")
 }
 
@@ -242,6 +246,7 @@ model InstantKeyEnvelope {
 
   @@unique([instantId, deviceKeyId])
   @@index([instantId])
+  @@index([deviceKeyId])
   @@map("instant_key_envelopes")
 }
 
@@ -436,6 +441,7 @@ model ShelfEntry {
 
   @@unique([userId, itemId])
   @@unique([userId, importId])
+  @@index([itemId])
   @@map("shelf_entries")
 }
 
