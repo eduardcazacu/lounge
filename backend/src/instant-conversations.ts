@@ -1,7 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import type { InstantConversation, InstantSendReceipt } from "@blogging-app/common";
 
-import { STREAK_WARNING_WINDOW_MS, streakDeadline } from "./instant-streaks";
+import { isStreakAtRisk, streakDeadline } from "./instant-streaks";
 
 // Who you have talked to, whether or not a streak is running.
 //
@@ -130,7 +130,6 @@ export async function listConversationsForUser(
     }
 
     const deadline = streakDeadline(streak.lastLowSentAt, streak.lastHighSentAt);
-    const msLeft = deadline ? deadline.getTime() - now.getTime() : -1;
 
     conversations.push({
       userId: partner.id,
@@ -146,7 +145,7 @@ export async function listConversationsForUser(
       // conversation, and the client decides whether to draw it.
       streakCount: streak.count,
       streakDeadline: streak.count > 0 && deadline ? deadline.toISOString() : null,
-      streakAtRisk: streak.count > 0 && msLeft > 0 && msLeft <= STREAK_WARNING_WINDOW_MS,
+      streakAtRisk: streak.count > 0 && isStreakAtRisk(streak.lastLowSentAt, streak.lastHighSentAt, now),
     });
   }
 

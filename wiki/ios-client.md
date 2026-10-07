@@ -618,10 +618,13 @@ send locally the moment it lands (`noteSent`) rather than waiting for the round
 trip. `withSend` takes the *later* of the local and server marks, so a refresh
 that has not caught up cannot walk a send backwards.
 
-Which side a streak waits on comes from the same pair of marks. The deadline is
-set by whoever went quiet first, so a streak about to lapse because *they* have
-not sent in a day is not something this reader can fix: it neither says "Send
-one today to keep your streak" nor outranks somebody they have just sent to.
+Which side a streak waits on comes from the same pair of marks, compared by UTC
+day. The deadline is set by whoever last sent on the earlier day, so a streak
+about to lapse because *they* sent nothing yesterday is not something this
+reader can fix: it neither says "Send one today to keep your streak" nor
+outranks somebody they have just sent to. When both last sent on the same day it
+waits on both. The web's `needsYourSend` in `frontend/src/hooks/useInstant.ts`
+is the same rule.
 Never having sent counts as your move, because there is nobody else it could be
 waiting on.
 

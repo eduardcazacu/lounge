@@ -272,12 +272,14 @@ async function main() {
   console.log("\nlive streaks");
   {
     const prisma = makePrisma(
-      [approved(me, "Me"), approved(2, "Ana"), approved(3, "Bo")],
+      [approved(me, "Me"), approved(2, "Ana"), approved(3, "Bo"), approved(4, "Cass")],
       [
-        // Both sent recently: 24h from the older send, so ~22h left.
+        // Both sent today: alive until the end of tomorrow.
         { userLowId: 1, userHighId: 2, count: 12, lastLowSentAt: ago(2), lastHighSentAt: ago(1) },
-        // Older side was 21h ago, so 3h left — inside the 4h warning window.
+        // The older side sent yesterday at 15:00, so it ends at midnight tonight.
         { userLowId: 1, userHighId: 3, count: 8, lastLowSentAt: ago(21), lastHighSentAt: ago(1) },
+        // The older side sent yesterday at 23:30, too late to warn an hour after.
+        { userLowId: 1, userHighId: 4, count: 9, lastLowSentAt: ago(12.5), lastHighSentAt: ago(1) },
       ],
       []
     );
@@ -285,9 +287,19 @@ async function main() {
     const ana = result.find((c) => c.userId === 2)!;
     const bo = result.find((c) => c.userId === 3)!;
     check("a live streak reports its count", ana.streakCount === 12);
-    check("and a deadline", ana.streakDeadline !== null);
+    check("a deadline is the end of the day after the older send", ana.streakDeadline === "2026-09-12T00:00:00.000Z", ana.streakDeadline);
     check("a comfortable streak is not at risk", ana.streakAtRisk === false);
-    check("one inside the warning window is", bo.streakAtRisk === true);
+    check("one ending tonight has the rest of today", bo.streakDeadline === "2026-09-11T00:00:00.000Z", bo.streakDeadline);
+    check("so at noon it is not yet at risk", bo.streakAtRisk === false);
+
+    const atRiskAt = async (iso: string, userId: number) =>
+      (await listConversationsForUser(prisma, me, url, new Date(iso))).find((c) => c.userId === userId)?.streakAtRisk;
+    check("at yesterday's send time it is still not", (await atRiskAt("2026-09-10T15:00:00.000Z", 3)) === false);
+    check("an hour after it, it is", (await atRiskAt("2026-09-10T16:00:00.000Z", 3)) === true);
+    check("and stays so until midnight", (await atRiskAt("2026-09-10T23:59:00.000Z", 3)) === true);
+    check("tomorrow's is not at risk tonight", (await atRiskAt("2026-09-10T21:00:00.000Z", 2)) === false);
+    check("a late send is not at risk at 22:59", (await atRiskAt("2026-09-10T22:59:00.000Z", 4)) === false);
+    check("but at 23:00, the cron's last tick", (await atRiskAt("2026-09-10T23:00:00.000Z", 4)) === true);
   }
 
   console.log("\neligibility");

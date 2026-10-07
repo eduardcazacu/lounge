@@ -123,18 +123,29 @@ function.
 `backend/src/instant-streaks.ts`. One row per ordered pair, keyed `(min, max)` —
 see [data-model.md](data-model.md).
 
-A streak advances **once per UTC day**, and only when both people have sent to
-the other within the last 24 hours. It lapses when either side's most recent
-send ages past that window. Note the UTC boundary: someone in a distant timezone
-sees the day roll over at an odd local hour. That is a known cost of not storing
-a per-user timezone.
+A streak advances **once per UTC day**, and only when the other side has sent
+today or yesterday. **A send keeps it alive until the end of the next UTC day**,
+so the deadline is always a midnight: the one ending the day after the older of
+the two last sends. Why it is not a rolling 24 hours is in
+[decisions.md](decisions.md). Note the UTC boundary: someone in a distant
+timezone sees the day roll over at an odd local hour. That is a known cost of not
+storing a per-user timezone.
+
+Every deadline therefore lands on the hourly cron's own tick, and a send in the
+moments before the sweep runs would find a dead streak still counted. So
+`recordSend` judges the lapse from the row as it was before the send, and
+restarts the streak at 1 rather than extending it.
 
 **Streaks count sends, not opens.** An instant that expired unopened, or that
 could not be decrypted, still counts. This is deliberate — streak state must not
 depend on key material the server cannot reason about.
 
-Streaks of 7 days or more push **both** people when they are within 4 hours of
-lapsing, at most once a day (`warnedForOn`).
+A streak is **at risk** from an hour after the time of day the quiet side sent
+yesterday until the deadline (`streakWarnsAt`), capped at 23:00 UTC because that
+is the hourly cron's last tick before midnight. The push and the clients'
+`atRisk` flag read the same function, so the app says what the push said. Streaks
+of 7 days or more push **both** people once they are at risk, at most once a day
+(`warnedForOn`).
 
 ## Conversations
 

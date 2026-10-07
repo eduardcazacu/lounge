@@ -195,6 +195,49 @@ roll over at an odd local hour. Storing a per-user timezone was not worth it.
 
 ---
 
+## A streak lasts until the end of the day
+
+**Chosen** a send keeps a streak alive until midnight UTC at the end of the next
+day (`streakDeadline` in `backend/src/instant-streaks.ts`).
+
+**Rejected** a rolling 24 hours from the older side's last send.
+
+**Because** under a rolling window the time of yesterday's send decided how much
+of today you had: a photo sent at 08:00 had to be answered by 08:00, so sending
+at breakfast one day and after dinner the next broke a streak although both
+people sent every day. "Send one today" should mean today.
+
+**Cost paid** the window is now between 24 and 48 hours, so a streak forgives a
+little more than it used to. Every deadline lands on the same midnight, which is
+also when the hourly sweep runs; `recordSend` checks the lapse itself rather than
+trusting the sweep to have got there first.
+
+**Would reopen if** streaks moved to each person's own day, which needs a stored
+timezone and a rule for two people whose days do not line up.
+
+---
+
+## A streak warning follows yesterday's send
+
+**Chosen** a streak turns at risk, and pushes, an hour after the time of day the
+quiet side sent yesterday (`streakWarnsAt` in `backend/src/instant-streaks.ts`).
+
+**Rejected** a fixed window before the deadline. Every deadline is midnight UTC,
+so that would warn everyone at the same hour: 20:00 UTC, which is the afternoon
+in America and the small hours in East Asia.
+
+**Because** without a stored timezone, the time someone sent yesterday is the
+best guess at when they are around today. A reminder an hour after it catches
+them near their habit, and long before the deadline.
+
+**Cost paid** someone who sends at a different time every day gets a warning at
+an arbitrary hour, sometimes with most of the day left.
+
+**Would reopen if** a per-user timezone is ever stored. A local evening hour
+would then be the obvious choice.
+
+---
+
 ## Admin is an email allowlist, not a column
 
 **Chosen** `ADMIN_EMAILS`, resolved per request by

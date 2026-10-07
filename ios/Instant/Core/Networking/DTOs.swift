@@ -250,15 +250,17 @@ public struct InstantConversationSummary: Codable, Equatable, Sendable, Identifi
 
     /// Whether keeping this streak alive is your move.
     ///
-    /// The deadline is set by whichever side went quiet first, so a streak about
-    /// to lapse because *they* have not sent in a day is not a thing to nag the
-    /// reader about — and not a reason to float their row over somebody the
-    /// reader just sent to.
+    /// The deadline is set by whichever side last sent on the earlier UTC day,
+    /// so a streak about to lapse because *they* sent nothing yesterday is not a
+    /// thing to nag the reader about — and not a reason to float their row over
+    /// somebody the reader just sent to. When both last sent on the same day it
+    /// is both of theirs. The marks are UTC wire timestamps, so their first ten
+    /// characters are that day.
     public var streakNeedsYourSend: Bool {
         guard streakAtRisk else { return false }
         guard let lastSentAt else { return true }
         guard let lastReceivedAt else { return false }
-        return lastSentAt < lastReceivedAt
+        return lastSentAt.prefix(10) <= lastReceivedAt.prefix(10)
     }
 
     /// A copy with a different waiting count, for optimistic updates.

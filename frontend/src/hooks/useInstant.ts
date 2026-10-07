@@ -53,7 +53,9 @@ export type InstantRow = {
 };
 
 /// Whether keeping this streak alive is the caller's move. The deadline is set
-/// by whichever side went quiet first.
+/// by whichever side last sent on the earlier UTC day, and when both last sent
+/// on the same day it is both of theirs. The marks are UTC ISO strings, so
+/// their first ten characters are that day.
 function needsYourSend(conversation: InstantConversation): boolean {
   if (!conversation.streakAtRisk) {
     return false;
@@ -66,7 +68,7 @@ function needsYourSend(conversation: InstantConversation): boolean {
   if (!conversation.lastReceivedAt) {
     return false;
   }
-  return conversation.lastSentAt < conversation.lastReceivedAt;
+  return conversation.lastSentAt.slice(0, 10) <= conversation.lastReceivedAt.slice(0, 10);
 }
 
 /// A copy of a conversation carrying a send this client has just made.

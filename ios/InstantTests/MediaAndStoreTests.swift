@@ -1360,6 +1360,21 @@ struct InstantStoreTests {
         #expect(store.conversations.first?.streakNeedsYourSend == true)
     }
 
+    /// The deadline is the end of the day after the older send, so two sends on
+    /// the same day leave both people owing one, whoever sent later.
+    @Test("A streak where both last sent the same day is yours too")
+    func sameDayMeansYourMoveToo() {
+        let store = makeStore(api: FakeInstantAPI())
+        store.applyHistory([.fixture(
+            userId: 3, name: "Bo",
+            lastInteractionAt: "2026-01-08T20:00:00.000Z",
+            lastSentAt: "2026-01-08T20:00:00.000Z",
+            lastReceivedAt: "2026-01-08T09:00:00.000Z",
+            streakCount: 4, streakAtRisk: true
+        )])
+        #expect(store.conversations.first?.streakNeedsYourSend == true)
+    }
+
     @Test("Signing out forgets what was sent")
     func resetClearsSends() {
         let store = makeStore(api: FakeInstantAPI())

@@ -8,7 +8,7 @@ import {
   expireLapsedStreaks,
   findStreaksAtRisk,
   markStreaksWarned,
-  STREAK_WARNING_WINDOW_MS,
+  STREAK_WARNING_DELAY_MS,
 } from "./instant-streaks";
 
 // Instants that have been opened keep a row for a while so streaks and read
@@ -136,7 +136,7 @@ export async function runInstantSweep(env: SweepEnv, now: Date = new Date()): Pr
   };
   console.log("[instant] sweep complete", {
     ...report,
-    warningWindowHours: STREAK_WARNING_WINDOW_MS / (60 * 60 * 1000),
+    warningDelayHours: STREAK_WARNING_DELAY_MS / (60 * 60 * 1000),
   });
   return report;
 }
