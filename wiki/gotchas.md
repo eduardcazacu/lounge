@@ -53,6 +53,13 @@ This is not theoretical. It was caught on a Simulator, where cookie and Keychain
 storage are not sandboxed per app the way they are on a device, and the app came
 up signed in as the machine's owner.
 
+**A new router's JWT middleware must reject a token with an `aud` claim.**
+`hono/jwt`'s `verify` checks the signature and `exp`, not the audience, so
+Instant's socket ticket — same secret, 60 seconds, carried in a URL that the
+request logs keep — passes any middleware that does not look. Nothing fails;
+the ticket just works. Every router in `backend/src/route/` checks
+`payload?.aud !== undefined`; copy it.
+
 **A wrong password on account deletion is 400, deliberately.** If it were 403,
 clients would treat a typo as an expired session and answer it with a refresh.
 Do not "fix" it.

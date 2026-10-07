@@ -152,6 +152,12 @@ blogRouter.use("/*", async (c, next) => {
         }
         const { jwtSecret } = getConfig(c);
         const user = await verify(token, jwtSecret, "HS256");
+        // Any audience marks Instant's socket ticket, which travels in a URL and
+        // must never work as an API credential (wiki/accounts.md).
+        if (user?.aud !== undefined) {
+          c.status(403);
+          return c.json({ msg: "This token cannot be used for API requests" });
+        }
         const userId = Number(user?.id);
         if(Number.isFinite(userId)){
             c.set("userId", userId);

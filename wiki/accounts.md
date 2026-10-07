@@ -66,11 +66,13 @@ Instant's WebSocket ticket is a JWT signed with the same `JWT_SECRET` but
 carrying `aud: "instant-ws"` and a `deviceId`, valid 60 seconds. To stop one
 being used as the other:
 
-- `instantRouter` and `moderationRouter` reject any token that carries an `aud`
-  claim at all.
+- Every router's JWT middleware rejects any token that carries an `aud` claim
+  at all: user, blog, admin, Instant, moderation and Books.
 - `GET /api/v1/instant/ws` rejects any token that does not.
 
-This is why each router installs its own JWT middleware rather than sharing one.
+The ticket rides in the `/ws` URL, which request logging records, so a router
+that skips the check hands a logged ticket a minute of API access — for an
+administrator, of the admin API.
 
 ## Email tokens
 

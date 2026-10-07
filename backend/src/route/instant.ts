@@ -77,7 +77,7 @@ instantRouter.use("/*", async (c: Context<InstantEnv>, next: Next) => {
     }
     const { jwtSecret } = getConfig(c);
     const payload = await verify(token, jwtSecret, "HS256");
-    if (payload?.aud === WS_TICKET_AUDIENCE) {
+    if (payload?.aud !== undefined) {
       // A short-lived socket ticket must not double as an API credential.
       c.status(403);
       return c.json({ msg: "WebSocket tickets cannot be used for API requests" });

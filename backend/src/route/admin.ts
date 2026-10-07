@@ -61,6 +61,12 @@ adminRouter.use("/*", async (c, next) => {
     const { databaseUrl, jwtSecret } = getConfig(c);
     const prisma = getPrismaClient(databaseUrl);
     const payload = await verify(token, jwtSecret, "HS256");
+    // Any audience marks Instant's socket ticket, which travels in a URL and
+    // must never work as an API credential (wiki/accounts.md).
+    if (payload?.aud !== undefined) {
+      c.status(403);
+      return c.json({ msg: "This token cannot be used for API requests" });
+    }
     const userId = Number(payload?.id);
     if (!Number.isFinite(userId)) {
       c.status(403);

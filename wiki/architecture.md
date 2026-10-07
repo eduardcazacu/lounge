@@ -36,9 +36,10 @@ the one that behaves like production.
 ## Request path
 
 A signed-in request carries a 15-minute bearer token. Each router installs its
-own JWT middleware — there is no shared auth module, deliberately, because the
-Instant and moderation routers additionally reject any token carrying an `aud`
-claim. See [accounts.md](accounts.md).
+own JWT middleware; there is no shared auth module. Every one of them refuses a
+token carrying an `aud` claim, which is how Instant's socket ticket is kept from
+working as an API credential, and a new router must do the same. See
+[accounts.md](accounts.md).
 
 Routers, all mounted under `/api/v1`:
 
