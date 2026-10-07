@@ -1,4 +1,4 @@
-import { QueryClient, type Query } from "@tanstack/react-query";
+import { QueryClient, type InfiniteData, type Query } from "@tanstack/react-query";
 import { createAsyncStoragePersister } from "@tanstack/query-async-storage-persister";
 import type { PersistQueryClientProviderProps } from "@tanstack/react-query-persist-client";
 import axios from "axios";
@@ -14,6 +14,15 @@ import { del, get, set } from "idb-keyval";
 
 const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
 const STORAGE_KEY = "lounge-query-cache";
+
+/**
+ * Bump this when a persisted response changes shape — a field renamed, removed
+ * or newly relied on — under `blogs`, `blog`, `users` or `shelf`. A cache
+ * written by an older build is then discarded rather than drawn. It is not the
+ * commit: that threw the cache away on every deploy, so the first launch after
+ * each one drew a skeleton instead of the feed (wiki/gotchas.md).
+ */
+const CACHE_VERSION = "1";
 
 // Only these are written to disk. Anything new — admin, Instant — stays in
 // memory unless it is added here on purpose.
@@ -51,14 +60,28 @@ const persister = createAsyncStoragePersister({
 export const persistOptions: PersistQueryClientProviderProps["persistOptions"] = {
   persister,
   maxAge: SEVEN_DAYS,
-  // A deploy can change a response's shape; a cache written by another build
-  // is discarded rather than drawn.
-  buster: __BUILD_ID__,
+  buster: CACHE_VERSION,
   dehydrateOptions: {
     shouldDehydrateQuery: (query: Query) =>
       query.state.status === "success" && PERSISTED.has(String(query.queryKey[2])),
+    serializeData: firstPageOnly,
   },
 };
+
+/**
+ * The feed goes to disk as its first page. A refetch asks again for every page
+ * an infinite query holds, so a feed persisted whole came back at every launch
+ * as many requests as the deepest scroll it had ever had — and never fewer,
+ * because a refetch keeps the page count. Back within a session still has
+ * every page, from memory.
+ */
+function firstPageOnly(data: unknown) {
+  if (data && typeof data === "object" && "pages" in data && "pageParams" in data) {
+    const feed = data as InfiniteData<unknown>;
+    return { pages: feed.pages.slice(0, 1), pageParams: feed.pageParams.slice(0, 1) };
+  }
+  return data;
+}
 
 /** Forget everything, in memory and on disk. Called when the token is cleared. */
 export function clearQueryCache() {

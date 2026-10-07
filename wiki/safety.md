@@ -38,7 +38,7 @@ devices; and a send answers **404 exactly as it would for somebody who does not
 exist**, so a block cannot be probed for. Un-opened instants between the two are
 deleted when the block lands. Unblocking removes only the caller's own block.
 
-Blocks cover Instant and the user list. Blog posts and chat on the web are **not**
+Blocks cover Instant and the user list. Blog posts and comments are **not**
 filtered by them — a known limit, acceptable because the whole group is people
 who know each other, and worth knowing before assuming otherwise.
 

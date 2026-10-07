@@ -1,5 +1,5 @@
 import type { UserListItem } from "../hooks";
-import { Avatar } from "./BlogCard";
+import { Avatar } from "./Avatar";
 import { getThemePalette } from "../themes";
 
 interface UsersStripProps {

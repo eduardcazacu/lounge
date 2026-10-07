@@ -36,9 +36,10 @@ the one that behaves like production.
 ## Request path
 
 A signed-in request carries a 15-minute bearer token. Each router installs its
-own JWT middleware — there is no shared auth module, deliberately, because the
-Instant and moderation routers additionally reject any token carrying an `aud`
-claim. See [accounts.md](accounts.md).
+own JWT middleware; there is no shared auth module. Every one of them refuses a
+token carrying an `aud` claim, which is how Instant's socket ticket is kept from
+working as an API credential, and a new router must do the same. See
+[accounts.md](accounts.md).
 
 Routers, all mounted under `/api/v1`:
 
@@ -93,7 +94,10 @@ a detached promise under Node) or the hourly cron in
 `common/` is one file, `common/src/index.ts`, holding Zod input schemas and the
 Instant wire types. It has no build step: `main` and `types` point straight at
 the TypeScript source, and the `common/dist/` directory on disk is stale and
-unused.
+unused. `common/node_modules/` is committed, and it is not clutter: Vercel
+installs only `frontend/` (`wiki/operations.md`), the frontend has no `zod` of
+its own, and `common/src/index.ts` finds it there. Untracking it breaks the
+web build.
 
 Both `backend/package.json` and `frontend/package.json` depend on it as
 `"@blogging-app/common": "file:../common"` — a local path, never published. This

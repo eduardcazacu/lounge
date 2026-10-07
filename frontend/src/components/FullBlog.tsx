@@ -4,7 +4,7 @@ import { ShelfAskEmbed } from "./ShelfAskEmbed";
 import { useEffect, useState } from "react";
 import { Blog, markBlogsStale } from "../hooks";
 import { Appbar } from "./Appbar";
-import { Avatar } from "./BlogCard";
+import { Avatar } from "./Avatar";
 import { MentionInput } from "./MentionInput";
 import { BACKEND_URL } from "../config";
 import { getAuthHeader, getCurrentUserId } from "../lib/auth";

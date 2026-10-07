@@ -53,6 +53,13 @@ This is not theoretical. It was caught on a Simulator, where cookie and Keychain
 storage are not sandboxed per app the way they are on a device, and the app came
 up signed in as the machine's owner.
 
+**A new router's JWT middleware must reject a token with an `aud` claim.**
+`hono/jwt`'s `verify` checks the signature and `exp`, not the audience, so
+Instant's socket ticket — same secret, 60 seconds, carried in a URL that the
+request logs keep — passes any middleware that does not look. Nothing fails;
+the ticket just works. Every router in `backend/src/route/` checks
+`payload?.aud !== undefined`; copy it.
+
 **A wrong password on account deletion is 400, deliberately.** If it were 403,
 clients would treat a typo as an expired session and answer it with a refresh.
 Do not "fix" it.
@@ -118,11 +125,16 @@ Echoing one back throws `InvalidAccessError: Invalid WebSocket close code`, and
 the log fills with errors that break nothing. `closeCodeToEcho` in
 `backend/src/websocket-close.ts` answers anything unsendable with 1000.
 
-**An open browser tab swallows the push.** The Worker pushes only when
-`deliver()` reached no socket (`backend/src/route/instant.ts`). While the web
-client is open anywhere, that tab receives the instant, so the phone gets no
-notification and its widget does not update until the app next opens. This is
-known and has been left as it is.
+**A socket that accepted a send is not someone looking at it.** The Worker
+pushes only when `deliver()` reached no socket (`backend/src/route/instant.ts`),
+and `deliver()` counts any socket whose `send` did not throw. A suspended iPhone
+app's socket and a background browser tab's both accept the bytes, so the push
+was skipped: no banner, and no widget update, until the app was next opened.
+Both clients therefore hold the socket only while on screen —
+`InstantStore.pauseRealtime` on `.background` in `ios/Instant/App/RootView.swift`,
+and the `visibilitychange` handler in `frontend/src/hooks/useInstant.ts`. A new
+client, or a refactor of either, that keeps its socket in the background brings
+the silence back with no error anywhere.
 
 ## Books
 
@@ -228,6 +240,21 @@ the 5-second poll in `useSignedInUserId` and the re-check mid-keygen.
 **`refreshAccessToken` does not clear the token on failure**, because iOS PWAs
 routinely fail to send the refresh cookie. Clearing would sign people out for a
 transient reason.
+
+**A persisted response that changes shape needs `CACHE_VERSION` bumped**
+(`frontend/src/lib/query.ts`). The cache on disk outlives deploys, and a launch
+draws it before anything is fetched, so a renamed or removed field — or one the
+new code assumes is there — reaches the page as `undefined` from the previous
+build's answer until the refetch lands. Adding a field the code treats as
+optional needs nothing.
+
+**An infinite query refetches every page it holds, one after another**, and a
+refetch keeps the page count. A feed persisted whole therefore came back at each
+launch as one request per page of the deepest scroll it had ever had, and the
+number never went down. `serializeData` in `frontend/src/lib/query.ts` writes
+the feed to disk as its first page. Every request is several Hyperdrive
+queries, and past the Free plan's daily allowance queries fail rather than slow
+down.
 
 **iOS reports stale landscape `videoWidth`/`videoHeight`.** They arrive in the
 camera's native orientation and are updated after the fact, so any aspect ratio

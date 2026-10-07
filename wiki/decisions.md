@@ -510,6 +510,34 @@ if the full suite becomes fast enough that filtering saves nothing.
 
 ---
 
+## The socket is held only while the app is on screen
+
+**Chosen** both clients close Instant's socket when they leave the screen and
+reconnect, after a drain, when they return: `InstantStore.pauseRealtime` on
+iOS's `.background`, and the `visibilitychange` handler in
+`frontend/src/hooks/useInstant.ts`. The Worker's rule is unchanged — push only
+when `deliver()` reached no socket.
+
+**Rejected** pushing every instant and hiding the banner when the app is in
+front. It works whatever a socket is doing, but the notification extension
+would then write each arrival into the widget even when it was opened over the
+socket a moment earlier, and it reverses "push only when nobody got it" for
+every client at once. Also rejected: leaving it, which was the recorded state
+for browser tabs.
+
+**Because** `deliver()` can only know that a socket accepted a frame. A
+suspended iPhone app's socket and a hidden tab's both do, so the phone got no
+banner and no widget update for anything sent while it was in a pocket or a tab
+was open on a laptop — silently, since nothing failed.
+
+**Cost paid** a reconnect, a ticket and a drain on every return to the app, and
+a hidden tab no longer updates live; it catches up when shown.
+
+**Would reopen if** a client needs live delivery while off screen, or the
+reconnect on return shows up in the `resume` timings.
+
+---
+
 ## Instant pushes go to the app, and to the browser only as a fallback
 
 **Chosen** `appFirst` in `sendPushToUsers`: APNs is sent first, and a person's

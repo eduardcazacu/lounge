@@ -57,6 +57,11 @@ Three details that look like mistakes and are not:
 - `refreshAccessToken` deliberately **does not clear the token on failure**,
   because iOS PWAs routinely fail to send the refresh cookie and clearing would
   sign people out for a transient reason.
+- Launch and every return to the tab call `refreshAccessTokenIfStale`, which
+  refreshes only within two minutes of the token's `exp`. Each refresh rotates
+  the session — three queries and a new `sessions` row — and doing one on every
+  focus spent the database's daily query budget on tokens with most of their
+  fifteen minutes left. `RootRedirect`, holding no token, still refreshes.
 
 ## Instant on the web
 
@@ -161,7 +166,7 @@ nothing.
 
 `frontend/src/hooks/useInstant.ts` is the store as well as the socket: the
 conversation rows, the local send marks and the reply prompts are all derived
-here, the same merge `InstantStore` does on iOS. Four of its oddities are
+here, the same merge `InstantStore` does on iOS. Five of its oddities are
 load-bearing:
 
 - **`useSignedInUserId` polls every 5 seconds**, plus `storage` and
@@ -169,6 +174,11 @@ load-bearing:
   signing in *in any tab* re-points every open tab, and the crypto identity is
   per-account.
 - **Enrollment re-checks the signed-in user mid-keygen**, for the same reason.
+- **The socket is closed while the tab is hidden**, and reopened, after a
+  drain, when it is shown. A background tab's socket accepts deliveries, and the
+  server sends no push for a delivery it thinks arrived, so an open tab used to
+  silence the phone. One attempt runs at a time (`connecting`): a visibility
+  change, `online` and the reconnect timer can all fire during the drain.
 - **Dedup bookkeeping happens outside the `setInstants` updater.** React
   StrictMode double-invokes an impure updater, and an impure one here drops the
   instant. See [gotchas.md](gotchas.md).
@@ -232,8 +242,13 @@ so no screen changed. Instant is not: `useInstant.ts` is a socket store.
   next account the last one's posts.
 - **The cache is persisted to IndexedDB** so a launch from the home screen draws
   before the network answers. Only the key prefixes in `PERSISTED` are written;
-  anything new stays in memory unless added there. The `buster` is the build's
-  commit, so a deploy never draws a response shape it does not know.
+  anything new stays in memory unless added there. The `buster` is
+  `CACHE_VERSION`, bumped by hand when a persisted response changes shape. It
+  was the build's commit, which threw the cache away on every deploy, so the
+  first launch after each one drew a skeleton. The feed
+  is written as its **first page only**: a refetch asks for every page an
+  infinite query holds, so a whole feed on disk made every launch re-request
+  the deepest scroll ever reached. Back within a session still has every page.
   `clearAuthStorage()` in `lib/auth.ts` wipes it, memory and disk.
 - **Writes mark reads stale without refetching** (`markBlogsStale`). An open post
   holds its edits in `FullBlog`'s state, and a refetch that changed the post

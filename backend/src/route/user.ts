@@ -113,6 +113,12 @@ const profileAuthMiddleware = async (c: Context<UserRouteEnv>, next: Next) => {
 		}
 		const { jwtSecret } = getConfig(c);
 		const payload = await verify(token, jwtSecret, "HS256");
+		// Any audience marks Instant's socket ticket, which travels in a URL and
+		// must never work as an API credential (wiki/accounts.md).
+		if (payload?.aud !== undefined) {
+			c.status(403);
+			return c.json({ msg: "This token cannot be used for API requests" });
+		}
 		const userId = Number(payload?.id);
 		if (!Number.isFinite(userId)) {
 			c.status(403);
@@ -454,19 +460,20 @@ userRouter.post("/refresh", async (c) => {
 		const nextRefreshToken = createRefreshToken();
 		const nextRefreshTokenHash = await sha256Hex(nextRefreshToken);
 		const nextRefreshExpiry = new Date(Date.now() + REFRESH_TOKEN_TTL_MS);
-		await prisma.$transaction([
-			prisma.session.update({
-				where: { id: existing.id },
-				data: { revokedAt: now },
-			}),
-			prisma.session.create({
-				data: {
-					userId: existing.userId,
-					tokenHash: nextRefreshTokenHash,
-					expiresAt: nextRefreshExpiry,
-				},
-			}),
-		]);
+		// Two statements rather than a transaction, which is four round trips —
+		// and in this order, so that a failure between them can only leave a
+		// spare session behind, never revoke the one the client still holds.
+		await prisma.session.create({
+			data: {
+				userId: existing.userId,
+				tokenHash: nextRefreshTokenHash,
+				expiresAt: nextRefreshExpiry,
+			},
+		});
+		await prisma.session.update({
+			where: { id: existing.id },
+			data: { revokedAt: now },
+		});
 
 		setRefreshTokenCookie(c, nextRefreshToken);
 		const nowSeconds = Math.floor(Date.now() / 1000);

@@ -152,6 +152,12 @@ blogRouter.use("/*", async (c, next) => {
         }
         const { jwtSecret } = getConfig(c);
         const user = await verify(token, jwtSecret, "HS256");
+        // Any audience marks Instant's socket ticket, which travels in a URL and
+        // must never work as an API credential (wiki/accounts.md).
+        if (user?.aud !== undefined) {
+          c.status(403);
+          return c.json({ msg: "This token cannot be used for API requests" });
+        }
         const userId = Number(user?.id);
         if(Number.isFinite(userId)){
             c.set("userId", userId);
@@ -497,7 +503,7 @@ blogRouter.post('/:id/comments/:commentId/likes/toggle', async (c) => {
     const body = await c.req.json()
     const parsed = createBlogInput.safeParse(body)
     if(!parsed.success){
-        c.status(411);
+        c.status(400);
         return c.json({
             msg: "Inputs are Incorrect"
         })
@@ -583,7 +589,7 @@ blogRouter.post('/:id/comments/:commentId/likes/toggle', async (c) => {
       id: postId,
     })
     if(!parsed.success){
-        c.status(411);
+        c.status(400);
         return c.json({
             msg: "Inputs are Incorrect"
         })
@@ -935,9 +941,9 @@ blogRouter.post('/:id/comments/:commentId/likes/toggle', async (c) => {
         });
     } catch(e){
         console.error(e);
-        c.status(411);
+        c.status(500);
         return c.json({
-            msg: "Error while fecthing the blog post"
+            msg: "Error while fetching the blog post"
         })
     }
 })

@@ -152,6 +152,20 @@ export async function scheduled(
     })
   );
   ctx.waitUntil(runShelfSweep(env).catch((error) => console.error("[shelf] sweep failed", error)));
+  ctx.waitUntil(runSessionSweep(env).catch((error) => console.error("[sessions] sweep failed", error)));
+}
+
+// Every refresh revokes one session and inserts the next, so an active device
+// leaves dozens of dead rows a day, and nothing else ever deletes them. A
+// revoked or expired row can never be used again — refresh looks a token up by
+// hash among the live ones only — so it is not kept for anything.
+export async function runSessionSweep(env: SweepEnv, now: Date = new Date()) {
+  const { databaseUrl } = getConfig({ env } as unknown as Context<any>);
+  const prisma = getPrismaClient(databaseUrl);
+  const deleted = await prisma.session.deleteMany({
+    where: { OR: [{ revokedAt: { not: null } }, { expiresAt: { lt: now } }] },
+  });
+  return { deletedSessions: deleted.count };
 }
 
 // Books' hourly upkeep: covers a request did not get to copy, search answers

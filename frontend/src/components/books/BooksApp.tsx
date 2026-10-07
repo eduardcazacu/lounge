@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, NavLink, Route, Routes, useLocation } from "react-router-dom";
-import { Avatar } from "../BlogCard";
+import { Avatar } from "../Avatar";
 import { getCachedProfile } from "../../lib/auth";
 import { Sheet } from "./ui";
 import { usePushState } from "./notifications";

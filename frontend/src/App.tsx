@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useState } from 'react'
 import { createBrowserRouter, Navigate, Route, RouterProvider, Routes, ScrollRestoration, useLocation, type Location } from 'react-router-dom'
 import { Signup } from './pages/Signup'
 import { Signin } from './pages/Signin'
-import { getAuthHeader, refreshAccessToken } from './lib/auth'
+import { getAuthHeader, refreshAccessToken, refreshAccessTokenIfStale } from './lib/auth'
 import { enablePushIfPermissionGranted } from './lib/push'
 import { NotificationPrompt } from './components/NotificationPrompt'
 
@@ -75,7 +75,7 @@ function App() {
     let cancelled = false;
 
     const bootstrap = async () => {
-      await refreshAccessToken();
+      await refreshAccessTokenIfStale();
       if (cancelled) return;
       const authHeader = getAuthHeader();
       if (!authHeader) return;
@@ -90,7 +90,7 @@ function App() {
 
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        void refreshAccessToken();
+        void refreshAccessTokenIfStale();
       }
     };
 

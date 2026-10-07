@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Avatar } from "./BlogCard";
+import { Avatar } from "./Avatar";
 import { DEFAULT_THEME_KEY, THEME_PALETTES } from "../themes";
 // import { useBlogs } from "../hooks";
 

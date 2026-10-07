@@ -871,6 +871,44 @@ struct InstantStoreTests {
         #expect(store.instants.map(\.id) == ["waiting"])
     }
 
+    /// A suspended app's socket can still look open to the server, which then
+    /// skips the push for anything it accepted.
+    @Test("The socket is dropped in the background and reconnected on return")
+    func pausesSocketInBackground() async {
+        var sockets: [StubSocket] = []
+        let store = InstantStore(
+            api: FakeInstantAPI(),
+            identities: DeviceIdentityStore(keychain: InMemoryKeychain(), secureEnclaveAvailable: { false }),
+            widgets: RecordingWidgetPublisher(),
+            cache: InMemoryInboxCache(),
+            makeSocket: { _ in
+                let socket = StubSocket()
+                sockets.append(socket)
+                return socket
+            }
+        )
+
+        store.resumeRealtime()
+        #expect(sockets.isEmpty, "nothing to resume before start")
+
+        await store.start(userId: 1)
+        store.resumeRealtime()
+        #expect(sockets.count == 1, "a launch's first .active must not open a second socket")
+
+        store.pauseRealtime()
+        #expect(sockets[0].stopped)
+        #expect(store.connection == .idle)
+
+        store.resumeRealtime()
+        #expect(sockets.count == 2)
+        #expect(sockets[1].startedDeviceIds == sockets[0].startedDeviceIds)
+
+        store.pauseRealtime()
+        store.reset()
+        store.resumeRealtime()
+        #expect(sockets.count == 2, "signing out must not leave a pause to resume")
+    }
+
     /// Nothing is sealed to a device that has never registered, so fetching
     /// early would draw rows that claim something is waiting and cannot open it.
     @Test("A first launch waits for the socket's drain")
@@ -1620,13 +1658,17 @@ final class StubSocket: InboxSocketProtocol, @unchecked Sendable {
     let events: AsyncStream<InboxSocketEvent>
     private let continuation: AsyncStream<InboxSocketEvent>.Continuation
     private(set) var startedDeviceIds: [String] = []
+    private(set) var stopped = false
 
     init() {
         (events, continuation) = AsyncStream<InboxSocketEvent>.makeStream()
     }
 
     func start(deviceId: String) { startedDeviceIds.append(deviceId) }
-    func stop() { continuation.finish() }
+    func stop() {
+        stopped = true
+        continuation.finish()
+    }
 }
 
 /// Records what the registrar asks the system to do.

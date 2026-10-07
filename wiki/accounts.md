@@ -25,10 +25,14 @@ digest in `sessions.token_hash`, 30 days, delivered as an httpOnly `refresh_toke
 cookie (`SameSite=Lax`; `secure` only when the request URL is https, so local
 http development works).
 
-`POST /api/v1/user/refresh` **rotates**: inside one `prisma.$transaction` it
-revokes the old session and creates a new one, and re-checks that the account is
+`POST /api/v1/user/refresh` **rotates**: it creates a new session and then
+revokes the old one — two statements, not a transaction, which cost four round
+trips, and in that order so a failure between them leaves a spare session rather
+than revoking the one the client still holds — and re-checks that the account is
 still verified and still approved. Suspending someone therefore stops their next
 refresh, though their current access token keeps working for up to 15 minutes.
+A revoked or expired row can never be used again, and every refresh leaves one,
+so `runSessionSweep` in `backend/src/scheduled.ts` deletes them hourly.
 
 **Passwords** — bcryptjs at 12 rounds (`backend/src/password.ts`). A legacy
 plaintext row is accepted once and silently upgraded on successful sign-in.
@@ -62,11 +66,13 @@ Instant's WebSocket ticket is a JWT signed with the same `JWT_SECRET` but
 carrying `aud: "instant-ws"` and a `deviceId`, valid 60 seconds. To stop one
 being used as the other:
 
-- `instantRouter` and `moderationRouter` reject any token that carries an `aud`
-  claim at all.
+- Every router's JWT middleware rejects any token that carries an `aud` claim
+  at all: user, blog, admin, Instant, moderation and Books.
 - `GET /api/v1/instant/ws` rejects any token that does not.
 
-This is why each router installs its own JWT middleware rather than sharing one.
+The ticket rides in the `/ws` URL, which request logging records, so a router
+that skips the check hands a logged ticket a minute of API access — for an
+administrator, of the admin API.
 
 ## Email tokens
 

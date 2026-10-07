@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Avatar } from "../BlogCard";
+import { Avatar } from "../Avatar";
 import { invalidateShelf, localDay, shelfSend, useShelf } from "./api";
 import type { Home, HomeReading, Person, ReaderPending, TrendingItem } from "./api";
 import { AccountButton } from "./BooksApp";
