@@ -769,6 +769,13 @@ where to start.
   inbox *and* this device's identity is loaded, rather than being dropped on
   the first miss. After eight seconds the waiting screen says why it might
   never come (opened on another device) and offers to close.
+- iOS clears only the notification that was tapped. An instant opened from the
+  inbox leaves its banner behind, still naming something that no longer
+  exists, so the viewer withdraws every delivered notification carrying that
+  `instantId` the moment its fetch starts
+  (`DeliveredInstantNotifications` in `ios/Instant/App/PushRegistrar.swift`).
+  It matches on the payload, not on the request identifier, which is Apple's
+  to assign.
 - Nothing about the photo itself can be fetched ahead of the tap. Reading
   destroys it (`GET /:id/media`), so the viewer's download is the one wait
   that cannot be moved earlier.

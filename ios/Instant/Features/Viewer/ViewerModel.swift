@@ -59,6 +59,7 @@ public final class ViewerModel {
     private let sensitivity: SensitivityChecking
     private let makeVideoPlayer: @MainActor (Data, _ loops: Bool) -> VideoPlaying
     private let preferences: Preferences
+    private let withdrawNotification: @MainActor (_ instantId: String) -> Void
 
     public init(
         instant: InstantDelivery,
@@ -69,6 +70,9 @@ public final class ViewerModel {
         preferences: Preferences = .inMemory(),
         makeVideoPlayer: @escaping @MainActor (Data, _ loops: Bool) -> VideoPlaying = {
             AVVideoPlayback(data: $0, loops: $1)
+        },
+        withdrawNotification: @escaping @MainActor (_ instantId: String) -> Void = {
+            DeliveredInstantNotifications.withdraw(instantId: $0)
         }
     ) {
         self.instant = instant
@@ -78,6 +82,7 @@ public final class ViewerModel {
         self.sensitivity = sensitivity
         self.makeVideoPlayer = makeVideoPlayer
         self.preferences = preferences
+        self.withdrawNotification = withdrawNotification
         isMuted = preferences.viewerMuted
     }
 
@@ -110,6 +115,9 @@ public final class ViewerModel {
     public func start() async {
         guard !hasStartedFetch else { return }
         hasStartedFetch = true
+        // From here on, whatever happens on screen, nothing can open this
+        // instant again, so a banner still naming it only leads to a dead end.
+        withdrawNotification(instant.id)
         journey("viewerStarted")
         JourneyLog.shared.annotate(.openInstant, key: instant.id, [
             "media": isVideo ? "video" : "photo",

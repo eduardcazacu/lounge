@@ -1755,6 +1755,18 @@ struct PushRegistrarTests {
         #expect(PushRegistrar.instantId(from: ["data": ["streakCount": 12]]) == nil)
         #expect(PushRegistrar.instantId(from: [:]) == nil)
     }
+
+    @Test("Withdraws only the notifications naming the opened instant")
+    func picksNotificationsToWithdraw() {
+        let delivered: [(identifier: String, userInfo: [AnyHashable: Any])] = [
+            ("a", ["data": ["instantId": "abc-123"]]),
+            ("b", ["data": ["instantId": "other"]]),
+            ("c", ["data": ["streakCount": 12]]),
+            ("d", [OutboxReminder.kindKey: OutboxReminder.kind]),
+            ("e", ["data": ["instantId": "abc-123"]]),
+        ]
+        #expect(DeliveredInstantNotifications.identifiers(in: delivered, naming: "abc-123") == ["a", "e"])
+    }
 }
 
 @Suite("Theme")

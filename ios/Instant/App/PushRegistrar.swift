@@ -123,6 +123,39 @@ public final class PushRegistrar: NSObject {
     }
 }
 
+/// Takes an instant's banner out of Notification Center once the app has used
+/// the instant up.
+///
+/// iOS only clears a notification that was tapped. One left behind by opening
+/// the instant from the inbox still names it, and tapping that later opens a
+/// viewer onto something the server has already destroyed.
+///
+/// Matched on the payload's `instantId` rather than on a request identifier:
+/// a remote notification's identifier is Apple's to assign, and the collapse
+/// id it may or may not be derived from is a backend detail the app should
+/// not have to mirror.
+public enum DeliveredInstantNotifications {
+    public static func withdraw(instantId: String) {
+        UNUserNotificationCenter.current().getDeliveredNotifications { delivered in
+            let ids = identifiers(
+                in: delivered.map { ($0.request.identifier, $0.request.content.userInfo) },
+                naming: instantId
+            )
+            guard !ids.isEmpty else { return }
+            UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ids)
+        }
+    }
+
+    static func identifiers(
+        in delivered: [(identifier: String, userInfo: [AnyHashable: Any])],
+        naming instantId: String
+    ) -> [String] {
+        delivered
+            .filter { PushRegistrar.instantId(from: $0.userInfo) == instantId }
+            .map(\.identifier)
+    }
+}
+
 /// Both of these are main-actor isolated, inherited from the class rather than
 /// opted out of with `nonisolated` — which is not a style choice.
 ///

@@ -196,6 +196,29 @@ struct ViewerModelTests {
         #expect(api.viewedIds.isEmpty)
     }
 
+    /// Opened from the inbox, the instant's banner is still in Notification
+    /// Center, and tapping it later leads to a viewer with nothing to show.
+    /// Withdrawn when the fetch starts, whatever the fetch then finds: a gone
+    /// instant is as dead an end as one just seen.
+    @Test("Withdraws the instant's notification once, when the fetch starts")
+    func withdrawsNotification() async throws {
+        let (delivery, ciphertext, device) = try sealedInstant()
+        for result in [Result<Data, Error>.success(ciphertext), .failure(APIError(status: 410, message: "gone"))] {
+            let api = FakeInstantAPI()
+            api.mediaResult = result
+            var withdrawn: [String] = []
+
+            let model = ViewerModel(
+                instant: delivery, api: api, device: device, time: TestTime().source,
+                withdrawNotification: { withdrawn.append($0) }
+            )
+            await model.start()
+            await model.start()
+
+            #expect(withdrawn == ["i1"])
+        }
+    }
+
     /// No envelope means this device's keypair was replaced after the sender
     /// wrapped. Nothing here can ever open it, so tell the server to stop
     /// holding the ciphertext.
