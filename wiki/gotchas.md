@@ -118,11 +118,16 @@ Echoing one back throws `InvalidAccessError: Invalid WebSocket close code`, and
 the log fills with errors that break nothing. `closeCodeToEcho` in
 `backend/src/websocket-close.ts` answers anything unsendable with 1000.
 
-**An open browser tab swallows the push.** The Worker pushes only when
-`deliver()` reached no socket (`backend/src/route/instant.ts`). While the web
-client is open anywhere, that tab receives the instant, so the phone gets no
-notification and its widget does not update until the app next opens. This is
-known and has been left as it is.
+**A socket that accepted a send is not someone looking at it.** The Worker
+pushes only when `deliver()` reached no socket (`backend/src/route/instant.ts`),
+and `deliver()` counts any socket whose `send` did not throw. A suspended iPhone
+app's socket and a background browser tab's both accept the bytes, so the push
+was skipped: no banner, and no widget update, until the app was next opened.
+Both clients therefore hold the socket only while on screen —
+`InstantStore.pauseRealtime` on `.background` in `ios/Instant/App/RootView.swift`,
+and the `visibilitychange` handler in `frontend/src/hooks/useInstant.ts`. A new
+client, or a refactor of either, that keeps its socket in the background brings
+the silence back with no error anywhere.
 
 ## Books
 

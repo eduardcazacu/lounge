@@ -813,6 +813,11 @@ unverified, pending approval — are not mistaken for an expired session.
 `InboxSocket` opens `wss://.../api/v1/instant/ws?ticket=` with a fresh
 60-second ticket per connect, sends the literal text frame `"ping"` every 25
 seconds, filters `"pong"` out before JSON decoding, and backs off 1s→30s.
+`RootView` drops it when the app goes to the background and reconnects on
+return (`InstantStore.pauseRealtime`, `resumeRealtime`): a suspended app's
+socket can still accept a delivery, and the server sends no push for one it
+thinks arrived. `resumeRealtime` acts only after a pause, so a cold launch's
+first `.active` does not connect ahead of registration.
 `InstantConnectionState` is deliberately silent while connecting or open — the
 connection is only ever mentioned when it is broken.
 

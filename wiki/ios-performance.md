@@ -80,14 +80,15 @@ request — `wiki/accounts.md`), and the database host itself. A
 query and the time for each query, would show which one it is before anything
 is changed.
 
-### 3. Don't fetch the inbox three times at launch
+### 3. Don't fetch the inbox more than once at launch or on return
 
 A cold start with a cache runs `refreshAll` from `InstantStore.start`. The
 socket then emits `.shouldDrainInbox` before its ticket, and that runs
 `refreshInbox` and `refreshHistory` again. `RootView`'s `.active` handler can
-run `refreshAll` a third time. When every request costs what the measurements
-above show, that is a lot of extra time spent next to the fetch that the tap is
-waiting for. Coalescing calls that are already in flight, the way
+run `refreshAll` a third time. Every return from the background fetches twice:
+`refreshAll` from `.active`, and the drain of the socket `resumeRealtime`
+reconnects. When every request costs what the measurements above show, that is
+a lot of extra time spent next to the fetch that the tap is waiting for. Coalescing calls that are already in flight, the way
 `RefreshCoordinator` does for token refreshes, keeps what is actually needed:
 a fetch before the socket connects.
 

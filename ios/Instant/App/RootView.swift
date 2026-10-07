@@ -65,6 +65,7 @@ struct RootView: View {
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .background:
+                environment.store.pauseRealtime()
                 environment.outbox.didEnterBackground()
                 JourneyLog.shared.didEnterBackground()
             case .active:
@@ -73,6 +74,7 @@ struct RootView: View {
                 // instant is most likely waiting, and when the socket most
                 // likely died.
                 guard environment.session.isSignedIn else { return }
+                environment.store.resumeRealtime()
                 // A cold start's first `.active` belongs to the launch, which
                 // is timed on its own. Keyed per return, so a refresh that
                 // outlives one foreground cannot end the next one's journey.

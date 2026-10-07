@@ -161,7 +161,7 @@ nothing.
 
 `frontend/src/hooks/useInstant.ts` is the store as well as the socket: the
 conversation rows, the local send marks and the reply prompts are all derived
-here, the same merge `InstantStore` does on iOS. Four of its oddities are
+here, the same merge `InstantStore` does on iOS. Five of its oddities are
 load-bearing:
 
 - **`useSignedInUserId` polls every 5 seconds**, plus `storage` and
@@ -169,6 +169,11 @@ load-bearing:
   signing in *in any tab* re-points every open tab, and the crypto identity is
   per-account.
 - **Enrollment re-checks the signed-in user mid-keygen**, for the same reason.
+- **The socket is closed while the tab is hidden**, and reopened, after a
+  drain, when it is shown. A background tab's socket accepts deliveries, and the
+  server sends no push for a delivery it thinks arrived, so an open tab used to
+  silence the phone. One attempt runs at a time (`connecting`): a visibility
+  change, `online` and the reconnect timer can all fire during the drain.
 - **Dedup bookkeeping happens outside the `setInstants` updater.** React
   StrictMode double-invokes an impure updater, and an impure one here drops the
   instant. See [gotchas.md](gotchas.md).

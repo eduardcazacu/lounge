@@ -349,7 +349,33 @@ export function useInstant(enabled: boolean) {
       return;
     }
     let cancelled = false;
+    // Set from the first await of an attempt to its end. `socketRef` is only
+    // filled at the end, so without this a visibility change, an `online`
+    // event and the reconnect timer could each start an attempt of their own,
+    // opening several sockets and draining the inbox once for each.
+    let connecting = false;
     let pingTimer: number | null = null;
+
+    // The socket is held only while the page is on screen. A socket in a
+    // hidden tab still accepts what the server sends, and the server reads an
+    // accepted send as delivered and skips the push — so a tab left open in
+    // the background was silencing every instant on the phone. See
+    // wiki/instant-runtime.md.
+    const hidden = () => document.visibilityState === "hidden";
+
+    const closeSocket = () => {
+      if (pingTimer !== null) {
+        window.clearInterval(pingTimer);
+        pingTimer = null;
+      }
+      const socket = socketRef.current;
+      socketRef.current = null;
+      if (socket) {
+        socket.onclose = null;
+        socket.onerror = null;
+        socket.close();
+      }
+    };
 
     const clearReconnect = () => {
       if (reconnectTimerRef.current !== null) {
@@ -359,7 +385,7 @@ export function useInstant(enabled: boolean) {
     };
 
     const scheduleReconnect = () => {
-      if (cancelled) {
+      if (cancelled || hidden()) {
         return;
       }
       clearReconnect();
@@ -371,18 +397,25 @@ export function useInstant(enabled: boolean) {
     };
 
     const connect = async () => {
-      if (cancelled) {
+      if (cancelled || connecting || hidden()) {
         return;
       }
       if (socketRef.current && socketRef.current.readyState <= WebSocket.OPEN) {
         return;
       }
+      connecting = true;
+      try {
+        await open();
+      } finally {
+        connecting = false;
+      }
+    };
 
+    const open = async () => {
       setConnection("connecting");
       // Drain first: whatever the socket does, queued instants must arrive.
-      await refreshInbox(device.deviceId);
-      await refreshHistory();
-      if (cancelled) {
+      await Promise.all([refreshInbox(device.deviceId), refreshHistory()]);
+      if (cancelled || hidden()) {
         return;
       }
 
@@ -410,6 +443,9 @@ export function useInstant(enabled: boolean) {
         }
         setConnection("offline");
         scheduleReconnect();
+        return;
+      }
+      if (cancelled || hidden()) {
         return;
       }
 
@@ -477,10 +513,13 @@ export function useInstant(enabled: boolean) {
     void connect();
 
     const onVisible = () => {
-      if (document.visibilityState === "visible") {
-        reconnectDelayRef.current = MIN_RECONNECT_MS;
-        void connect();
+      if (hidden()) {
+        clearReconnect();
+        closeSocket();
+        return;
       }
+      reconnectDelayRef.current = MIN_RECONNECT_MS;
+      void connect();
     };
     const onOnline = () => {
       reconnectDelayRef.current = MIN_RECONNECT_MS;
@@ -495,16 +534,7 @@ export function useInstant(enabled: boolean) {
       clearReconnect();
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("online", onOnline);
-      if (pingTimer !== null) {
-        window.clearInterval(pingTimer);
-      }
-      const socket = socketRef.current;
-      socketRef.current = null;
-      if (socket) {
-        socket.onclose = null;
-        socket.onerror = null;
-        socket.close();
-      }
+      closeSocket();
     };
   }, [enabled, device, handleAuthError, mergeInstants, refreshInbox, refreshHistory]);
 

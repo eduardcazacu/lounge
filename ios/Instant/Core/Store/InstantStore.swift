@@ -71,6 +71,10 @@ public final class InstantStore {
     private let cache: InboxCaching
     private let makeSocket: @MainActor (InstantAPIProtocol) -> InboxSocketProtocol
     private var socket: InboxSocketProtocol?
+    /// Set only by `pauseRealtime`, so a cold launch's first `.active` — which
+    /// arrives while `start` is still registering the device — connects
+    /// nothing ahead of it.
+    private var realtimePaused = false
     private var pump: Task<Void, Never>?
     private var userId: Int?
 
@@ -305,6 +309,10 @@ public final class InstantStore {
             // launch, in which case everything works.
         }
 
+        connect(identity)
+    }
+
+    private func connect(_ identity: DeviceIdentity) {
         guard socket == nil else { return }
         let socket = makeSocket(api)
         self.socket = socket
@@ -314,6 +322,27 @@ public final class InstantStore {
             }
         }
         socket.start(deviceId: identity.deviceId)
+    }
+
+    /// Drops the socket when the app leaves the screen.
+    ///
+    /// A suspended app's socket can stay open as far as the server can tell,
+    /// and the server takes a send that socket accepted as delivered and skips
+    /// the push. Left connected, a phone in a pocket got no banner and no
+    /// widget update for anything sent until iOS got round to closing it. See
+    /// wiki/instant-runtime.md.
+    public func pauseRealtime() {
+        guard socket != nil else { return }
+        stop()
+        realtimePaused = true
+    }
+
+    /// Reconnects after `pauseRealtime`. The socket drains the inbox before it
+    /// connects, as it does on every attempt.
+    public func resumeRealtime() {
+        guard realtimePaused, let device else { return }
+        realtimePaused = false
+        connect(device)
     }
 
     public func stop() {
@@ -326,6 +355,7 @@ public final class InstantStore {
 
     public func reset() {
         stop()
+        realtimePaused = false
         instants = []
         serverHistory = []
         sendsByUser = [:]

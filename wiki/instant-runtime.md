@@ -16,7 +16,12 @@ carries `{ userId, deviceId }` in `serializeAttachment`, which is how
 envelope rather than broadcasting all of them.
 
 `deliver()` returns whether it reached anybody. If it did not, the Worker sends a
-push instead.
+push instead. "Reached" means a socket accepted the frame, which a suspended app
+or a hidden tab will still do, so **clients hold the socket only while they are
+on screen**: iOS drops it on `.background` and reconnects on `.active`
+(`InstantStore.pauseRealtime` and `resumeRealtime`), and the web client closes it
+when the tab is hidden. Off screen, every instant is a push. See
+[decisions.md](decisions.md).
 
 ### The WebSocket ticket
 
