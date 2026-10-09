@@ -275,7 +275,7 @@ struct ComposeScreen: View {
                 .font(.system(size: model.isVideo ? 12 : 17, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
                 .frame(width: 44, height: 44)
-                .background(Circle().fill(Color.black.opacity(0.35)))
+                .chromeGlass(Circle())
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("compose.duration")
@@ -295,7 +295,6 @@ struct ComposeScreen: View {
             model.save()
         } label: {
             ZStack {
-                Circle().fill(saved ? Color.white : Color.black.opacity(0.35))
                 if model.saveState == .saving {
                     ProgressView().tint(.white)
                 } else {
@@ -305,6 +304,7 @@ struct ComposeScreen: View {
                 }
             }
             .frame(width: 44, height: 44)
+            .chromeGlass(Circle(), isOn: saved)
         }
         .buttonStyle(.plain)
         .disabled(model.saveState == .saving)
@@ -321,7 +321,6 @@ struct ComposeScreen: View {
             model.toggleParallax()
         } label: {
             ZStack {
-                Circle().fill(model.isParallax ? Color.white : Color.black.opacity(0.35))
                 if model.isRenderingParallax {
                     ProgressView().tint(.white)
                 } else {
@@ -331,6 +330,7 @@ struct ComposeScreen: View {
                 }
             }
             .frame(width: 44, height: 44)
+            .chromeGlass(Circle(), isOn: model.isParallax)
         }
         .buttonStyle(.plain)
         .disabled(model.isRenderingParallax)
@@ -431,7 +431,7 @@ struct ComposeScreen: View {
                 .foregroundStyle(.black)
                 .padding(.horizontal, 20)
                 .frame(height: 48)
-                .background(Capsule().fill(Color.white))
+                .chromeGlass(Capsule(), isOn: true)
             }
             .buttonStyle(.plain)
             // Until the 3D clip exists there is nothing to send that matches
@@ -489,7 +489,7 @@ struct ComposeScreen: View {
             }
         }
         .padding(.vertical, 8)
-        .background(Capsule().fill(Color.black.opacity(0.35)))
+        .chromeGlass(Capsule(), interactive: false)
         .animation(.spring(duration: 0.2), value: model.ink)
     }
 
@@ -607,7 +607,7 @@ struct ComposeScreen: View {
             .font(.system(size: 20, weight: .semibold))
             .foregroundStyle(isOverTrash ? .black : .white)
             .frame(width: 52, height: 52)
-            .background(Circle().fill(isOverTrash ? Color.white : Color.black.opacity(0.45)))
+            .chromeGlass(Circle(), isOn: isOverTrash, interactive: false, fallback: Color.black.opacity(0.45))
             .scaleEffect(isOverTrash ? 1.25 : 1)
             .animation(.spring(duration: 0.2), value: isOverTrash)
             .onGeometryChange(for: CGRect.self) {

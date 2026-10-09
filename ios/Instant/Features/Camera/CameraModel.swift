@@ -62,6 +62,8 @@ public final class CameraModel {
     public private(set) var errorMessage: String?
     /// True while a pinch is in flight, so the indicator can show and then go.
     public private(set) var isZooming = false
+    public private(set) var whiteBalance: CameraWhiteBalance = .preset
+    public private(set) var exposureBias: Float = 0
 
     /// True from the tap on the flip button until the other camera is actually
     /// producing frames worth showing. The view holds the last frame of the old
@@ -77,10 +79,18 @@ public final class CameraModel {
     private var zoomAtGestureStart: CGFloat = 1
 
     public let camera: CameraControlling
+    private let preferences: Preferences
 
-    public init(camera: CameraControlling, time: TimeSource = .live) {
+    public init(
+        camera: CameraControlling,
+        time: TimeSource = .live,
+        preferences: Preferences = .inMemory()
+    ) {
         self.camera = camera
         self.time = time
+        self.preferences = preferences
+        // Before the session is built, so the first frame is already at it.
+        camera.setWhiteBalance(preferences.cameraWhiteBalance)
         syncFromCamera()
     }
 
@@ -92,6 +102,8 @@ public final class CameraModel {
         position = camera.position
         zoomFactor = camera.zoomFactor
         canZoom = camera.canZoom
+        whiteBalance = camera.whiteBalance
+        exposureBias = camera.exposureBias
     }
 
     /// The Simulator has no camera at all, and a device can refuse permission.
@@ -157,6 +169,35 @@ public final class CameraModel {
         isZooming = false
         zoomAtGestureStart = camera.zoomFactor
         zoomFactor = camera.zoomFactor
+    }
+
+    // MARK: - Pro controls
+
+    public func setWhiteBalance(_ mode: CameraWhiteBalance) {
+        camera.setWhiteBalance(mode)
+        whiteBalance = camera.whiteBalance
+        preferences.cameraWhiteBalance = mode
+    }
+
+    /// Snapped to thirds of a stop, the step every camera's dial clicks in;
+    /// a slider's continuous value would otherwise land on 0.97 and read as a
+    /// stop it is not.
+    public func setExposureBias(_ bias: Float) {
+        guard bias.isFinite else { return }
+        camera.setExposureBias((bias * 3).rounded() / 3)
+        exposureBias = camera.exposureBias
+    }
+
+    /// e.g. "+1.3", and "±0.0" rather than a signed zero.
+    public var exposureLabel: String {
+        abs(exposureBias) < 0.05 ? "±0.0" : String(format: "%+.1f", exposureBias)
+    }
+
+    /// Anything other than how the camera starts. The collapsed button says
+    /// so, because a stop of compensation left on and forgotten is otherwise
+    /// only discovered in the photo.
+    public var hasProAdjustments: Bool {
+        whiteBalance != .preset || abs(exposureBias) >= 0.05
     }
 
     public func toggleFlash() {

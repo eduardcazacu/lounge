@@ -33,6 +33,17 @@ public protocol CameraControlling: AnyObject {
     func setZoom(_ factor: CGFloat)
     func capture() async throws -> UIImage
 
+    /// The film preset or the camera's own auto. Chosen before the session
+    /// exists as often as after, so it is held and applied whenever a camera
+    /// becomes the input.
+    var whiteBalance: CameraWhiteBalance { get }
+    func setWhiteBalance(_ mode: CameraWhiteBalance)
+
+    /// Exposure compensation in EV, as the device actually took it — which can
+    /// be less than was asked for on a camera with a narrower range.
+    var exposureBias: Float { get }
+    func setExposureBias(_ bias: Float)
+
     /// True from the moment frames are going to a file until the file is
     /// finished.
     var isRecording: Bool { get }
@@ -55,6 +66,25 @@ public extension CameraControlling {
         guard factor.isFinite else { return range.lowerBound }
         return min(max(factor, range.lowerBound), range.upperBound)
     }
+
+    /// Every iPhone camera allows far more than this, but past three stops
+    /// either way the sensor has nothing left to give: the picture is noise or
+    /// clipped white, and a slider that long is mostly useless travel.
+    static var maximumExposureBias: Float { 3 }
+
+    static func clampedExposureBias(_ bias: Float) -> Float {
+        guard bias.isFinite else { return 0 }
+        return min(max(bias, -maximumExposureBias), maximumExposureBias)
+    }
+}
+
+public enum CameraWhiteBalance: String, CaseIterable, Sendable {
+    /// Locked to `CameraController.whiteBalance`, the neutral the film table
+    /// is measured against.
+    case preset
+    /// The camera's continuous auto white balance, for a capture that should
+    /// look neutral before it is graded.
+    case auto
 }
 
 public enum CameraError: Error, Equatable {
@@ -74,6 +104,8 @@ public final class CameraController: NSObject, CameraControlling {
     public private(set) var session: AVCaptureSession?
     public private(set) var isPreviewReady = false
     public private(set) var zoomFactor: CGFloat = 1
+    public private(set) var whiteBalance: CameraWhiteBalance = .preset
+    public private(set) var exposureBias: Float = 0
 
     /// Past a certain point digital zoom is just interpolation, and on a phone
     /// camera that arrives well before the hardware's stated maximum.
@@ -160,11 +192,16 @@ public final class CameraController: NSObject, CameraControlling {
             output: output,
             movieOutput: movieOutput,
             position: position,
+            whiteBalance: whiteBalance,
+            exposureBias: exposureBias,
             addsCamera: input == nil,
             addsMicrophone: hearsMicrophone && audioInput == nil
         )
         let built = await onSessionQueue { Self.build(plan) }
-        if let camera = built.camera { input = camera }
+        if let camera = built.camera {
+            input = camera
+            exposureBias = camera.device.exposureTargetBias
+        }
         if let microphone = built.microphone { audioInput = microphone }
         if let keeps = built.keepsMovieOutput { keepsMovieOutput = keeps }
         // `startRunning` returns once the session is live, which is within a
@@ -179,6 +216,8 @@ public final class CameraController: NSObject, CameraControlling {
         let output: AVCapturePhotoOutput
         let movieOutput: AVCaptureMovieFileOutput
         let position: AVCaptureDevice.Position
+        let whiteBalance: CameraWhiteBalance
+        let exposureBias: Float
         let addsCamera: Bool
         let addsMicrophone: Bool
     }
@@ -210,7 +249,8 @@ public final class CameraController: NSObject, CameraControlling {
                let deviceInput = try? AVCaptureDeviceInput(device: device),
                session.canAddInput(deviceInput) {
                 session.addInput(deviceInput)
-                lockWhiteBalance(of: device)
+                applyWhiteBalance(plan.whiteBalance, to: device)
+                applyExposureBias(plan.exposureBias, to: device)
                 built.camera = deviceInput
             }
             if session.canAddOutput(plan.output) {
@@ -420,7 +460,10 @@ public final class CameraController: NSObject, CameraControlling {
         guard swapped else { return }
         input = replacement
         position = target
-        Self.lockWhiteBalance(of: device)
+        Self.applyWhiteBalance(whiteBalance, to: device)
+        // Carried across, unlike the zoom: a stop brighter is the same
+        // intention on either camera, and both accept the same three stops.
+        exposureBias = Self.applyExposureBias(exposureBias, to: device)
         // The front and back cameras have different limits, so carrying a zoom
         // across the flip would either clamp oddly or jump.
         zoomFactor = 1
@@ -444,6 +487,21 @@ public final class CameraController: NSObject, CameraControlling {
         while device.isAdjustingExposure, Date() < deadline {
             try? await Task.sleep(for: .milliseconds(30))
         }
+    }
+
+    public func setWhiteBalance(_ mode: CameraWhiteBalance) {
+        whiteBalance = mode
+        guard let device = input?.device else { return }
+        Self.applyWhiteBalance(mode, to: device)
+    }
+
+    public func setExposureBias(_ bias: Float) {
+        let wanted = Self.clampedExposureBias(bias)
+        guard let device = input?.device else {
+            exposureBias = wanted
+            return
+        }
+        exposureBias = Self.applyExposureBias(wanted, to: device)
     }
 
     public func capture() async throws -> UIImage {
@@ -560,7 +618,8 @@ public final class CameraController: NSObject, CameraControlling {
         }
     }
 
-    /// The white point every capture is taken at, on both cameras.
+    /// The white point every capture is taken at, on both cameras, unless the
+    /// person has chosen auto (`CameraWhiteBalance`).
     ///
     /// The film look is a `.cube` measured off Portra, and a table measured
     /// off a stock assumes the stock's own neutral: auto white balance chases
@@ -570,9 +629,34 @@ public final class CameraController: NSObject, CameraControlling {
     /// the light Portra is balanced for — and a tungsten room comes out amber,
     /// as it would on film.
     nonisolated static let whiteBalance = AVCaptureDevice.WhiteBalanceTemperatureAndTintValues(
-        temperature: 5500,
-        tint: 5
+        temperature: 5600,
+        tint: 6
     )
+
+    private nonisolated static func applyWhiteBalance(_ mode: CameraWhiteBalance, to device: AVCaptureDevice) {
+        switch mode {
+        case .preset:
+            lockWhiteBalance(of: device)
+        case .auto:
+            guard device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance),
+                  (try? device.lockForConfiguration()) != nil
+            else { return }
+            device.whiteBalanceMode = .continuousAutoWhiteBalance
+            device.unlockForConfiguration()
+        }
+    }
+
+    /// Returns the bias the device is now at. Clamped to the device's own range
+    /// as well as ours, because a bias outside it raises an Objective-C
+    /// exception rather than an error.
+    @discardableResult
+    private nonisolated static func applyExposureBias(_ bias: Float, to device: AVCaptureDevice) -> Float {
+        let clamped = min(max(bias, device.minExposureTargetBias), device.maxExposureTargetBias)
+        guard (try? device.lockForConfiguration()) != nil else { return device.exposureTargetBias }
+        device.setExposureTargetBias(clamped, completionHandler: nil)
+        device.unlockForConfiguration()
+        return clamped
+    }
 
     /// Leaves the camera on auto if it cannot lock to custom gains.
     private nonisolated static func lockWhiteBalance(of device: AVCaptureDevice) {
@@ -724,6 +808,8 @@ public final class StubCameraController: CameraControlling {
     public var duringFlip: (@MainActor () -> Void)?
     public private(set) var zoomFactor: CGFloat = 1
     public var zoomRange: ClosedRange<CGFloat>
+    public private(set) var whiteBalance: CameraWhiteBalance = .preset
+    public private(set) var exposureBias: Float = 0
     private let frame: UIImage
 
     public init(
@@ -741,6 +827,12 @@ public final class StubCameraController: CameraControlling {
 
     public func setZoom(_ factor: CGFloat) {
         zoomFactor = Self.clampedZoom(factor, to: zoomRange)
+    }
+
+    public func setWhiteBalance(_ mode: CameraWhiteBalance) { whiteBalance = mode }
+
+    public func setExposureBias(_ bias: Float) {
+        exposureBias = Self.clampedExposureBias(bias)
     }
 
     public func flip() async {

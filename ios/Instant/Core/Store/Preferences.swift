@@ -24,6 +24,7 @@ public final class Preferences: @unchecked Sendable {
         static let sendsSound = "instant.preferences.sendsSound"
         static let viewerMuted = "instant.preferences.viewerMuted"
         static let ink = "instant.preferences.ink"
+        static let cameraWhiteBalance = "instant.preferences.cameraWhiteBalance"
     }
 
     public init(defaults: UserDefaults = .standard) {
@@ -83,6 +84,15 @@ public final class Preferences: @unchecked Sendable {
     public var ink: OverlayCompositor.Ink {
         get { string(Key.ink).flatMap(OverlayCompositor.Ink.init(rawValue:)) ?? .white }
         set { set(newValue.rawValue, Key.ink) }
+    }
+
+    /// Remembered, unlike the exposure: auto or the preset is a view on how
+    /// pictures should look, and it holds from one scene to the next. A
+    /// compensation is an answer to one scene's light, and carried into the
+    /// next it is just a wrong exposure.
+    public var cameraWhiteBalance: CameraWhiteBalance {
+        get { string(Key.cameraWhiteBalance).flatMap(CameraWhiteBalance.init(rawValue:)) ?? .preset }
+        set { set(newValue.rawValue, Key.cameraWhiteBalance) }
     }
 
     /// Stored as strings throughout, so an absent key is told apart from

@@ -586,6 +586,12 @@ changing `version` shows them to nobody who saw the last ones.
 `WhatsNewTests` checks only that the notes do not name a version newer than
 the app.
 
+**Glass as a sibling layer smears what is drawn over it.** Inside a
+`GlassEffectContainer` (`GlassGroup`), a `Color.clear.glassEffect()` placed as
+the bottom layer of a `ZStack` blended the exposure slider's white thumb into
+it as a melted grey blob. Nothing errors. Put the glass on the control as a
+whole, so it is drawn under the content it wraps (`ExposureSlider`).
+
 **A `.plain` button is hit-tested from what its label draws.** The full-width
 capsule buttons painted their background *outside* the label, so the label drew
 nothing but its word and only taps on the glyphs registered — the rest of the

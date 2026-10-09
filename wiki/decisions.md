@@ -907,27 +907,32 @@ dashboard shows it per configuration), or the database moves to a provider
 whose own pooler sits close enough to Cloudflare to make the difference small.
 
 
-## The iOS camera shoots at a fixed white balance
+## The iOS camera shoots at a fixed white balance by default
 
-**Chosen** both cameras locked to 5400K, tint +5
+**Chosen** both cameras locked to a daylight preset
 (`CameraController.whiteBalance`), set whenever a camera becomes the session's
-input.
+input, with auto behind the camera's pro controls for whoever wants it
+(`CameraWhiteBalance`, remembered in `Preferences`).
 
-**Rejected** auto white balance, which the camera had before.
+**Rejected** auto white balance as the default, which the camera had before;
+and the preset with no way out of it, which is what replaced it at first.
 
 **Because** the film look is a `.cube` measured off Portra, and a table assumes
 the neutral its stock was balanced for. Auto white balance neutralises each
 scene first, differently every time, so the table was warming a picture that had
 just been cooled for it. Locked, every capture reaches the table from the same
 place — a touch warm of daylight — and indoor light keeps its colour, as it
-would on film.
+would on film. The opt-out exists because the cost below is real for the other
+filters, and a tungsten room that should look white is a reasonable thing to
+want.
 
-**Cost paid** the other seven filters get the same unneutralised picture: a
-tungsten room is amber under "original" too. The web client's camera stays on
-the browser's auto, which `getUserMedia` does not reliably let a page override.
+**Cost paid** the other seven filters get the same unneutralised picture unless
+someone opens the pro controls: a tungsten room is amber under "original" too.
+The web client's camera stays on the browser's auto, which `getUserMedia` does
+not reliably let a page override.
 
-**Would reopen if** the filters stopped being film-first, or a capture needed
-to look neutral before it was graded.
+**Would reopen if** the filters stopped being film-first, which would make auto
+the better default.
 
 ---
 

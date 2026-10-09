@@ -72,9 +72,9 @@ struct ViewerScreen: View {
                         .padding(.vertical, 6)
                         // A photo is letterboxed, so this usually straddles its
                         // top edge. A translucent black vanished on the black
-                        // half and left a dark sliver on the photo; a material
-                        // reads as one capsule over both.
-                        .background(.ultraThinMaterial, in: Capsule())
+                        // half and left a dark sliver on the photo; glass, or a
+                        // material without it, reads as one capsule over both.
+                        .chromeGlass(Capsule(), interactive: false, fallbackMaterial: .ultraThinMaterial)
                         .environment(\.colorScheme, .dark)
 
                     Spacer()
@@ -87,7 +87,7 @@ struct ViewerScreen: View {
                                 .font(.system(size: 14, weight: .bold))
                                 .foregroundStyle(.white)
                                 .frame(width: 34, height: 34)
-                                .background(.ultraThinMaterial, in: Circle())
+                                .chromeGlass(Circle(), fallbackMaterial: .ultraThinMaterial)
                                 .environment(\.colorScheme, .dark)
                         }
                         .buttonStyle(.plain)
@@ -111,7 +111,7 @@ struct ViewerScreen: View {
                             .font(.system(size: 17, weight: .bold))
                             .foregroundStyle(.white)
                             .frame(width: 34, height: 34)
-                            .background(.ultraThinMaterial, in: Circle())
+                            .chromeGlass(Circle(), fallbackMaterial: .ultraThinMaterial)
                             .environment(\.colorScheme, .dark)
                     }
                     .buttonStyle(.plain)
@@ -185,13 +185,13 @@ struct ViewerScreen: View {
                 Button("View anyway") {
                     Task { await model.reveal() }
                 }
-                .buttonStyle(.borderedProminent)
+                .glassButtonStyle(prominent: true)
                 .tint(.white)
                 .foregroundStyle(.black)
                 .accessibilityIdentifier("viewer.reveal")
 
                 Button("Report") { openReport() }
-                    .buttonStyle(.bordered)
+                    .glassButtonStyle()
                     .tint(.white)
                     .accessibilityIdentifier("viewer.concealedReport")
             }
@@ -249,7 +249,7 @@ struct WaitingViewerScreen: View {
                             .foregroundStyle(.white)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
-                            .background(.ultraThinMaterial, in: Capsule())
+                            .chromeGlass(Capsule(), interactive: false, fallbackMaterial: .ultraThinMaterial)
                             .environment(\.colorScheme, .dark)
                     }
                     Spacer()

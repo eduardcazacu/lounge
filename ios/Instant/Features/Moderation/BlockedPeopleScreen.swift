@@ -37,7 +37,7 @@ struct BlockedPeopleScreen: View {
                                     await environment.store.refreshHistory()
                                 }
                             }
-                            .buttonStyle(.bordered)
+                            .glassButtonStyle()
                             .tint(.white)
                             .accessibilityIdentifier("blocked.unblock.\(user.displayName)")
                         }

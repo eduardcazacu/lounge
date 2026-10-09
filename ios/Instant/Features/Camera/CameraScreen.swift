@@ -24,6 +24,9 @@ struct CameraScreen: View {
     @State private var holdTimer: Task<Void, Never>?
     /// The shutter was held long enough; lifting it ends the recording.
     @State private var isHolding = false
+    /// The white balance and exposure panel. View state: whether it is open
+    /// says nothing about the capture.
+    @State private var showsProControls = false
 
     var body: some View {
         ZStack {
@@ -58,7 +61,7 @@ struct CameraScreen: View {
         }
         .sensoryFeedback(.impact(weight: .light), trigger: shutterPresses)
         .task {
-            if model == nil { model = CameraModel(camera: environment.makeCamera()) }
+            if model == nil { model = CameraModel(camera: environment.makeCamera(), preferences: environment.preferences) }
             await model?.start()
         }
         // Deliberately no `.onDisappear { stop() }`: swiping to the inbox and
@@ -106,16 +109,19 @@ struct CameraScreen: View {
                     toolRail(model)
                         .opacity(model.isRecording ? 0 : 1)
                         .allowsHitTesting(!model.isRecording)
-                    if let recipient = environment.aimedAt, !model.isRecording {
-                        aimChip(recipient)
-                            .padding(.top, 12)
-                            .transition(.move(edge: .top).combined(with: .opacity))
-                    }
                     Spacer()
                     if model.isZooming, model.canZoom {
                         zoomIndicator(model)
                             .padding(.bottom, 18)
                             .transition(.opacity)
+                    }
+                    // Over the shutter rather than under the rail, so the pro
+                    // controls opening cannot push it about, and it is read on
+                    // the way to the button it is a warning about.
+                    if let recipient = environment.aimedAt, !model.isRecording {
+                        aimChip(recipient)
+                            .padding(.bottom, 14)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                     bottomBar(model)
                 }
@@ -201,7 +207,7 @@ struct CameraScreen: View {
         .padding(.leading, 14)
         .padding(.trailing, 6)
         .padding(.vertical, 6)
-        .background(Capsule().fill(Color.black.opacity(0.45)))
+        .chromeGlass(Capsule(), interactive: false, fallback: Color.black.opacity(0.45))
     }
 
     private func zoomIndicator(_ model: CameraModel) -> some View {
@@ -211,7 +217,7 @@ struct CameraScreen: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 14)
             .padding(.vertical, 7)
-            .background(Capsule().fill(Color.black.opacity(0.45)))
+            .chromeGlass(Capsule(), interactive: false, fallback: Color.black.opacity(0.45))
             .accessibilityIdentifier("camera.zoom")
     }
 
@@ -249,6 +255,7 @@ struct CameraScreen: View {
         HStack {
             Spacer()
 
+            GlassGroup {
             VStack(spacing: 12) {
                 CircleIconButton(
                     systemName: model.isFlashOn ? "bolt.fill" : "bolt.slash.fill",
@@ -264,7 +271,60 @@ struct CameraScreen: View {
                 .accessibilityIdentifier("camera.flip")
                 .accessibilityLabel("Flip camera")
                 .accessibilityValue(model.positionLabel)
+
+                proControlsButton(model)
+
+                if showsProControls {
+                    proControls(model)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
             }
+            }
+        }
+    }
+
+    /// Folded away by default: most photos want neither, and two more controls
+    /// always on the frame would be sitting on every one of them.
+    private func proControlsButton(_ model: CameraModel) -> some View {
+        CircleIconButton(systemName: "slider.horizontal.3", isOn: showsProControls) {
+            withAnimation(.easeOut(duration: 0.18)) { showsProControls.toggle() }
+        }
+        // Something is set that the camera does not start with. Folded away,
+        // a stop of compensation is otherwise only found in the photo.
+        .overlay(alignment: .topTrailing) {
+            if !showsProControls, model.hasProAdjustments {
+                Circle()
+                    .fill(InstantStyle.unread)
+                    .frame(width: 9, height: 9)
+                    .offset(x: 1, y: -1)
+                    .allowsHitTesting(false)
+            }
+        }
+        .accessibilityIdentifier("camera.pro")
+        .accessibilityLabel("Pro controls")
+        .accessibilityValue(showsProControls ? "Shown" : "Hidden")
+    }
+
+    /// Down the rail, under the button that opened them, rather than in a
+    /// panel across the frame: the rail is where the camera's tools live, and
+    /// a panel would sit on the picture being framed.
+    private func proControls(_ model: CameraModel) -> some View {
+        VStack(spacing: 12) {
+            CircleIconButton(
+                systemName: model.whiteBalance == .preset ? "sun.max.fill" : "a.circle.fill"
+            ) {
+                model.setWhiteBalance(model.whiteBalance == .preset ? .auto : .preset)
+            }
+            .accessibilityIdentifier("camera.whiteBalance")
+            .accessibilityLabel("White balance")
+            .accessibilityValue(model.whiteBalance == .preset ? "Preset" : "Auto")
+
+            ExposureSlider(
+                bias: model.exposureBias,
+                limit: CameraController.maximumExposureBias,
+                label: model.exposureLabel,
+                onChange: { model.setExposureBias($0) }
+            )
         }
     }
 
@@ -421,7 +481,7 @@ struct CameraScreen: View {
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: 48, height: 48)
-                    .background(Circle().fill(Color.black.opacity(0.35)))
+                    .chromeGlass(Circle())
 
                 if environment.store.unreadCount > 0 {
                     Text("\(environment.store.unreadCount)")
@@ -466,6 +526,90 @@ struct ShutterButton: View {
         }
         .scaleEffect(isRecording ? 1.18 : 1)
         .animation(.easeOut(duration: 0.18), value: isRecording)
+    }
+}
+
+/// Exposure compensation, upright, so it runs down the rail with the buttons
+/// above it. Up is brighter.
+///
+/// Drawn rather than a rotated `Slider`: a rotated view keeps its unrotated
+/// frame for layout, and the rail would be laid out around a 160-point-wide
+/// control that is 44 wide on screen.
+struct ExposureSlider: View {
+    let bias: Float
+    let limit: Float
+    let label: String
+    let onChange: (Float) -> Void
+
+    static let height: CGFloat = 160
+    private static let width: CGFloat = 44
+    private static let thumb: CGFloat = 38
+
+    /// Where the bias was when the drag began. The drag moves the value by how
+    /// far the finger travels rather than to where it lands, so touching the
+    /// track to drag does not first jump the exposure to the touch.
+    @State private var biasAtDragStart: Float?
+
+    /// How far the thumb's centre can travel either side of zero.
+    private var travel: CGFloat { Self.height / 2 - Self.thumb / 2 - 3 }
+
+    private var offset: CGFloat { -CGFloat(bias / limit) * travel }
+
+    var body: some View {
+        ZStack {
+            // Zero, so it can be found by eye as well as by double-tap.
+            Capsule()
+                .fill(Color.white.opacity(0.35))
+                .frame(width: 12, height: 2)
+            // From zero to the thumb: which way, and how far.
+            Rectangle()
+                .fill(Color.white.opacity(0.5))
+                .frame(width: 3, height: abs(offset))
+                .offset(y: offset / 2)
+            Text(label)
+                .font(.system(size: 10, weight: .bold, design: .rounded))
+                .monospacedDigit()
+                .minimumScaleFactor(0.7)
+                .foregroundStyle(.black)
+                .frame(width: Self.thumb, height: Self.thumb)
+                .background(Circle().fill(Color.white))
+                .offset(y: offset)
+        }
+        .frame(width: Self.width, height: Self.height)
+        // On the whole control rather than on a track layer inside it: glass
+        // is drawn under the content it wraps, and a sibling glass layer in
+        // the rail's container got the thumb melted into it.
+        .chromeGlass(Capsule(), interactive: false)
+        .contentShape(Capsule())
+        // A distance, so a tap is not a drag and the double-tap below can
+        // still be recognised.
+        .gesture(
+            DragGesture(minimumDistance: 2)
+                .onChanged { value in
+                    let start = biasAtDragStart ?? bias
+                    biasAtDragStart = start
+                    let moved = Float(-value.translation.height / travel) * limit
+                    onChange(start + moved)
+                }
+                .onEnded { _ in biasAtDragStart = nil }
+        )
+        // Back to zero: a slider in thirds is fiddly to land on it exactly.
+        // On the slider, so it is this and not the frame's flip that answers.
+        .onTapGesture(count: 2) { onChange(0) }
+        .sensoryFeedback(.selection, trigger: bias)
+        .animation(.easeOut(duration: 0.12), value: bias)
+        .accessibilityElement()
+        .accessibilityIdentifier("camera.exposure")
+        .accessibilityLabel("Exposure")
+        .accessibilityValue("\(label) EV")
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: onChange(bias + 1.0 / 3)
+            case .decrement: onChange(bias - 1.0 / 3)
+            @unknown default: break
+            }
+        }
+        .accessibilityAction(named: "Reset exposure") { onChange(0) }
     }
 }
 

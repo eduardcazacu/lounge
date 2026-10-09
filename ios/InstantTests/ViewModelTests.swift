@@ -627,6 +627,99 @@ struct CameraZoomTests {
 }
 
 @MainActor
+@Suite("Camera pro controls")
+struct CameraProControlsTests {
+    private func model(preferences: Preferences = .inMemory()) -> CameraModel {
+        CameraModel(
+            camera: StubCameraController(
+                frame: UIGraphicsImageRenderer(size: CGSize(width: 10, height: 10)).image { _ in }
+            ),
+            preferences: preferences
+        )
+    }
+
+    @Test("Starts on the preset, at no compensation")
+    func defaults() {
+        let model = model()
+        #expect(model.whiteBalance == .preset)
+        #expect(model.exposureBias == 0)
+        #expect(model.exposureLabel == "±0.0")
+        #expect(model.hasProAdjustments == false)
+    }
+
+    @Test("White balance reaches the device, publishes, and is remembered")
+    func whiteBalance() {
+        let preferences = Preferences.inMemory()
+        let model = model(preferences: preferences)
+        let probe = ObservationProbe()
+        withObservationTracking { _ = model.whiteBalance } onChange: { probe.markFired() }
+
+        model.setWhiteBalance(.auto)
+
+        #expect(probe.fired)
+        #expect(model.camera.whiteBalance == .auto)
+        #expect(preferences.cameraWhiteBalance == .auto)
+        #expect(model.hasProAdjustments)
+    }
+
+    /// Applied in `init`, before the session is built, so the first frame is
+    /// already at the remembered white balance rather than changing under it.
+    @Test("A remembered white balance is on the camera before it starts")
+    func rememberedWhiteBalance() {
+        let preferences = Preferences.inMemory()
+        preferences.cameraWhiteBalance = .auto
+        let model = model(preferences: preferences)
+        #expect(model.camera.whiteBalance == .auto)
+        #expect(model.whiteBalance == .auto)
+    }
+
+    @Test("Exposure snaps to thirds of a stop and publishes")
+    func exposureSnaps() {
+        let model = model()
+        let probe = ObservationProbe()
+        withObservationTracking { _ = model.exposureBias } onChange: { probe.markFired() }
+
+        model.setExposureBias(0.97)
+
+        #expect(probe.fired)
+        #expect(model.exposureBias == 1)
+        #expect(model.camera.exposureBias == 1)
+        #expect(model.exposureLabel == "+1.0")
+
+        model.setExposureBias(-1.4)
+        #expect(abs(model.exposureBias + 4.0 / 3) < 0.0001)
+        #expect(model.exposureLabel == "-1.3")
+        #expect(model.hasProAdjustments)
+    }
+
+    @Test("Exposure stops at three either way, and ignores nonsense")
+    func exposureClamps() {
+        let model = model()
+        model.setExposureBias(8)
+        #expect(model.exposureBias == 3)
+        model.setExposureBias(-8)
+        #expect(model.exposureBias == -3)
+        model.setExposureBias(.nan)
+        #expect(model.exposureBias == -3, "a NaN changes nothing")
+        model.setExposureBias(0)
+        #expect(model.exposureLabel == "±0.0")
+        #expect(model.hasProAdjustments == false)
+    }
+
+    /// Unlike zoom, which resets: a stop brighter means the same on either
+    /// camera.
+    @Test("A flip keeps both")
+    func flipKeepsThem() async {
+        let model = model()
+        model.setWhiteBalance(.auto)
+        model.setExposureBias(1)
+        await model.flip()
+        #expect(model.whiteBalance == .auto)
+        #expect(model.exposureBias == 1)
+    }
+}
+
+@MainActor
 @Suite("Saving a copy to Photos")
 struct ComposeSaveTests {
     private func photo(width: CGFloat = 60, height: CGFloat = 40) -> UIImage {

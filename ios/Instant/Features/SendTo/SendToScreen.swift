@@ -166,7 +166,7 @@ struct SendToScreen: View {
             .foregroundStyle(.black)
             .frame(maxWidth: .infinity)
             .frame(height: 52)
-            .background(Capsule().fill(Color.white))
+            .chromeGlass(Capsule(), isOn: true)
             // `.plain` buttons do not dim themselves when disabled, and a
             // full-width white capsule that looks live but is not is worse
             // here than anywhere.

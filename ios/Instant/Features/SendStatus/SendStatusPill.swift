@@ -66,6 +66,8 @@ struct SendStatusPill: View {
                     .font(.system(size: 13, weight: .bold))
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
+                    // A fill, not glass: it sits on the pill's own glass, and
+                    // glass cannot sample glass.
                     .background(Capsule().fill(Color.white.opacity(0.22)))
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("sendStatus.retry")
@@ -84,7 +86,7 @@ struct SendStatusPill: View {
             .padding(.leading, 12)
             .padding(.trailing, 6)
             .padding(.vertical, 7)
-            .background(Capsule().fill(InstantStyle.unread.opacity(0.92)))
+            .chromeGlass(Capsule(), tint: InstantStyle.unread.opacity(0.92), interactive: false)
         }
     }
 
@@ -108,7 +110,7 @@ struct SendStatusPill: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
-            .background(Capsule().fill(Color.black.opacity(0.55)))
+            .chromeGlass(Capsule(), interactive: false, fallback: Color.black.opacity(0.55))
     }
 }
 #endif

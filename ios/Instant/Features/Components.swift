@@ -158,11 +158,70 @@ struct CircleIconButton: View {
                 .font(.system(size: diameter * 0.42, weight: .semibold))
                 .foregroundStyle(isOn ? .black : .white)
                 .frame(width: diameter, height: diameter)
-                .background(
-                    Circle().fill(isOn ? Color.white : Color.black.opacity(0.35))
-                )
+                .chromeGlass(Circle(), isOn: isOn)
         }
         .buttonStyle(.plain)
+    }
+}
+
+extension View {
+    /// Liquid Glass for the controls that float over a photo, and the
+    /// translucent fill they had before on systems without it.
+    ///
+    /// One modifier rather than an availability check at every button: the
+    /// deployment target is iOS 18, so every piece of chrome needs both looks,
+    /// and the two must not drift. `isOn` is the white of a control that is
+    /// switched on — tinted glass where there is glass, a solid fill where
+    /// there is not — and is what the black glyph on top of it assumes.
+    /// Interactive because almost everything wearing it is pressed; a label
+    /// that is not passes `interactive: false` so it does not answer a touch
+    /// it ignores.
+    @ViewBuilder
+    func chromeGlass<S: Shape>(
+        _ shape: S,
+        isOn: Bool = false,
+        tint: Color? = nil,
+        interactive: Bool = true,
+        fallback: Color = Color.black.opacity(0.35),
+        fallbackMaterial: Material? = nil
+    ) -> some View {
+        if #available(iOS 26.0, *) {
+            glassEffect(
+                .regular.tint(isOn ? .white : tint).interactive(interactive),
+                in: shape
+            )
+        } else if !isOn, tint == nil, let fallbackMaterial {
+            background(fallbackMaterial, in: shape)
+        } else {
+            background(shape.fill(isOn ? .white : (tint ?? fallback)))
+        }
+    }
+
+    /// The system's glass button styles, and the bordered ones they replace
+    /// where there is no glass.
+    @ViewBuilder
+    func glassButtonStyle(prominent: Bool = false) -> some View {
+        if #available(iOS 26.0, *) {
+            if prominent { buttonStyle(.glassProminent) } else { buttonStyle(.glass) }
+        } else {
+            if prominent { buttonStyle(.borderedProminent) } else { buttonStyle(.bordered) }
+        }
+    }
+}
+
+/// Lets neighbouring glass shapes blend into one another as they come and go
+/// — the rail's pro controls dropping out of the button above them — instead of
+/// each being a separate pane. Nothing on systems without glass.
+struct GlassGroup<Content: View>: View {
+    var spacing: CGFloat = 12
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        if #available(iOS 26.0, *) {
+            GlassEffectContainer(spacing: spacing) { content }
+        } else {
+            content
+        }
     }
 }
 #endif

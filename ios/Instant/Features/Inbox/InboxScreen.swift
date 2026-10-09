@@ -152,7 +152,7 @@ struct InboxScreen: View {
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: AccountButton.size, height: AccountButton.size)
-                    .background(Circle().fill(InstantStyle.surfaceRaised))
+                    .chromeGlass(Circle(), fallback: InstantStyle.surfaceRaised)
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("inbox.camera")

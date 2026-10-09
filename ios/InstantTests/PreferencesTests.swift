@@ -24,6 +24,7 @@ struct PreferencesTests {
         #expect(preferences.sendsSound)
         #expect(preferences.viewerMuted)
         #expect(preferences.ink == .white)
+        #expect(preferences.cameraWhiteBalance == .preset)
     }
 
     @Test("Survives a relaunch, which is a new object over the same defaults")
@@ -35,6 +36,7 @@ struct PreferencesTests {
         first.sendsSound = false
         first.viewerMuted = false
         first.ink = .pink
+        first.cameraWhiteBalance = .auto
 
         let second = Preferences(defaults: defaults)
         #expect(second.photoDuration == .infinite)
@@ -42,6 +44,7 @@ struct PreferencesTests {
         #expect(!second.sendsSound)
         #expect(!second.viewerMuted)
         #expect(second.ink == .pink)
+        #expect(second.cameraWhiteBalance == .auto)
     }
 
     @Test("A duration from the other family is refused, and so is one this build does not know")

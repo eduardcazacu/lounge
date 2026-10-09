@@ -47,6 +47,19 @@ concrete on purpose — the seams that get stubbed are one level down
 library when `AVCaptureDevice` finds nothing, which is the same path a device
 takes when camera permission is refused.
 
+## Chrome
+
+Everything that floats over a photo or the camera wears Liquid Glass on iOS 26
+and later, through one modifier (`View.chromeGlass` in
+`Features/Components.swift`), and the translucent black fills or materials it
+replaced on iOS 18 to 25. One modifier rather than an availability check per
+button, because the deployment target is iOS 18 and the two looks have to stay
+in step. A control that is switched on is white-tinted glass with a black glyph.
+Content stays out of it: the caption plates and the drawing are baked into
+the pixels that get sent, and glass on them would be a look the recipient never
+sees. So does a button that sits on another piece of glass (the send pill's
+Retry), since glass cannot sample glass.
+
 ## The camera
 
 Pinch-to-zoom drives `AVCaptureDevice.videoZoomFactor`, which belongs to the
@@ -70,6 +83,30 @@ down the right-hand side in the same rail the compose screen puts its tools in �
 the two screens are one surface with different tools on it. The gesture is on
 the frame rather than on the preview, so it still answers on a device with no
 camera attached.
+
+### Pro controls
+
+White balance and exposure compensation sit behind a third rail button, folded
+away because most photos want neither, and open down the rail beneath it
+(`CameraScreen.proControls`): a round button that toggles white balance, and an
+upright slider for exposure (`ExposureSlider`) that a double-tap returns to
+zero. The slider is drawn rather than a rotated `Slider`, because a rotated view
+is laid out at its unrotated width. The slider's double-tap is its own, so it
+does not reach the frame's double-tap-to-flip. White balance
+is the film preset or auto — see [decisions.md](decisions.md) for why the preset
+is the default. Exposure is ±3 EV in thirds of a stop: every iPhone camera takes
+far more, but past three stops the picture is noise or clipped white.
+
+Auto-or-preset is remembered (`Preferences.cameraWhiteBalance`); exposure is
+not, because a compensation answers one scene's light and carried into the next
+is just a wrong exposure. Both survive a flip, unlike the zoom. A dot on the
+folded button says something is set, since a forgotten stop of compensation is
+otherwise found only in the photo.
+
+Both are device settings applied on the main actor rather than the session
+queue, like zoom: neither rebuilds the session's pipeline, so neither flickers.
+A bias outside the device's own range raises an Objective-C exception, not an
+error, so `CameraController.applyExposureBias` clamps to it as well.
 
 ### The shutter
 
@@ -161,8 +198,8 @@ is a measurement, and a table says it in one step with no intermediate stage
 to go wrong in the wrong colour space. What the look *is* is nobody's
 business but whoever chose the table: the tests check that it ships and that
 it is applied, not what it does to a grey. The camera feeds it at a locked
-white balance rather than auto (see [decisions.md](decisions.md)), so the table
-always starts from the same neutral. It is drawn
+white balance rather than auto unless the person has chosen auto (see
+[decisions.md](decisions.md)), so the table starts from the same neutral. It is drawn
 when the compose screen appears rather than in `ComposeModel.init`, which runs
 inside the black the shutter holds up. They are chosen on the compose screen, **after**
 the shot, and that is a property of the preview rather than a preference:
