@@ -984,6 +984,27 @@ cannot tell.
 
 ---
 
+## Finishing a book is a reading day
+
+**Chosen** the pages Finish logs for a book in progress count as read on the
+finish day, for streaks and best days as well as pages (`source` `"finish"`,
+`POST /runs/:id/finish`).
+
+**Rejected** marking that log `closing`, as a backfill's is.
+
+**Because** a reader taps Finish right after reading the last pages, often
+without logging them first, and a closing log silently dropped the day: the
+streak was gone the next morning.
+
+**Cost paid** a book in progress that was really finished weeks ago and only
+marked now credits all its unlogged pages to today. The finish date can be
+corrected, and the log moves with it.
+
+**Would reopen if** Finish asked how many of the remaining pages were read
+today.
+
+---
+
 ## Book-club notes are gated by fraction, not page
 
 **Chosen** each run's own `totalUnits`, and reach as a fraction

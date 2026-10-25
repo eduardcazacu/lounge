@@ -106,6 +106,13 @@ export function partitionClubNotes<T extends ClubNote>(
   return { visible, aheadCount };
 }
 
+/**
+ * `ProgressLog.source` of the log Finish writes for the pages never logged.
+ * It is a reading day, but it follows a corrected finish date as a backfill's
+ * closing log does.
+ */
+export const FINISH_SOURCE = "finish";
+
 export function addDays(day: string, delta: number): string {
   const date = new Date(`${day}T00:00:00Z`);
   date.setUTCDate(date.getUTCDate() + delta);

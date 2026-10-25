@@ -489,11 +489,12 @@ model ProgressLog {
   toPosition   Int      @map("to_position")
   // A book-club message, shown to others only once they have read this far.
   note         String?
-  // The log a finished run closes with: the pages nobody logged, or a whole
-  // backfilled book, put on the finish day. It counts as pages read but not as
-  // a reading day, or one remembered book would be the year's best day.
+  // The log a backfilled read closes with: a whole remembered book, or as far
+  // as a DNF got, put on the finish day. It counts as pages read but not as a
+  // reading day, or one remembered book would be the year's best day.
   closing      Boolean  @default(false)
-  // "koreader" for a log a KOReader sync wrote; null for one the reader did.
+  // "koreader" for a log a KOReader sync wrote; "finish" for the pages Finish
+  // logged for the reader; null for one the reader did.
   // A sync extends the day's own "koreader" log rather than adding one per
   // page turn (src/reader-sync.ts).
   source       String?

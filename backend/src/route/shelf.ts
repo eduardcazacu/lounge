@@ -50,6 +50,7 @@ import {
   currentStreak,
   dateFromDay,
   dayOf,
+  FINISH_SOURCE,
   fractionOf,
   partitionClubNotes,
   readerReach,
@@ -1617,10 +1618,12 @@ shelfRouter.post("/runs/:id/finish", async (c) => {
 
   const totalUnits = run.totalUnits ?? run.entry.item.totalUnits;
   const finishing = parsed.data.status === "finished";
-  // Finishing writes the closing log: whatever was not logged page by page is
-  // read on the day it was finished. Without it a book read in one sitting and
-  // never logged would count as a book but not as pages. A DNF stops where it
-  // stopped.
+  // Finishing logs whatever was not logged page by page, on the day it was
+  // finished. Without it a book read in one sitting and never logged would
+  // count as a book but not as pages. Unlike a backfill's closing log this is a
+  // reading day: the reader tapped Finish because they just read those pages,
+  // and leaving the day out broke their streak. It is tagged so a corrected
+  // finish date moves it (`PUT /runs/:id`). A DNF stops where it stopped.
   const closingFrom = run.position;
   const closes = finishing && totalUnits !== null && closingFrom < totalUnits;
 
@@ -1633,7 +1636,7 @@ shelfRouter.post("/runs/:id/finish", async (c) => {
           loggedOn: dateFromDay(parsed.data.finishedOn),
           fromPosition: closingFrom,
           toPosition: totalUnits!,
-          closing: true,
+          source: FINISH_SOURCE,
         },
       });
     }
@@ -1680,8 +1683,9 @@ shelfRouter.put("/runs/:id", async (c) => {
     // logged pages: the closing log would land ahead of real reading.
     const startedOn = parsed.data.startedOn !== undefined ? parsed.data.startedOn : run.startedOn ? dayOf(run.startedOn) : null;
     if (startedOn && parsed.data.finishedOn < startedOn) return badRequest(c, "That's before you started it.");
+    // The log Finish wrote moves with the date, so it is not a limit on it.
     const lastRead = await prisma.progressLog.findFirst({
-      where: { runId, closing: false },
+      where: { runId, closing: false, OR: [{ source: null }, { source: { not: FINISH_SOURCE } }] },
       orderBy: { loggedOn: "desc" },
       select: { loggedOn: true },
     });
@@ -1704,13 +1708,14 @@ shelfRouter.put("/runs/:id", async (c) => {
       const closing = await tx.progressLog.findFirst({
         where: { runId },
         orderBy: { id: "desc" },
-        select: { id: true, loggedOn: true, closing: true },
+        select: { id: true, loggedOn: true, closing: true, source: true },
       });
       const closingData: Prisma.ProgressLogUpdateInput = {};
       if (closing && parsed.data.totalUnits !== undefined) closingData.toPosition = parsed.data.totalUnits;
-      // Only a closing log follows the date. A read logged to the last page has
-      // none, and its last log is a real reading day that must stay put.
-      if (closing?.closing && parsed.data.finishedOn !== undefined) {
+      // Only a closing log, or the one Finish wrote, follows the date. A read
+      // logged to the last page has neither, and its last log is a reading day
+      // the reader chose that must stay put.
+      if ((closing?.closing || closing?.source === FINISH_SOURCE) && parsed.data.finishedOn !== undefined) {
         closingData.loggedOn = dateFromDay(parsed.data.finishedOn);
       }
       if (closing && Object.keys(closingData).length > 0) {

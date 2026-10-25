@@ -33,19 +33,20 @@ the book club shows.
 
 ## Rules the schema cannot state
 
-**A finished run always ends with a closing log.** Finishing writes a log for
-whatever pages were never logged, dated on the finish day. A book backfilled as
-"read in 2023" gets one such log covering the whole book; a DNF backfilled from
-the library gets one up to the page it was put down at, if the reader gives
-one. Without it, a book
-would count toward books finished but not toward pages, and the two numbers
-would disagree. The log is marked `closing`. That way its pages count, but its
-day is never a reading day, a best day or part of a streak: a remembered book
-was not read on 31 December. `PUT /runs/:id` moves the closing log when a
-finished run's length or date is corrected; a book's page offers the date as
-"Change date" on each past read. Only a log marked `closing` moves. A read
-logged to its last page has none, and its last log is a real reading day. A
-finish date cannot go before the run's start or its last real log.
+**A finished run's pages are always logged.** Without that, a book would count
+toward books finished but not toward pages, and the two numbers would disagree.
+A book backfilled as "read in 2023" gets one log covering the whole book; a DNF
+backfilled from the library gets one up to the page it was put down at, if the
+reader gives one. Those are marked `closing`: their pages count, but their day
+is never a reading day, a best day or part of a streak, because a remembered
+book was not read on 31 December. Tapping Finish on a book in progress logs the
+pages never logged on the finish day too, but as a reading day with `source`
+`"finish"`: the reader has just read them, and leaving the day out broke their
+streak. `PUT /runs/:id` moves that log, or the closing one, when a finished
+run's length or date is corrected; a book's page offers the date as "Change
+date" on each past read. A read logged to its last page has neither, and its
+last log is a day the reader chose, which stays put. A finish date cannot go
+before the run's start or its last log other than those two.
 
 **Book-club gating is by fraction, never by page.** Each run keeps the length
 of its own edition (`ShelfRun.totalUnits`). Page 200 is the ending of a
