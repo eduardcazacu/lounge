@@ -1028,7 +1028,7 @@ by `vercel.json`, with `scope: "/"`.
 
 **Because** browsers take the manifest from the page as first loaded, and "Add
 to Home Screen" does not reliably see a later change. A `/books` scope would
-open "Back to the Lounge" in the browser's out-of-scope bar.
+open the bottom bar's Lounge and Instant in the browser's out-of-scope bar.
 
 **Would reopen if** the build ever stopped being one bundle for both pages.
 
@@ -1415,3 +1415,26 @@ rewrite table in `vercel.json` now has a second copy in the worker.
 
 **Would reopen if** a deploy had to reach everyone at once — a breaking API
 change would want the prompt.
+
+---
+
+## One bottom bar for the whole Lounge
+
+**Chosen** one bar — Lounge, Books, Instant, new post — in
+`frontend/src/components/LoungeNav.tsx`, mounted by each surface, with each
+app's own sections moved to the top of its screens.
+
+**Rejected** the blog's app-bar icons, Books' own bottom tabs with "Back to the
+Lounge" in its avatar sheet, and Instant with no way out but the address bar.
+Also rejected: mounting the bar once in `App.tsx` and hiding it through a
+context, since only Books and Instant know when a screen needs the whole height.
+
+**Because** each part got around differently, and leaving Instant or Books meant
+finding a different door each time. One edge that always means the same thing
+is what makes three apps read as one place.
+
+**Cost paid** Instant's 16:9 frame is centred in the window less the bar, so a
+laptop's phone-shaped card is a little shorter, and the space stays reserved
+while composing.
+
+**Would reopen if** a fourth app arrived and the bar ran out of room.

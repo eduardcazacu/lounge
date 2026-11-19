@@ -13,6 +13,7 @@ import { INSTANT_COLORS, VIEWPORT_INSET, viewportStyle } from "./style";
 import { useOutbox, type InstantRecipient } from "./useOutbox";
 import { useDarkChrome } from "./useDarkChrome";
 import { useSignedInProfile } from "./useSignedInProfile";
+import { LoungeNav, LOUNGE_NAV_SPACE } from "../LoungeNav";
 
 // Snapchat's spine, ported from `ios/Instant/App/RootView.swift`: the camera is
 // the app, and conversations are one swipe away to the *left* of it — which is
@@ -129,10 +130,14 @@ export function InstantApp({ authExpiredRedirect }: { authExpiredRedirect: () =>
   return (
     <div
       className="fixed inset-0 overflow-hidden"
-      style={{ background: INSTANT_COLORS.background }}
+      style={{ background: INSTANT_COLORS.background, ["--lounge-nav-space" as string]: LOUNGE_NAV_SPACE }}
       onPointerDown={onPointerDown}
       onPointerUp={onPointerUp}
     >
+      {/* Everything but the Lounge's bar lives above it, so the viewport is
+          centred in what is left rather than drawn under the bar. See
+          `STAGE_HEIGHT` in style.ts for why the space stays while composing. */}
+      <div className="absolute inset-x-0 top-0" style={{ bottom: "var(--lounge-nav-space)" }}>
       <div
         className="flex h-full w-[200%] transition-transform duration-300 ease-out"
         style={{ transform: showsInbox ? "translateX(0)" : "translateX(-50%)" }}
@@ -210,6 +215,7 @@ export function InstantApp({ authExpiredRedirect }: { authExpiredRedirect: () =>
         </div>
       )}
 
+
       {/* The honest disclosure: the key is local, non-extractable and
           unrecoverable, and this client is itself the weak link because it is
           re-downloaded on every visit. It sits over the camera until the device
@@ -223,6 +229,9 @@ export function InstantApp({ authExpiredRedirect }: { authExpiredRedirect: () =>
           />
         </div>
       )}
+      </div>
+
+      {!isComposing && !showsAccount && !viewing ? <LoungeNav variant="dark" /> : null}
 
       {showsAccount && (
         <AccountSheet

@@ -463,8 +463,8 @@ read the manifest link from the page as it first loads, so swapping the link
 from script lost: "Add to Home Screen" does not reliably see a change made
 after load. The rewrites in `vercel.json` send `/books/*` there.
 
-The manifest's `scope` is `/`, not `/books`, so "Back to the Lounge" stays
-inside the installed app instead of opening the browser's out-of-scope bar. Its
+The manifest's `scope` is `/`, not `/books`, so the bottom bar's Lounge and
+Instant stay inside the installed app instead of opening the browser's out-of-scope bar. Its
 distinct `id` and `start_url` are what make it a second installable app.
 Signing in honours `?next=`, which keeps a sign-in from the installed app inside
 it. `safeNextPath` in `frontend/src/components/Auth.tsx` accepts only same-site

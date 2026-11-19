@@ -8,7 +8,7 @@ import { LogSheet } from "./LogSheet";
 import { CopyPagesSheet } from "./CopyPagesSheet";
 import { ReaderLinkSheet } from "./ReaderLinkSheet";
 import { dismissNotificationsCard, isNotificationsCardDismissed, usePushState } from "./notifications";
-import { Card, Cover, EmptyNote, ProgressBar, SectionTitle, Spinner } from "./ui";
+import { BooksSections, Card, Cover, EmptyNote, ProgressBar, SectionTitle, Spinner } from "./ui";
 import { agoText, byline, percentText, usePalette } from "./format";
 
 // Home: what is being read, how far, and a button to log more — then what the
@@ -299,20 +299,8 @@ export function HomeScreen() {
     <>
       <header className="sticky top-0 z-30 backdrop-blur" style={{ paddingTop: "env(safe-area-inset-top)", background: `${palette.softBg}e6` }}>
         <div className="mx-auto flex h-16 max-w-xl items-center gap-3 px-4">
+          <BooksSections />
           <AccountButton />
-          <h1 className="flex-1 text-xl font-bold tracking-tight" style={{ color: palette.text }}>
-            Books
-          </h1>
-          <Link
-            to="/books/add"
-            aria-label="Add a book"
-            className="flex h-10 w-10 items-center justify-center rounded-full text-white shadow-sm"
-            style={{ background: palette.accent }}
-          >
-            <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
-              <path d="M12 5v14M5 12h14" />
-            </svg>
-          </Link>
         </div>
       </header>
 

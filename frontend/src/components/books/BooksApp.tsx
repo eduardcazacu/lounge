@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { Link, NavLink, Route, Routes, useLocation } from "react-router-dom";
+import { Link, Route, Routes, useLocation } from "react-router-dom";
 import { Avatar } from "../Avatar";
+import { LoungeNav, LOUNGE_NAV_SPACE } from "../LoungeNav";
 import { getCachedProfile } from "../../lib/auth";
 import { Sheet } from "./ui";
 import { usePushState } from "./notifications";
@@ -58,60 +59,46 @@ function useLightChrome(background: string) {
   }, [background]);
 }
 
-const TABS = [
-  {
-    to: "/books",
-    label: "Reading",
-    end: true,
-    icon: <path d="M2 5.5C4.5 4 8 4 12 6c4-2 7.5-2 10-.5V19c-2.5-1.5-6-1.5-10 .5-4-2-7.5-2-10-.5zM12 6v13.5" />,
-  },
-  {
-    to: "/books/feed",
-    label: "Feed",
-    end: false,
-    icon: <path d="M21 11.5a8.4 8.4 0 0 1-9 8.5 8.6 8.6 0 0 1-3.8-.9L3 21l1.9-5.2A8.4 8.4 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3h.5a8.5 8.5 0 0 1 8 8z" />,
-  },
-  {
-    to: "/books/library",
-    label: "Library",
-    end: false,
-    icon: <path d="M4 4h4v16H4zM10 4h4v16h-4zM16.5 4.5l3.8-1 3.2 15.5-3.8 1z" />,
-  },
-];
-
-/** Screens that take the whole height for their own controls hide the tabs. */
-function showsTabs(pathname: string) {
+/** Screens that take the whole height for their own controls hide the Lounge's bar. */
+function showsNav(pathname: string) {
   return !/^\/books\/(add|finish\/|import)/.test(pathname);
 }
 
-function BottomTabs({ accent }: { accent: string }) {
+/** Reading, Feed and Library: the screens a book is logged from. */
+function showsLogBook(pathname: string) {
+  return /^\/books(\/(feed|library))?\/?$/.test(pathname);
+}
+
+/** What the floating button leaves clear under the last card, over the bar's own space. */
+const LOG_BOOK_SPACE = `calc(${LOUNGE_NAV_SPACE} + 4.5rem)`;
+
+/**
+ * Logging a book is the one thing every section is for, so it floats over all
+ * three rather than living in one of their headers. Right-aligned to the
+ * column, so it sits over the bar's Post: the two "add" actions stack in one
+ * corner and read as Books' and the Lounge's, not as two of the same.
+ */
+function LogBookButton() {
+  const palette = usePalette();
   return (
-    <nav
-      className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200/70 bg-white/90 backdrop-blur"
-      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
-    >
-      <div className="mx-auto grid h-14 max-w-xl grid-cols-3">
-        {TABS.map((tab) => (
-          <NavLink
-            key={tab.to}
-            to={tab.to}
-            end={tab.end}
-            replace
-            className="flex flex-col items-center justify-center gap-0.5 text-[11px] font-medium"
-            style={({ isActive }) => ({ color: isActive ? accent : "#64748b" })}
-          >
-            <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round">
-              {tab.icon}
-            </svg>
-            {tab.label}
-          </NavLink>
-        ))}
+    <div className="pointer-events-none fixed inset-x-0 z-30" style={{ bottom: `calc(${LOUNGE_NAV_SPACE} + 1rem)` }}>
+      <div className="mx-auto flex max-w-xl justify-end px-4">
+        <Link
+          to="/books/add"
+          className="pointer-events-auto flex h-12 items-center gap-2 rounded-full pl-4 pr-5 text-[15px] font-semibold text-white shadow-lg"
+          style={{ background: palette.accent }}
+        >
+          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+          Log book
+        </Link>
       </div>
-    </nav>
+    </div>
   );
 }
 
-/** What the avatar opens: the way back to the Lounge, and the account. */
+/** What the avatar opens: the account, and the corners of Books with no section of their own. */
 export function AccountButton() {
   const [open, setOpen] = useState(false);
   const [profile, setProfile] = useState(getCachedProfile);
@@ -127,13 +114,12 @@ export function AccountButton() {
 
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} aria-label="Account and the Lounge" className="shrink-0 rounded-full">
+      <button type="button" onClick={() => setOpen(true)} aria-label="Account and more" className="shrink-0 rounded-full">
         <Avatar size="big" name={profile.name || "?"} themeKey={profile.themeKey} imageUrl={profile.profilePictureUrl} />
       </button>
       {open ? (
         <Sheet title={profile.name || "You"} onClose={() => setOpen(false)}>
           <nav className="flex flex-col pb-2">
-            <SheetLink to="/blogs" label="Back to the Lounge" />
             <SheetLink to="/books/add?intent=finished" label="Add a book you've already read" onClick={() => setOpen(false)} />
             <SheetLink to="/books/stats" label="Your reading stats" onClick={() => setOpen(false)} />
             <SheetLink to="/books/import" label="Import from Goodreads" onClick={() => setOpen(false)} />
@@ -187,11 +173,12 @@ export function BooksApp() {
   const palette = usePalette();
   const location = useLocation();
   useLightChrome(palette.softBg);
-  const tabs = showsTabs(location.pathname);
+  const nav = showsNav(location.pathname);
+  const logBook = showsLogBook(location.pathname);
 
   return (
     <div className="min-h-dvh text-slate-900" style={{ background: palette.softBg }}>
-      <div style={{ paddingBottom: tabs ? "calc(4.5rem + env(safe-area-inset-bottom))" : undefined }}>
+      <div style={{ paddingBottom: logBook ? LOG_BOOK_SPACE : nav ? LOUNGE_NAV_SPACE : undefined }}>
         <Routes>
           <Route index element={<HomeScreen />} />
           <Route path="add" element={<AddScreen />} />
@@ -210,7 +197,8 @@ export function BooksApp() {
           <Route path="*" element={<HomeScreen />} />
         </Routes>
       </div>
-      {tabs ? <BottomTabs accent={palette.accent} /> : null}
+      {logBook ? <LogBookButton /> : null}
+      {nav ? <LoungeNav /> : null}
     </div>
   );
 }

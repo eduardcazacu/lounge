@@ -29,6 +29,15 @@ export const VIEWPORT_RADIUS = 22;
 /// radius, and clear of the photo's own edge.
 export const VIEWPORT_INSET = 16;
 
+/// The height everything is laid out in: the window, less the Lounge's bottom
+/// bar, which `InstantApp` declares as `--lounge-nav-space`. It is declared
+/// even while the bar is hidden for composing, because the camera and the
+/// compose preview must stay the same rectangle, and a bar that gave its space
+/// back would move the photo the moment the shutter was pressed. On most
+/// phones the bar fits in the black band below a 16:9 frame anyway, and the
+/// photo is no smaller for it.
+const STAGE_HEIGHT = "(100dvh - var(--lounge-nav-space, 0px))";
+
 /// Where the viewport lands: as wide as the window until 16:9 would run off the
 /// bottom, then as tall as the window, centred either way.
 ///
@@ -39,8 +48,8 @@ export const VIEWPORT_INSET = 16;
 /// slides in and out, and a viewport measured against the taller of the two
 /// puts the shutter under the address bar.
 export const viewportSizing = {
-  width: `min(100vw, calc(100dvh * 9 / 16))`,
-  height: `min(100dvh, calc(100vw * 16 / 9))`,
+  width: `min(100vw, calc(${STAGE_HEIGHT} * 9 / 16))`,
+  height: `min(${STAGE_HEIGHT}, calc(100vw * 16 / 9))`,
   /// The black band above the viewport, which is everything left over when the
   /// window is taller than 16:9 — a phone, usually — and zero when it is not.
   ///
@@ -48,7 +57,7 @@ export const viewportSizing = {
   /// needs this, or it lands on a different line from the controls inside the
   /// frame. That is the whole of what keeps the inbox's header level with the
   /// account button pinned over it.
-  topBand: `max(0px, (100dvh - min(100dvh, 100vw * 16 / 9)) / 2)`,
+  topBand: `max(0px, (${STAGE_HEIGHT} - min(${STAGE_HEIGHT}, 100vw * 16 / 9)) / 2)`,
 } as const;
 
 /// Where the viewport's top line is, plus the inset the controls sit at — the

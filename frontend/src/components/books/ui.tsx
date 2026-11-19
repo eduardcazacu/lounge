@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { useNavigate } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import { Avatar } from "../Avatar";
 import { getThemePalette } from "../../themes";
 import { getTransformedImageUrl } from "../../lib/content";
 import type { Item, Person } from "./api";
 import { byline, usePalette } from "./format";
+import { AccountButton } from "./BooksApp";
 
 // The pieces every /books screen is built from. The look is the Lounge's own —
 // white cards on the reader's palette, the accent on whatever is pressable —
@@ -187,9 +188,10 @@ export function ProgressBar({ fraction, color }: { fraction: number | null; colo
 /**
  * The bar across the top of every screen but home. Back goes back when there
  * is somewhere in /books to go back to, and home otherwise — a screen opened
- * from a notification or the Lounge has no history here.
+ * from a notification or the Lounge has no history here. The avatar closes
+ * every one of them, in the corner the Lounge's own app bar keeps it in.
  */
-export function TopBar({ title, right, back = true }: { title: ReactNode; right?: ReactNode; back?: boolean }) {
+export function TopBar({ title, right, back = true, sections = false }: { title: ReactNode; right?: ReactNode; back?: boolean; sections?: boolean }) {
   const navigate = useNavigate();
   const goBack = () => {
     const state = window.history.state as { idx?: number } | null;
@@ -214,10 +216,49 @@ export function TopBar({ title, right, back = true }: { title: ReactNode; right?
             </svg>
           </button>
         ) : null}
-        <h1 className="min-w-0 flex-1 truncate text-[17px] font-semibold text-slate-900">{title}</h1>
+        {/* A section switcher is navigation, not a heading. */}
+        {sections ? title : <h1 className="min-w-0 flex-1 truncate text-[17px] font-semibold text-slate-900">{title}</h1>}
         {right}
+        <AccountButton />
       </div>
     </header>
+  );
+}
+
+const SECTIONS = [
+  { to: "/books", label: "Reading", end: true },
+  { to: "/books/feed", label: "Feed", end: false },
+  { to: "/books/library", label: "Library", end: false },
+];
+
+/**
+ * Books' three sections, standing in for the title on each of their headers.
+ * They were bottom tabs until the Lounge's bar took the bottom edge for the
+ * whole app; up here they take no row of their own, and the Library's and the
+ * Feed's own pills stay the only pills on the screen. `replace`, so moving
+ * between them is not history, and `scrollKey` in `App.tsx` brings each back
+ * where it was left.
+ */
+export function BooksSections() {
+  const palette = usePalette();
+  return (
+    <nav className="flex min-w-0 flex-1 items-center gap-4" aria-label="Books">
+      {SECTIONS.map((section) => (
+        <NavLink
+          key={section.to}
+          to={section.to}
+          end={section.end}
+          replace
+          className="border-b-2 py-1 text-[17px] font-semibold"
+          style={({ isActive }) => ({
+            color: isActive ? palette.text : "#94a3b8",
+            borderColor: isActive ? palette.accent : "transparent",
+          })}
+        >
+          {section.label}
+        </NavLink>
+      ))}
+    </nav>
   );
 }
 

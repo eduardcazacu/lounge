@@ -14,6 +14,22 @@ URL to get wrong.
 `frontend/src/pages/`, wired flat in `frontend/src/App.tsx`. `RootRedirect` tries
 `refreshAccessToken()` and sends you to `/blogs` or `/signin`.
 
+**One bottom bar gets around the whole Lounge**: the feed, Books, Instant and a
+new post, in `frontend/src/components/LoungeNav.tsx`. Each surface mounts it
+itself — `LoungeChrome` in `App.tsx` for the blog's pages, `BooksApp` and
+`InstantApp` for theirs — because only the surface knows which of its screens
+need the whole height: the editor, Books' add, finish and import flows,
+Instant's composer. Pages clear it by `LOUNGE_NAV_SPACE`. An app's own sections
+go at the top (Books' Reading, Feed and Library are its title), so the bottom
+edge means one thing everywhere. Instant's viewport is centred in the window
+less the bar (`STAGE_HEIGHT` in `components/instant/style.ts`), and keeps that
+space while the bar is hidden, so the frame does not move when the shutter is
+pressed. The avatar sits top right on the blog's and Books' headers (Books'
+`TopBar` draws it on every screen). Instant keeps its avatar top left, as the iOS
+app does, because that corner of the camera holds flash and flip. Books' sections
+float a "Log book" button over the bar's Post, so the two ways to add something
+stack in one corner.
+
 Every page except `Signin` and `Signup` is loaded with `React.lazy`, so its
 code arrives the first time it is opened. Bundled as one file, the app was over
 600 kB, and someone signing in downloaded the admin panel and Instant's camera
@@ -68,7 +84,9 @@ Three details that look like mistakes and are not:
 `frontend/src/pages/Instant.tsx` is four lines; everything is in
 `frontend/src/components/instant/`. It is a **port of the iOS app's screens**,
 not a page of the Lounge: black, full-bleed, no app bar, the camera as the home
-screen and conversations one swipe to the left. See
+screen and conversations one swipe to the left. The only Lounge furniture is the
+bottom bar, in its dark variant, hidden while composing, viewing or in the
+account sheet. See
 [ios-client.md](ios-client.md) for why each screen is shaped the way it is —
 that page is the reference for both clients, and this one only records what is
 different here.
@@ -259,8 +277,8 @@ so no screen changed. Instant is not: `useInstant.ts` is a socket store.
   data router — the only reason `App.tsx` uses `createBrowserRouter`. Every
   route is still a descendant `<Routes>` under one catch-all. A history entry
   is the key, so a new screen starts at the top and Back returns where it was
-  left; Books' three tab roots are keyed by URL instead, because the tabs
-  navigate with `replace` and would otherwise always open at the top.
+  left; Books' three section roots are keyed by URL instead, because the
+  sections switch with `replace` and would otherwise always open at the top.
 - **The feed's author filter is `?author=`** in the URL, so Back from a post
   keeps it.
 

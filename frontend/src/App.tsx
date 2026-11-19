@@ -5,6 +5,7 @@ import { Signin } from './pages/Signin'
 import { getAuthHeader, refreshAccessToken, refreshAccessTokenIfStale } from './lib/auth'
 import { enablePushIfPermissionGranted } from './lib/push'
 import { NotificationPrompt } from './components/NotificationPrompt'
+import { LoungeNav, LOUNGE_NAV_SPACE } from './components/LoungeNav'
 
 // Every page but the two a signed-out visitor lands on is fetched the first
 // time it is opened. Bundled together the app was one file of over 600 kB,
@@ -60,14 +61,32 @@ function RootRedirect() {
   return <Navigate to={targetPath} replace />;
 }
 
-// The Lounge's push banner, kept off /books, which is a standalone app with
-// its own way back (wiki/books.md): the banner would sit over its bottom tabs.
+// The Lounge's own pages get the bottom bar and the push banner. Books and
+// Instant mount the bar themselves, because only they know which of their
+// screens need the whole height (wiki/web-client.md), and the banner is kept
+// off /books, which asks for its own permission (wiki/books.md). The editor,
+// the signed-out pages and the legal pages have no bar: the editor is a task
+// with its own way out, and the rest are reached before there is a Lounge.
+const LOUNGE_PAGES = /^\/(blogs|blog\/|account|admin)/;
+
 function LoungeChrome() {
   const location = useLocation();
   if (location.pathname === "/books" || location.pathname.startsWith("/books/")) {
     return null;
   }
-  return <NotificationPrompt />;
+  const withNav = LOUNGE_PAGES.test(location.pathname);
+  return (
+    <>
+      {withNav ? (
+        <>
+          {/* Holds the page's last line above the bar, whatever the page. */}
+          <div aria-hidden style={{ height: LOUNGE_NAV_SPACE }} />
+          <LoungeNav />
+        </>
+      ) : null}
+      <NotificationPrompt aboveNav={withNav || location.pathname === "/instant"} />
+    </>
+  );
 }
 
 function App() {
@@ -104,9 +123,9 @@ function App() {
   return <RouterProvider router={router} future={{ v7_startTransition: true }} />
 }
 
-// Books' bottom tabs switch with `replace`, so each would otherwise open at
-// its top. Keyed by URL instead, a tab comes back where it was left, as a tab
-// bar's would. Everything else is keyed by history entry: a new screen starts
+// Books' sections switch with `replace`, so each would otherwise open at
+// its top. Keyed by URL instead, a section comes back where it was left, as a
+// tab bar's would. Everything else is keyed by history entry: a new screen starts
 // at the top and Back returns to the place it was left.
 const TAB_ROOTS = new Set(['/books', '/books/feed', '/books/library'])
 const scrollKey = (location: Location) =>

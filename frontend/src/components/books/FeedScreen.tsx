@@ -4,7 +4,7 @@ import { errorMessage, shelfGet, useShelf } from "./api";
 import type { FeedPost } from "./api";
 import { ReviewCard } from "./ReviewCard";
 import { AskCard, AskSheet } from "./AskCard";
-import { EmptyNote, Spinner, TopBar } from "./ui";
+import { BooksSections, EmptyNote, Spinner, TopBar } from "./ui";
 import { usePalette } from "./format";
 
 // Reviews and asks for a recommendation, newest first: everyone's, or only
@@ -50,7 +50,8 @@ export function FeedScreen() {
   return (
     <>
       <TopBar
-        title="Reviews"
+        title={<BooksSections />}
+        sections
         back={false}
         right={
           <button

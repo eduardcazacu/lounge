@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { getAuthHeader } from "../lib/auth";
+import { LOUNGE_NAV_SPACE } from "./LoungeNav";
 import {
   shouldShowPushPrompt,
   subscribePushDevice,
   suppressPushPrompt,
 } from "../lib/push";
 
-export const NotificationPrompt = () => {
+export const NotificationPrompt = ({ aboveNav = false }: { aboveNav?: boolean }) => {
   const [visible, setVisible] = useState(false);
   const [busy, setBusy] = useState(false);
   const location = useLocation();
@@ -58,7 +59,10 @@ export const NotificationPrompt = () => {
   }
 
   return (
-    <div className="fixed inset-x-4 bottom-4 z-50 sm:left-auto sm:right-4 sm:w-96">
+    <div
+      className="fixed inset-x-4 bottom-4 z-50 sm:left-auto sm:right-4 sm:w-96"
+      style={aboveNav ? { bottom: `calc(${LOUNGE_NAV_SPACE} + 1rem)` } : undefined}
+    >
       <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-lg">
         <p className="text-sm font-medium text-slate-900">
           Stay in the loop

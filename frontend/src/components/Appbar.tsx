@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Avatar } from "./Avatar";
 import { DEFAULT_THEME_KEY, THEME_PALETTES } from "../themes";
-// import { useBlogs } from "../hooks";
 
 
 export const Appbar = () => {
@@ -53,59 +52,6 @@ export const Appbar = () => {
       </button>
 
       <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-        <Link
-          to={"/instant"}
-          className="rounded-full p-2 text-slate-600 hover:bg-slate-100 focus:outline-none focus:ring-2"
-          style={{ outlineColor: currentTheme.accent }}
-          aria-label="Open Instant"
-          title="Instant"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="h-5 w-5 sm:h-6 sm:w-6"
-          >
-            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-            <circle cx="12" cy="13" r="4" />
-          </svg>
-        </Link>
-        <Link
-          to={"/books"}
-          className="rounded-full p-2 text-slate-600 hover:bg-slate-100 focus:outline-none focus:ring-2"
-          style={{ outlineColor: currentTheme.accent }}
-          aria-label="Open Books"
-          title="Books"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="h-5 w-5 sm:h-6 sm:w-6"
-          >
-            <path d="M2 5.5C4.5 4 8 4 12 6c4-2 7.5-2 10-.5V19c-2.5-1.5-6-1.5-10 .5-4-2-7.5-2-10-.5zM12 6v13.5" />
-          </svg>
-        </Link>
-        <Link to={"/publish"}>
-          <button
-            type="button"
-            className="text-white focus:outline-none focus:ring-4 font-medium rounded-full text-xs px-3 py-2 text-center sm:text-sm sm:px-5 sm:py-2.5 transition-opacity hover:opacity-90"
-            style={{
-              backgroundColor: currentTheme.accent,
-              boxShadow: `0 0 0 4px ${currentTheme.softBg}`,
-            }}
-          >
-            New Post
-          </button>
-        </Link>
         <Link to={"/account"} className="cursor-pointer" aria-label="Account">
           <Avatar size={"big"} name={displayName} themeKey={avatarThemeKey} imageUrl={profilePictureUrl} />
         </Link>

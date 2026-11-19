@@ -15,7 +15,7 @@ import { restrictToParentElement, restrictToVerticalAxis } from "@dnd-kit/modifi
 import { CSS } from "@dnd-kit/utilities";
 import { errorMessage, invalidateShelf, patchCached, shelfSend, useShelf } from "./api";
 import type { Library, LibraryEntry } from "./api";
-import { Cover, EmptyNote, PersonLine, RecommendBadge, Spinner, Stars, TopBar } from "./ui";
+import { BooksSections, Cover, EmptyNote, PersonLine, RecommendBadge, Spinner, Stars, TopBar } from "./ui";
 import { byline, formatDay, percentText, usePalette } from "./format";
 
 // A whole shelf, split four ways. The same screen shows anyone's in the group
@@ -363,7 +363,11 @@ export function LibraryScreen() {
 
   return (
     <>
-      <TopBar title={userId && library ? <PersonLine person={library.owner} /> : "Library"} back={Boolean(userId)} />
+      {userId ? (
+        <TopBar title={library ? <PersonLine person={library.owner} /> : "Library"} />
+      ) : (
+        <TopBar title={<BooksSections />} sections back={false} />
+      )}
       <main className="mx-auto max-w-xl px-4 pb-8">
         <div className="my-3 grid grid-cols-4 rounded-full bg-white p-1 text-sm font-medium shadow-sm">
           {TABS.map((option) => (
