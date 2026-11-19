@@ -145,6 +145,18 @@ export const Blogs = () => {
       return () => observer.disconnect();
     }, [fetchNextPage, hasMore]);
 
+    // "Posted", for a moment, after the composer hands back to the feed.
+    const [posted, setPosted] = useState(false);
+    useEffect(() => {
+      const state = location.state as { posted?: unknown } | null;
+      if (!state?.posted) return;
+      setPosted(true);
+      // Once: coming back to this entry through history must not say it again.
+      window.history.replaceState({ ...window.history.state, usr: { ...state, posted: undefined } }, "");
+      const timer = window.setTimeout(() => setPosted(false), 2500);
+      return () => window.clearTimeout(timer);
+    }, [location.state]);
+
     useEffect(() => {
       const signal = Number((location.state as { refreshFeedAt?: unknown } | null)?.refreshFeedAt);
       if (!Number.isFinite(signal) || signal <= 0) {
@@ -250,6 +262,16 @@ export const Blogs = () => {
       }}
     >
        <Appbar />
+      {posted ? (
+        <div
+          role="status"
+          // At the top: the bottom edge is the bar's, and the notification prompt's.
+          className="pointer-events-none fixed inset-x-0 z-50 flex justify-center"
+          style={{ top: "calc(env(safe-area-inset-top) + 5.5rem)" }}
+        >
+          <span className="rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-lg">Posted</span>
+        </div>
+      ) : null}
       <div className="flex justify-center px-4 py-6 sm:px-6 sm:py-8">
         <div className="w-full max-w-screen-md space-y-4">
         <UsersStrip
@@ -284,7 +306,7 @@ export const Blogs = () => {
                  authorname ={blog.author.name || "Anonymous"}
                  title={blog.title}
                  content={blog.content}
-                 imageUrl={blog.imageUrl || undefined}
+                 images={blog.images ?? []}
                  shelfReview={blog.shelfReview ?? null}
                  shelfAsk={blog.shelfAsk ?? null}
                  likeCount={blog.likeCount || 0}

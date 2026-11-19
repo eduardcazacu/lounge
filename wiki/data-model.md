@@ -10,7 +10,8 @@ Table names are snake_case via `@map`; Prisma model names are not.
 
 **Identity** — `User`, `Group`, `Session`, `UserPushSubscription`.
 
-**Blog** — `Post`, `Comment`, `PostLike`, `CommentLike`.
+**Blog** — `Post`, `PostImage` (a post's photos, ten at most, ordered by
+`position`, 0 the cover), `Comment`, `PostLike`, `CommentLike`.
 
 **Instant** — `InstantDeviceKey`, `Instant`, `InstantKeyEnvelope`,
 `InstantStreak`.

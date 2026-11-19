@@ -43,7 +43,7 @@ failing to open it.
 |---|---|
 | `Blogs.tsx` | The feed. Author filter via `UsersStrip`, paged, and the page background is tinted from the selected author's palette |
 | `Blog.tsx` | One post, by id |
-| `Publish.tsx` | Compose a post. Markdown plus one image, WebP-encoded client-side; the draft is kept in `localStorage` under `publishPostDraft` |
+| `Publish.tsx` | A new post, in `components/PostEditor.tsx`: a full-screen page with no app bar or bottom bar. Markdown with a formatting toolbar that rides on the keyboard, up to ten photos WebP-encoded and uploaded three at a time, reordered by dragging, and Preview drawn by the feed's own `BlogCard`. The draft, uploaded photos included, is kept in `localStorage` under `publishPostDraft`; a photo removed or a draft discarded is deleted from R2 (`DELETE /blog/upload-image`). Posting lands on the feed |
 | `Account.tsx` | Display name, bio, profile picture, theme picker, notification toggle, logout |
 | `Instant.tsx` | The Instant client — see below |
 | `Books.tsx` | Lounge Books, a standalone app at `/books/*`, including KOReader sync at `/books/koreader` — see [books.md](books.md) |

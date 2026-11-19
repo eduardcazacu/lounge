@@ -45,21 +45,70 @@ export const resetPasswordInput = z.object({
 
 export type ResetPasswordInput = z.infer<typeof resetPasswordInput>
 
-export const createBlogInput = z.object({
-    title: z.string(),
-    content: z.string(),
-    imageKey: z.string().optional()
+// A post is a title, some text and up to ten photos, shown as a carousel in
+// the order given; the first is its cover. Any one of the three is a post on
+// its own, so the title is optional and `postLabel` names an untitled one.
+export const MAX_POST_IMAGES = 10
+export const MAX_POST_TITLE = 300
+export const MAX_POST_CONTENT = 20000
+
+export const postImageInput = z.object({
+    key: z.string().trim().min(1).max(300),
+    // As encoded, so the carousel can size its frame before anything loads.
+    width: z.number().int().positive().max(20000).nullable().optional(),
+    height: z.number().int().positive().max(20000).nullable().optional(),
 })
 
-export type CreateBlogInput = z.infer<typeof createBlogInput>    
+export type PostImageInput = z.infer<typeof postImageInput>
+
+const postFields = {
+    title: z.string().trim().max(MAX_POST_TITLE),
+    content: z.string().max(MAX_POST_CONTENT),
+    images: z.array(postImageInput).max(MAX_POST_IMAGES),
+}
+
+function saysSomething(post: { title: string; content: string; images?: unknown[] }) {
+    return post.title.length > 0 || post.content.trim().length > 0 || (post.images?.length ?? 0) > 0
+}
+
+const EMPTY_POST = { message: "Add a title, some text or a photo." }
+
+export const createBlogInput = z.object({
+    ...postFields,
+    images: postFields.images.default([]),
+    // The single image of a client from before the carousel, still open in a
+    // tab or an installed app across the deploy. Read as `images: [{ key }]`.
+    imageKey: z.string().trim().min(1).optional(),
+}).refine(saysSomething, EMPTY_POST)
+
+export type CreateBlogInput = z.infer<typeof createBlogInput>
 
 export const updateBlogInput = z.object({
-    title: z.string(),
-    content: z.string(),
+    ...postFields,
+    // Left out, the photos stay as they are: an edit from the same older client.
+    images: postFields.images.optional(),
     id: z.number(),
-})
+}).refine(saysSomething, EMPTY_POST)
 
 export type UpdateBlogInput = z.infer<typeof updateBlogInput>
+
+/**
+ * What to call a post wherever a name is needed — a notification, a tab, a
+ * list: its title, or the opening of its text, or what it is.
+ */
+export function postLabel(post: { title: string; content: string; imageCount: number }): string {
+    const title = post.title.trim()
+    if (title) return title
+    const text = post.content
+        .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+        .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+        .replace(/[#>*_`~|-]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+    if (text) return text.length > 80 ? `${text.slice(0, 79).trimEnd()}…` : text
+    if (post.imageCount > 1) return `${post.imageCount} photos`
+    return post.imageCount === 1 ? "A photo" : "A post"
+}
 
 // ---------------------------------------------------------------------------
 // Instant — expiring, end-to-end encrypted 1:1 photos.

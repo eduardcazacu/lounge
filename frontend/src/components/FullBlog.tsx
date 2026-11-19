@@ -1,7 +1,9 @@
 import axios from "axios";
 import { ShelfReviewEmbed } from "./ShelfReviewEmbed";
 import { ShelfAskEmbed } from "./ShelfAskEmbed";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { postLabel } from "@blogging-app/common";
+import { PhotoViewer, PostImages } from "./PostImages";
 import { Blog, markBlogsStale } from "../hooks";
 import { Appbar } from "./Appbar";
 import { Avatar } from "./Avatar";
@@ -55,6 +57,18 @@ export const FullBlog = ({ blog, commentsPending = false }: { blog: Blog; commen
   const canEditPost = typeof blog.author.id === "number" && currentUserId === blog.author.id;
   const [comments, setComments] = useState(blog.comments || []);
   const [postTitle, setPostTitle] = useState(blog.title);
+  const images = blog.images ?? [];
+  const label = postLabel({ title: postTitle, content: blog.content, imageCount: images.length });
+  const [viewing, setViewing] = useState<number | null>(null);
+  const closeViewer = useCallback(() => setViewing(null), []);
+  // The tab names the post, which an untitled one does by its opening words.
+  useEffect(() => {
+    const previous = document.title;
+    document.title = label;
+    return () => {
+      document.title = previous;
+    };
+  }, [label]);
   const [postContent, setPostContent] = useState(blog.content);
   const [postEditedAt, setPostEditedAt] = useState(blog.editedAt || null);
   const [postLikeCount, setPostLikeCount] = useState(blog.likeCount || 0);
@@ -192,8 +206,8 @@ export const FullBlog = ({ blog, commentsPending = false }: { blog: Blog; commen
   async function savePostEdit() {
     const title = postEditTitle.trim();
     const content = postEditContent.trim();
-    if (!title || !content) {
-      setPostEditError("Title and content are required.");
+    if (!title && !content && images.length === 0) {
+      setPostEditError("Add a title, some text or a photo.");
       return;
     }
 
@@ -289,8 +303,11 @@ export const FullBlog = ({ blog, commentsPending = false }: { blog: Blog; commen
                         onChange={(e) => setPostEditTitle(e.target.value)}
                         className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xl font-bold text-slate-900 sm:text-3xl"
                       />
-                    ) : (
+                    ) : postTitle.trim() ? (
                       postTitle
+                    ) : (
+                      // Untitled: whose post it is, in the title's place.
+                      <span className="text-lg font-semibold text-slate-700 sm:text-xl">{blog.author.name || "Anonymous"}</span>
                     )}
                   </div>
                 </div>
@@ -331,21 +348,17 @@ export const FullBlog = ({ blog, commentsPending = false }: { blog: Blog; commen
                 Posted {formatPostedTime(blog.createdAt)}
                 {postEditedAt ? " · Edited" : ""}
               </div>
-              {blog.imageUrl ? (
-                <div className="mt-4 overflow-hidden rounded-lg">
-                  <img
-                    src={getTransformedImageUrl(blog.imageUrl, { width: 1280, fit: "contain", quality: 98 })}
-                    alt={postTitle}
-                    className="h-auto max-h-[70vh] w-full object-contain sm:max-h-[55vh] lg:max-h-[48vh]"
-                    loading="lazy"
-                  />
+              {images.length > 0 ? (
+                <div className="mt-2">
+                  <PostImages images={images} alt={label} mode="fit" onOpen={setViewing} />
                 </div>
               ) : null}
+              {viewing !== null ? <PhotoViewer images={images} start={viewing} onClose={closeViewer} /> : null}
               {firstYouTubeEmbedUrl ? (
                 <div className="mt-4 overflow-hidden rounded-lg border border-slate-200 bg-black">
                   <iframe
                     src={firstYouTubeEmbedUrl}
-                    title={`${postTitle} video`}
+                    title={`${label} video`}
                     loading="lazy"
                     className="aspect-video w-full"
                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"

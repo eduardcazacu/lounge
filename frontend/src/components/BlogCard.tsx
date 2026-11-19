@@ -1,5 +1,6 @@
 import { Link, useNavigate } from "react-router-dom"
-import { Comment, markBlogsStale, type ShelfAskCard, type ShelfReviewCard } from "../hooks";
+import { Comment, markBlogsStale, type PostImage, type ShelfAskCard, type ShelfReviewCard } from "../hooks";
+import { PostImages } from "./PostImages";
 import { ShelfReviewEmbed } from "./ShelfReviewEmbed";
 import { ShelfAskEmbed } from "./ShelfAskEmbed";
 import { Avatar } from "./Avatar";
@@ -19,7 +20,7 @@ interface BlogCardProps{
     content: string;
     publishedDate: string;
     id: number;
-    imageUrl?: string | null;
+    images?: PostImage[];
     likeCount?: number;
     likedByMe?: boolean;
     topComments?: Comment[];
@@ -28,6 +29,8 @@ interface BlogCardProps{
     authorProfilePictureUrl?: string | null;
     shelfReview?: ShelfReviewCard | null;
     shelfAsk?: ShelfAskCard | null;
+    /** Drawn by the composer's preview: nothing on it opens or likes anything. */
+    preview?: boolean;
 }
 
 export const BlogCard = ({
@@ -36,7 +39,7 @@ export const BlogCard = ({
     content,
     publishedDate,
     id,
-    imageUrl,
+    images = [],
     likeCount = 0,
     likedByMe = false,
     topComments = [],
@@ -44,7 +47,8 @@ export const BlogCard = ({
     themeKey,
     authorProfilePictureUrl,
     shelfReview,
-    shelfAsk
+    shelfAsk,
+    preview = false
 }: BlogCardProps) => {
   const [postLikeCount, setPostLikeCount] = useState(likeCount);
   const [postLikedByMe, setPostLikedByMe] = useState(likedByMe);
@@ -82,7 +86,7 @@ export const BlogCard = ({
   // A review or ask cross-posted from Books opens in Books, where its discussion is.
   const cardTarget = shelfReview ? `/books/review/${shelfReview.id}` : shelfAsk ? `/books/ask/${shelfAsk.id}` : `/blog/${id}`;
   const firstYouTubeEmbedUrl = extractFirstYouTubeEmbedUrl(content);
-  const standaloneImagePreviewUrls = extractStandaloneImagePreviewUrls(content, 2).filter((url) => url !== imageUrl);
+  const standaloneImagePreviewUrls = extractStandaloneImagePreviewUrls(content, 2).filter((url) => !images.some((image) => image.url === url));
   const excerptData = (() => {
     const markdownWithoutStandaloneImages = content
       .split(/\r?\n/)
@@ -137,7 +141,7 @@ export const BlogCard = ({
 
   async function togglePostLike(e: MouseEvent<HTMLButtonElement>) {
     e.stopPropagation();
-    if (likeLoading) {
+    if (likeLoading || preview) {
       return;
     }
     setLikeLoading(true);
@@ -162,11 +166,13 @@ export const BlogCard = ({
   return ( 
   <div
     className="rounded-xl bg-white p-4 w-full max-w-screen-md cursor-pointer shadow-sm hover:shadow-md transition-shadow sm:p-4"
-    onClick={() => navigate(cardTarget)}
-    role="link"
-    tabIndex={0}
+    onClick={() => {
+      if (!preview) navigate(cardTarget);
+    }}
+    role={preview ? undefined : "link"}
+    tabIndex={preview ? undefined : 0}
     onKeyDown={(e) => {
-      if (e.key === "Enter" || e.key === " ") {
+      if (!preview && (e.key === "Enter" || e.key === " ")) {
         navigate(cardTarget);
       }
     }}
@@ -202,23 +208,19 @@ export const BlogCard = ({
           <ShelfAskEmbed ask={shelfAsk} />
         ) : (
         <>
-        <div className="text-2xl font-semibold pt-2">
-            {title}
-        </div>
-        {imageUrl ? (
-          <div className="mt-2.5 overflow-hidden rounded-lg">
-            <img
-              src={getTransformedImageUrl(imageUrl, { width: 920, fit: "cover", quality: 95 })}
-              alt={title}
-              loading="lazy"
-              className="aspect-square w-full object-cover sm:aspect-auto sm:h-72"
-            />
+        {/* The title is optional: an untitled post leads with its photos or its text. */}
+        {title.trim() ? (
+          <div className="text-2xl font-semibold pt-2">
+              {title}
           </div>
+        ) : null}
+        {images.length > 0 ? (
+          <PostImages images={images} alt={title.trim() || `A photo by ${authorname}`} mode="crop" />
         ) : firstYouTubeEmbedUrl ? (
           <div className="mt-2.5 overflow-hidden rounded-lg border border-slate-200 bg-black">
             <iframe
               src={firstYouTubeEmbedUrl}
-              title={`${title} video preview`}
+              title={`${title.trim() || "Post"} video preview`}
               loading="lazy"
               className="aspect-video w-full"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"

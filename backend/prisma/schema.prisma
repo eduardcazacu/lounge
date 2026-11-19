@@ -101,7 +101,6 @@ model Post {
   id        Int       @id @default(autoincrement())
   title     String
   content   String
-  imageKey  String?   @map("image_key")
   published Boolean   @default(false)
   createdAt DateTime  @default(now()) @map("created_at")
   editedAt  DateTime? @map("edited_at")
@@ -116,11 +115,32 @@ model Post {
   author    User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
   comments  Comment[]
   likes     PostLike[]
+  // Up to ten, in carousel order; position 0 is the cover. See wiki/data-model.md.
+  images    PostImage[]
   shelfReview ShelfReview? @relation(fields: [shelfReviewId], references: [id], onDelete: SetNull)
   shelfAsk    ShelfAsk?    @relation(fields: [shelfAskId], references: [id], onDelete: Cascade)
 
   @@index([authorId])
   @@map("posts")
+}
+
+// A photo of a post. Its own row rather than an array on the post, so each
+// keeps its order and size, and one can be removed or moved without rewriting
+// the rest. `key` is unique: an uploaded object belongs to one post at most,
+// which is what lets a discarded upload be deleted safely.
+model PostImage {
+  id       Int    @id @default(autoincrement())
+  postId   Int    @map("post_id")
+  key      String @unique
+  position Int
+  // As uploaded. Null for images carried over from single-image posts.
+  width    Int?
+  height   Int?
+
+  post     Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([postId, position])
+  @@map("post_images")
 }
 
 model Comment {

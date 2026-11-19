@@ -1345,10 +1345,12 @@ too: moving a book ten places is ten taps.
 keyboard sensor gives the same moves to the arrow keys. The handle alone takes
 `touch-action: none`, so a thumb on the rest of the row still scrolls the page.
 
-**Cost paid** about 17 kB gzipped on the Books bundle (31 kB to 48 kB).
+**Cost paid** about 17 kB gzipped, on the Books bundle and the composer's.
 
-**Would reopen if** arranging spread beyond one list, or dnd-kit stopped being
-maintained.
+The composer's photos are arranged the same way (`PostEditor.tsx`), a grid
+rather than a list, with a press and hold to start a drag on a touch screen.
+
+**Would reopen if** dnd-kit stopped being maintained.
 
 ---
 
@@ -1443,3 +1445,46 @@ laptop's phone-shaped card is a little shorter, and the space stays reserved
 while composing.
 
 **Would reopen if** a fourth app arrived and the bar ran out of room.
+
+---
+
+## A post's photos are rows of their own
+
+**Chosen** a `PostImage` table — key, position, width and height — for up to
+ten photos a post, drawn as a carousel (`frontend/src/components/PostImages.tsx`)
+whose frame takes the first photo's shape.
+
+**Rejected** an array of keys on `Post`, which has nowhere to keep a photo's
+size, so the carousel would jump as each one loaded, and makes removing or
+moving one a rewrite of the list. Also rejected: a separate gallery post type,
+which would have split the feed's one card in two.
+
+**Because** a post is often a handful of photos from one afternoon, and one
+image a post meant choosing or posting five times. `key` is unique, so an
+upload belongs to one post at most, which is what makes deleting a discarded
+upload safe: `DELETE /blog/upload-image` refuses a key a post holds.
+
+**Cost paid** an upload abandoned by a closed tab stays in R2; nothing sweeps
+it. Photos carried over from single-image posts have no recorded size and are
+measured as they load.
+
+**Would reopen if** posts needed captions per photo, or video.
+
+---
+
+## A post's title is optional
+
+**Chosen** a post that is any of a title, text or photos, with `postLabel` in
+`common/src/index.ts` naming an untitled one — its opening words, or "3 photos"
+— wherever a name is needed: notifications, the tab, the post page's heading.
+
+**Rejected** a required title, which the composer used to ask for first, and
+which made a photo and a line feel like filling in a form.
+
+**Because** the Lounge is a handful of friends, and most of what is shared
+there is a moment rather than an article.
+
+**Cost paid** an untitled post's notification reads as the start of its text,
+cut at 80 characters.
+
+**Would reopen if** the feed grew long enough that titles were needed to scan it.

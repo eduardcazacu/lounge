@@ -25,7 +25,8 @@ their own.
 
 ## What is in it
 
-- **Posts** — markdown, one image each, comments, likes, @-mentions.
+- **Posts** — a title, markdown text and up to ten photos as a carousel, any
+  one of them on its own; comments, likes, @-mentions.
 - **Instant** — a photo or a clip of up to five seconds, optionally captioned or
   drawn on, sealed to the recipient's devices, viewable once and then gone. Only
   the iPhone app records video; the web plays it. Streaks count consecutive days two

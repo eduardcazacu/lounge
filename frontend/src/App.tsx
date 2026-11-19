@@ -71,7 +71,9 @@ const LOUNGE_PAGES = /^\/(blogs|blog\/|account|admin)/;
 
 function LoungeChrome() {
   const location = useLocation();
-  if (location.pathname === "/books" || location.pathname.startsWith("/books/")) {
+  // Books draws its own chrome, and the composer is a page of its own: a
+  // prompt over its toolbar would sit on the buttons being written with.
+  if (location.pathname === "/books" || location.pathname.startsWith("/books/") || location.pathname === "/publish") {
     return null;
   }
   const withNav = LOUNGE_PAGES.test(location.pathname);

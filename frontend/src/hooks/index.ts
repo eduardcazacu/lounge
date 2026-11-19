@@ -40,14 +40,21 @@ export interface ShelfAskCard {
     commentCount: number;
 }
 
+// One of a post's photos, in carousel order. The size is as uploaded, and null
+// for a photo carried over from a single-image post.
+export interface PostImage {
+    url: string | null;
+    width: number | null;
+    height: number | null;
+}
+
 export  interface Blog{
     "content": string;
     "title": string;
     "id": number;
     "createdAt": string;
     "editedAt"?: string | null;
-    "imageKey"?: string | null;
-    "imageUrl"?: string | null;
+    "images"?: PostImage[];
     "shelfReview"?: ShelfReviewCard | null;
     "shelfAsk"?: ShelfAskCard | null;
     "likeCount"?: number;

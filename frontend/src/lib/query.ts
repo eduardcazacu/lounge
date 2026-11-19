@@ -22,7 +22,7 @@ const STORAGE_KEY = "lounge-query-cache";
  * commit: that threw the cache away on every deploy, so the first launch after
  * each one drew a skeleton instead of the feed (wiki/gotchas.md).
  */
-const CACHE_VERSION = "1";
+const CACHE_VERSION = "2";
 
 // Only these are written to disk. Anything new — admin, Instant — stays in
 // memory unless it is added here on purpose.

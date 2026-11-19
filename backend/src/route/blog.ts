@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { Prisma } from "@prisma/client";
 import { verify } from 'hono/jwt'
-import { createBlogInput, updateBlogInput } from "@blogging-app/common";
+import { createBlogInput, postLabel, updateBlogInput, type PostImageInput } from "@blogging-app/common";
 import z from "zod";
 import { getConfig } from "../env";
 import { getPrismaClient } from "../prisma";
@@ -31,18 +31,21 @@ function parseMentionedUserIds(raw: unknown): number[] {
   return ids;
 }
 
+type BlogImagesBucket = {
+  put: (key: string, value: ArrayBuffer, options?: {
+    httpMetadata?: { contentType?: string },
+    customMetadata?: Record<string, string>
+  }) => Promise<unknown>,
+  head: (key: string) => Promise<unknown | null>,
+  delete: (keys: string | string[]) => Promise<void>
+};
+
 export const blogRouter = new Hono<{
 	Bindings: {
 		DATABASE_URL?: string,
 		JWT_SECRET?: string,
     R2_PUBLIC_BASE_URL?: string,
-    BLOG_IMAGES?: {
-      put: (key: string, value: ArrayBuffer, options?: {
-        httpMetadata?: { contentType?: string },
-        customMetadata?: Record<string, string>
-      }) => Promise<unknown>,
-      head: (key: string) => Promise<unknown | null>
-    }
+    BLOG_IMAGES?: BlogImagesBucket
 	},
     Variables: {
         userId: number
@@ -66,6 +69,44 @@ function buildPublicImageUrl(baseUrl: string | undefined, key: string) {
   }
   const normalizedBase = baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
   return `${normalizedBase}/${key}`;
+}
+
+// A post's photos, in carousel order.
+const postImagesSelect = {
+  orderBy: { position: "asc" },
+  select: { key: true, width: true, height: true },
+} satisfies Prisma.Post$imagesArgs;
+
+function postImagesView(images: { key: string; width: number | null; height: number | null }[], baseUrl: string | undefined) {
+  return images.map((image) => ({
+    url: buildPublicImageUrl(baseUrl, image.key),
+    width: image.width,
+    height: image.height,
+  }));
+}
+
+/**
+ * Checks that every photo is one this author uploaded and that it is there.
+ * Answers with the error to send, or null. The prefix is the ownership test:
+ * uploads are stored under `posts/<author>/` and nowhere else.
+ */
+async function checkPostImages(bucket: BlogImagesBucket | undefined, authorId: number, images: PostImageInput[]) {
+  if (images.length === 0) return null;
+  const keys = images.map((image) => image.key);
+  if (new Set(keys).size !== keys.length) return "The same photo is in the post twice.";
+  if (keys.some((key) => !key.startsWith(`posts/${authorId}/`))) return "Invalid image key.";
+  if (!bucket) return "BLOG_IMAGES R2 binding is not configured.";
+  const found = await Promise.all(keys.map((key) => bucket.head(key)));
+  return found.every(Boolean) ? null : "A photo didn't finish uploading. Remove it and add it again.";
+}
+
+function imageRows(images: PostImageInput[]) {
+  return images.map((image, position) => ({
+    key: image.key,
+    position,
+    width: image.width ?? null,
+    height: image.height ?? null,
+  }));
 }
 
 // A post cross-posted from /books carries its review, and the card is drawn
@@ -237,6 +278,35 @@ blogRouter.post("/upload-image", async (c) => {
   }
 });
 
+/**
+ * Deletes a photo uploaded for a post that was never posted with it: removed
+ * from the composer, or part of a discarded draft. Only the uploader's own,
+ * and only while no post holds it — a photo already in a post goes when it is
+ * edited out of it.
+ */
+blogRouter.delete("/upload-image", async (c) => {
+  const key = c.req.query("key")?.trim() ?? "";
+  const authorId = c.get("userId");
+  if (!key.startsWith(`posts/${authorId}/`)) {
+    c.status(400);
+    return c.json({ msg: "Invalid image key." });
+  }
+  const bucket = c.env?.BLOG_IMAGES;
+  if (!bucket) {
+    c.status(500);
+    return c.json({ msg: "BLOG_IMAGES R2 binding is not configured." });
+  }
+  const { databaseUrl } = getConfig(c);
+  const prisma = getPrismaClient(databaseUrl);
+  const inUse = await prisma.postImage.findUnique({ where: { key }, select: { id: true } });
+  if (inUse) {
+    c.status(409);
+    return c.json({ msg: "That photo is part of a post." });
+  }
+  await bucket.delete(key);
+  return c.json({ ok: true });
+});
+
 blogRouter.post('/:id/comments', async (c) => {
     const postId = Number(c.req.param("id"));
     if (!Number.isFinite(postId)) {
@@ -267,7 +337,9 @@ blogRouter.post('/:id/comments', async (c) => {
         select: {
           id: true,
           title: true,
+          content: true,
           authorId: true,
+          _count: { select: { images: true } },
         },
       });
       if (!post) {
@@ -297,7 +369,7 @@ blogRouter.post('/:id/comments', async (c) => {
       const replyNotificationJob = notifyPostAuthorOfReply({
         databaseUrl,
         postId: post.id,
-        postTitle: post.title,
+        postTitle: postLabel({ ...post, imageCount: post._count.images }),
         postAuthorId: post.authorId,
         commentId: comment.id,
         commentAuthorId: authorId,
@@ -337,7 +409,7 @@ blogRouter.post('/:id/comments', async (c) => {
             notifyMentionedUsers({
               databaseUrl,
               postId: post.id,
-              postTitle: post.title,
+              postTitle: postLabel({ ...post, imageCount: post._count.images }),
               commentId: comment.id,
               commenterName: comment.author.name?.trim() || "Someone",
               mentionedUserIds,
@@ -506,39 +578,28 @@ blogRouter.post('/:id/comments/:commentId/likes/toggle', async (c) => {
     if(!parsed.success){
         c.status(400);
         return c.json({
-            msg: "Inputs are Incorrect"
+            msg: parsed.error.issues.find((issue) => issue.code === "custom")?.message ?? "Inputs are Incorrect"
         })
     }
     const authorId = c.get("userId")
-    const { databaseUrl, r2PublicBaseUrl } = getConfig(c);
-    if (parsed.data.imageKey) {
-      const imageKey = parsed.data.imageKey.trim();
-      const bucket = c.env?.BLOG_IMAGES;
-      if (!imageKey.startsWith(`posts/${authorId}/`)) {
-        c.status(400);
-        return c.json({ msg: "Invalid image key." });
-      }
-      if (!bucket) {
-        c.status(500);
-        return c.json({ msg: "BLOG_IMAGES R2 binding is not configured." });
-      }
-      const exists = await bucket.head(imageKey);
-      if (!exists) {
-        c.status(400);
-        return c.json({ msg: "Image upload not found. Please upload again." });
-      }
+    const { databaseUrl } = getConfig(c);
+    const { title, content, imageKey } = parsed.data;
+    const images = parsed.data.images.length > 0 || !imageKey ? parsed.data.images : [{ key: imageKey }];
+    const imageError = await checkPostImages(c.env?.BLOG_IMAGES, authorId, images);
+    if (imageError) {
+      c.status(imageError.startsWith("BLOG_IMAGES") ? 500 : 400);
+      return c.json({ msg: imageError });
     }
     const prisma = getPrismaClient(databaseUrl);
     const blog = await prisma.post.create({
       data: {
-        title: parsed.data.title,
-        content: parsed.data.content,
-        imageKey: parsed.data.imageKey?.trim() || null,
+        title,
+        content,
         authorId,
+        images: { create: imageRows(images) },
       },
       select: {
         id: true,
-        imageKey: true,
       },
     });
     const author = await prisma.user.findUnique({
@@ -563,7 +624,7 @@ blogRouter.post('/:id/comments/:commentId/likes/toggle', async (c) => {
       authorId,
       authorName,
       postId: blog.id,
-      postTitle: parsed.data.title,
+      postTitle: postLabel({ title, content, imageCount: images.length }),
       vapidConfig: {
         vapidPublicKey: config.vapidPublicKey,
         vapidPrivateKey: config.vapidPrivateKey,
@@ -573,7 +634,6 @@ blogRouter.post('/:id/comments/:commentId/likes/toggle', async (c) => {
     c.executionCtx.waitUntil(notificationJob);
         return c.json({
             id: blog.id,
-            imageUrl: blog.imageKey ? buildPublicImageUrl(r2PublicBaseUrl, blog.imageKey) : null
         })
     })
   
@@ -592,30 +652,50 @@ blogRouter.post('/:id/comments/:commentId/likes/toggle', async (c) => {
     if(!parsed.success){
         c.status(400);
         return c.json({
-            msg: "Inputs are Incorrect"
+            msg: parsed.error.issues.find((issue) => issue.code === "custom")?.message ?? "Inputs are Incorrect"
         })
     }
     const authorId = c.get("userId")
     const { databaseUrl } = getConfig(c);
     const prisma = getPrismaClient(databaseUrl);
-    const editedAt = new Date();
-    const updated = await prisma.post.updateMany({
-      where: {
-        id: postId,
-        authorId,
-      },
-      data: {
-        title: parsed.data.title,
-        content: parsed.data.content,
-        editedAt,
-      },
+    const post = await prisma.post.findFirst({
+      where: { id: postId, authorId },
+      select: { images: { select: { key: true } } },
     });
-    if (updated.count === 0) {
+    if (!post) {
       c.status(404);
       return c.json({
         msg: "Blog not found"
       });
     }
+    const { images } = parsed.data;
+    const bucket = c.env?.BLOG_IMAGES;
+    if (images) {
+      const imageError = await checkPostImages(bucket, authorId, images);
+      if (imageError) {
+        c.status(imageError.startsWith("BLOG_IMAGES") ? 500 : 400);
+        return c.json({ msg: imageError });
+      }
+    }
+    const editedAt = new Date();
+    await prisma.$transaction([
+      prisma.post.update({
+        where: { id: postId },
+        data: { title: parsed.data.title, content: parsed.data.content, editedAt },
+      }),
+      // Rewritten whole: ten rows at most, and the order is the point of them.
+      ...(images
+        ? [
+            prisma.postImage.deleteMany({ where: { postId } }),
+            prisma.postImage.createMany({ data: imageRows(images).map((row) => ({ ...row, postId })) }),
+          ]
+        : []),
+    ]);
+    // Photos edited out of the post go from storage once the edit has stuck.
+    // Before it, a failed save would leave the post pointing at nothing.
+    const kept = new Set(images?.map((image) => image.key));
+    const removed = images ? post.images.map((image) => image.key).filter((key) => !kept.has(key)) : [];
+    if (removed.length > 0 && bucket) scheduleBackgroundWork(c, bucket.delete(removed));
         return c.json({
             id: postId,
             editedAt: editedAt.toISOString(),
@@ -704,7 +784,7 @@ blogRouter.post('/:id/comments/:commentId/likes/toggle', async (c) => {
             id: true,
             title: true,
             content: true,
-            imageKey: true,
+            images: postImagesSelect,
             createdAt: true,
             editedAt: true,
             shelfReview: shelfReviewCardSelect,
@@ -781,8 +861,7 @@ blogRouter.post('/:id/comments/:commentId/likes/toggle', async (c) => {
           id: blog.id,
           title: blog.title,
           content: blog.content,
-          imageKey: blog.imageKey,
-          imageUrl: blog.imageKey ? buildPublicImageUrl(r2PublicBaseUrl, blog.imageKey) : null,
+          images: postImagesView(blog.images, r2PublicBaseUrl),
           createdAt: blog.createdAt.toISOString(),
           editedAt: blog.editedAt ? blog.editedAt.toISOString() : null,
           shelfReview: shelfReviewCard(blog.shelfReview, userId, finished),
@@ -835,7 +914,7 @@ blogRouter.post('/:id/comments/:commentId/likes/toggle', async (c) => {
         id: true,
         title: true,
         content: true,
-        imageKey: true,
+        images: postImagesSelect,
         createdAt: true,
         editedAt: true,
         shelfReview: shelfReviewCardSelect,
@@ -907,8 +986,7 @@ blogRouter.post('/:id/comments/:commentId/likes/toggle', async (c) => {
               id: blog.id,
               title: blog.title,
               content: blog.content,
-              imageKey: blog.imageKey,
-              imageUrl: blog.imageKey ? buildPublicImageUrl(r2PublicBaseUrl, blog.imageKey) : null,
+              images: postImagesView(blog.images, r2PublicBaseUrl),
               createdAt: blog.createdAt.toISOString(),
               editedAt: blog.editedAt ? blog.editedAt.toISOString() : null,
               shelfReview: shelfReviewCard(

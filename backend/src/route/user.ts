@@ -1174,9 +1174,9 @@ userRouter.post("/me/delete", async (c) => {
 		}
 
 		const [posts, instants] = await Promise.all([
-			prisma.post.findMany({
-				where: { authorId: userId, imageKey: { not: null } },
-				select: { imageKey: true },
+			prisma.postImage.findMany({
+				where: { post: { authorId: userId } },
+				select: { key: true },
 			}),
 			prisma.instant.findMany({
 				where: {
@@ -1188,7 +1188,7 @@ userRouter.post("/me/delete", async (c) => {
 		]);
 		const objectKeys = [
 			user.profilePictureKey,
-			...posts.map((post) => post.imageKey),
+			...posts.map((image) => image.key),
 			...instants.map((instant) => instant.mediaKey),
 		].filter((key): key is string => Boolean(key));
 
