@@ -5,6 +5,7 @@ import { formatPostedTime } from "../../lib/datetime";
 import { errorMessage, invalidateShelf, shelfSend, useShelf } from "./api";
 import type { ReviewDetail } from "./api";
 import { Discussion } from "./Discussion";
+import { SpoilerText } from "../SpoilerText";
 import { Cover, PersonLine, RecommendBadge, Spinner, SpoilerCover, SpoilerTag, Stars, TopBar } from "./ui";
 import { byline, formatDay, usePalette } from "./format";
 
@@ -86,7 +87,9 @@ export function ReviewScreen() {
           {covered ? (
             <SpoilerCover onShow={() => setShown(true)} what={review.body ? "This review and its discussion" : "The discussion"} />
           ) : review.body ? (
-            <p className="mt-3 whitespace-pre-wrap text-[16px] leading-relaxed text-slate-800">{review.body}</p>
+            <p className="mt-3 whitespace-pre-wrap text-[16px] leading-relaxed text-slate-800">
+              <SpoilerText body={review.body} mask={review.maskSpoilers && !shown} />
+            </p>
           ) : null}
           {review.loungePostId ? (
             <Link to={`/blog/${review.loungePostId}`} className="mt-3 inline-block text-xs font-medium text-slate-500">

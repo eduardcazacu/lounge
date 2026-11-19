@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { errorMessage, invalidateShelf, shelfSend, useShelf } from "./api";
 import type { Item, Review, Run } from "./api";
@@ -37,6 +37,7 @@ export function FinishScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [seeded, setSeeded] = useState(false);
+  const bodyField = useRef<HTMLTextAreaElement>(null);
 
   // Fill the form once, from the review as it stands, and never again: a
   // refetch while someone is typing must not put the old text back.
@@ -62,6 +63,22 @@ export function FinishScreen() {
   const onLounge = data.review?.loungePostId !== null && data.review?.loungePostId !== undefined;
   const hasContent = rating !== null || recommend !== null || body.trim().length > 0;
   const title = editing ? "Your review" : dnf ? "Put it down" : backfill ? "Added to finished" : "Finished!";
+
+  // Wraps the selection in the marks `reviewSegments` reads, or, with nothing
+  // selected, drops in an empty pair to type into. Typing the bars by hand
+  // works the same; the button is for a phone keyboard, where "|" is two
+  // layers down.
+  function markSpoiler() {
+    const field = bodyField.current;
+    if (!field) return;
+    const { selectionStart: start, selectionEnd: end } = field;
+    const selected = body.slice(start, end);
+    setBody(`${body.slice(0, start)}||${selected}||${body.slice(end)}`);
+    requestAnimationFrame(() => {
+      field.focus();
+      field.setSelectionRange(start + 2, end + 2);
+    });
+  }
 
   async function save() {
     setBusy(true);
@@ -129,6 +146,7 @@ export function FinishScreen() {
         </div>
 
         <textarea
+          ref={bodyField}
           value={body}
           onChange={(event) => setBody(event.target.value)}
           rows={5}
@@ -136,10 +154,25 @@ export function FinishScreen() {
           placeholder={dnf ? "Where did it lose you?" : "What did you think?"}
           className="mt-4 w-full resize-y rounded-2xl border border-slate-200 bg-white p-4 text-[16px] outline-none focus:border-slate-400"
         />
+        <div className="mt-2 flex w-full items-start justify-between gap-3">
+          <p className="text-xs text-slate-500">
+            Select a sentence and hide it, or wrap it in ||double bars||. Only readers who haven't finished it see it hidden.
+          </p>
+          <button
+            type="button"
+            // Keeps the selection: a tap would otherwise blur the field and lose it first.
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={markSpoiler}
+            className="shrink-0 rounded-full bg-white px-3 py-1.5 text-sm font-medium shadow-sm ring-1 ring-slate-200"
+            style={{ color: palette.accent }}
+          >
+            Hide as spoiler
+          </button>
+        </div>
 
         <label className="mt-3 flex w-full items-center justify-between gap-3 rounded-2xl bg-white px-4 py-3">
           <span className="text-[15px]">
-            Contains spoilers
+            The whole review is a spoiler
             <span className="block text-xs text-slate-500">Covered for anyone who hasn't finished it, until they choose to look.</span>
           </span>
           <input

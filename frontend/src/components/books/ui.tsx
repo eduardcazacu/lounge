@@ -5,6 +5,7 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { Avatar } from "../Avatar";
 import { getThemePalette } from "../../themes";
 import { getTransformedImageUrl } from "../../lib/content";
+import { SpoilerText } from "../SpoilerText";
 import type { Item, Person } from "./api";
 import { byline, usePalette } from "./format";
 import { AccountButton } from "./BooksApp";
@@ -362,12 +363,26 @@ export function SpoilerCover({ onShow, what = "This review" }: { onShow: () => v
   );
 }
 
-/** A review's text, behind `SpoilerCover` when it is covered for this viewer. */
-export function ReviewBody({ review, className }: { review: { body: string | null; covered: boolean }; className: string }) {
+/**
+ * A review's text, behind `SpoilerCover` when it is covered for this viewer.
+ * "Show anyway" unmasks its marked passages too: the reader has chosen to see
+ * the spoilers.
+ */
+export function ReviewBody({
+  review,
+  className,
+}: {
+  review: { body: string | null; covered: boolean; maskSpoilers: boolean };
+  className: string;
+}) {
   const [shown, setShown] = useState(false);
   if (!review.body) return null;
   if (review.covered && !shown) return <SpoilerCover onShow={() => setShown(true)} />;
-  return <p className={className}>{review.body}</p>;
+  return (
+    <p className={className}>
+      <SpoilerText body={review.body} mask={review.maskSpoilers && !shown} />
+    </p>
+  );
 }
 
 /** Marks a spoiler for the people it isn't covered for: the reviewer, and those who've read it. */

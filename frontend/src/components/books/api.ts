@@ -66,6 +66,8 @@ export type Review = {
   spoiler: boolean;
   /** A spoiler, and this viewer hasn't finished the book: cover it until they ask. */
   covered: boolean;
+  /** The same, for the passages marked in `body`: mask each until it is tapped. */
+  maskSpoilers: boolean;
   createdAt: string;
   editedAt: string | null;
 };

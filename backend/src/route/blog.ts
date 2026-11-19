@@ -8,7 +8,7 @@ import { getPrismaClient } from "../prisma";
 import { notifyFollowersOfNewPost, notifyPostAuthorOfReply, notifyMentionedUsers } from "../push";
 import { scheduleBackgroundWork } from "../background";
 import { getUserGroupId } from "../groups";
-import { coveredFor, finishedItemIds } from "../shelf-spoilers";
+import { coveredFor, finishedItemIds, gatesSpoilers, masksSpoilersFor } from "../shelf-spoilers";
 
 const MAX_MENTIONS_PER_COMMENT = 10;
 
@@ -131,6 +131,7 @@ function shelfReviewCard(
     body: review.body,
     spoiler: review.spoiler,
     covered: coveredFor(review, review.run.entry.userId, itemId, viewerId, finished),
+    maskSpoilers: masksSpoilersFor(review, review.run.entry.userId, itemId, viewerId, finished),
     status: review.run.status,
     item: {
       ...item,
@@ -774,7 +775,7 @@ blogRouter.post('/:id/comments/:commentId/likes/toggle', async (c) => {
         const finished = await finishedItemIds(
           prisma,
           userId,
-          pageRows.flatMap((blog) => (blog.shelfReview?.spoiler ? [blog.shelfReview.run.entry.item.id] : []))
+          pageRows.flatMap((blog) => (blog.shelfReview && gatesSpoilers(blog.shelfReview) ? [blog.shelfReview.run.entry.item.id] : []))
         );
         const blogs = pageRows.map((blog) => ({
           id: blog.id,
@@ -913,7 +914,7 @@ blogRouter.post('/:id/comments/:commentId/likes/toggle', async (c) => {
               shelfReview: shelfReviewCard(
                 blog.shelfReview,
                 userId,
-                blog.shelfReview?.spoiler ? await finishedItemIds(prisma, userId, [blog.shelfReview.run.entry.item.id]) : new Set()
+                blog.shelfReview && gatesSpoilers(blog.shelfReview) ? await finishedItemIds(prisma, userId, [blog.shelfReview.run.entry.item.id]) : new Set()
               ),
               shelfAsk: shelfAskCard(blog.shelfAsk),
               author: {

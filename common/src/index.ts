@@ -413,11 +413,44 @@ export const upsertReviewInput = z.object({
     rating: z.number().int().min(1).max(10).nullable().optional(),
     recommend: z.boolean().nullable().optional(),
     body: z.string().trim().max(10000).nullable().optional(),
-    // Covers the review for anyone who has not finished the book.
+    // Covers the whole review for anyone who has not finished the book;
+    // `reviewSegments` covers single passages of it.
     spoiler: z.boolean().optional(),
 })
 
 export type UpsertReviewInput = z.infer<typeof upsertReviewInput>
+
+// A passage of a review marked as a spoiler, wrapped in double bars: "It's
+// good. ||Everyone dies.||" The rest of the review stays readable for someone
+// who hasn't finished the book, where `spoiler` covers all of it. The marks are
+// stored in the body as typed, so the server and the web client read them the
+// same way from here. An unclosed "||" is just text.
+const SPOILER_MARK = /\|\|([\s\S]+?)\|\|/g
+
+export type ReviewSegment = { text: string; spoiler: boolean }
+
+/** A review's body in order, split into plain text and marked spoilers. */
+export function reviewSegments(body: string): ReviewSegment[] {
+    const segments: ReviewSegment[] = []
+    let last = 0
+    for (const match of body.matchAll(SPOILER_MARK)) {
+        const start = match.index ?? 0
+        if (start > last) segments.push({ text: body.slice(last, start), spoiler: false })
+        segments.push({ text: match[1], spoiler: true })
+        last = start + match[0].length
+    }
+    if (last < body.length) segments.push({ text: body.slice(last), spoiler: false })
+    return segments
+}
+
+export function hasMarkedSpoilers(body: string | null): boolean {
+    return body !== null && reviewSegments(body).some((segment) => segment.spoiler)
+}
+
+/** The body with each marked passage replaced, for text nothing can cover. */
+export function withoutMarkedSpoilers(body: string, standIn = "[spoiler]"): string {
+    return reviewSegments(body).map((segment) => (segment.spoiler ? standIn : segment.text)).join("")
+}
 
 export const reviewCommentInput = z.object({
     content: z.string().trim().min(1).max(2000),

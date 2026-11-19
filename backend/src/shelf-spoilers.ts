@@ -1,7 +1,10 @@
 import type { PrismaClient } from "@prisma/client";
+import { hasMarkedSpoilers } from "@blogging-app/common";
 
 // A review marked as a spoiler is covered for anyone who has not finished the
-// book, with a way to look anyway. "Finished" is the book club's test for a
+// book, with a way to look anyway. Passages marked inside a review's text
+// (`reviewSegments` in common/) are masked for the same readers, by the same
+// test, one tap each. "Finished" is the book club's test for a
 // reader who has seen the ending (`readerReach` is 1): any finished run of the
 // work, so a re-reader in the middle of it still counts. A DNF does not.
 //
@@ -29,5 +32,26 @@ export function coveredFor(
   viewerId: number,
   finished: Set<number>
 ) {
-  return review.spoiler && reviewerId !== viewerId && !finished.has(itemId);
+  return review.spoiler && unfinishedFor(reviewerId, itemId, viewerId, finished);
+}
+
+/** Whether this viewer is someone a spoiler is kept from: neither the reviewer nor finished. */
+function unfinishedFor(reviewerId: number, itemId: number, viewerId: number, finished: Set<number>) {
+  return reviewerId !== viewerId && !finished.has(itemId);
+}
+
+/** Whether this viewer should see the passages marked in the review's text masked. */
+export function masksSpoilersFor(
+  review: { body: string | null },
+  reviewerId: number,
+  itemId: number,
+  viewerId: number,
+  finished: Set<number>
+) {
+  return hasMarkedSpoilers(review.body) && unfinishedFor(reviewerId, itemId, viewerId, finished);
+}
+
+/** Whether `finishedItemIds` needs asking about this review's book at all. */
+export function gatesSpoilers(review: { spoiler: boolean; body: string | null }) {
+  return review.spoiler || hasMarkedSpoilers(review.body);
 }

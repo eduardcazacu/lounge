@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { ShelfReviewCard } from "../hooks";
+import { SpoilerText } from "./SpoilerText";
 
 // A review cross-posted from /books, as the Lounge shows it: the cover, the
 // stars, the verdict and the opening of what was said, all read live from the
@@ -59,7 +60,9 @@ export function ShelfReviewEmbed({ review, full = false }: { review: ShelfReview
             Spoilers, and you haven't finished it. <span className="font-semibold text-slate-800 underline">Show anyway</span>
           </button>
         ) : review.body ? (
-          <p className={`mt-1.5 whitespace-pre-wrap text-sm text-slate-700 ${full ? "" : "line-clamp-3"}`}>{review.body}</p>
+          <p className={`mt-1.5 whitespace-pre-wrap text-sm text-slate-700 ${full ? "" : "line-clamp-3"}`}>
+            <SpoilerText body={review.body} mask={Boolean(review.maskSpoilers) && !shown} />
+          </p>
         ) : null}
         <div className="mt-1.5 text-xs font-medium text-slate-500">Open in Books ›</div>
       </div>

@@ -19,7 +19,8 @@ import {
 } from "../src/shelf-logic";
 import { cleanGenres, fromOpenLibrary, fromOpenLibraryEdition, parseRetryAfter, rankEditions } from "../src/catalog/books";
 import { fromIsbnMatch, sameBook } from "../src/catalog/match-book";
-import { coveredFor } from "../src/shelf-spoilers";
+import { coveredFor, gatesSpoilers, masksSpoilersFor } from "../src/shelf-spoilers";
+import { reviewSegments, withoutMarkedSpoilers } from "@blogging-app/common";
 import {
   authorsFrom,
   dayInZone,
@@ -279,6 +280,24 @@ console.log("Spoiler reviews");
   check("finishing another book uncovers nothing", coveredFor(spoiler, 1, 100, 2, new Set([101])));
   check("a reviewer's own spoiler is never covered for them", !coveredFor(spoiler, 1, 100, 1, new Set()));
   check("a review not marked is never covered", !coveredFor({ spoiler: false }, 1, 100, 2, new Set()));
+
+  const marked = { body: "Good. ||Everyone dies.|| Read it." };
+  check("a marked passage is masked for someone who hasn't finished the book", masksSpoilersFor(marked, 1, 100, 2, new Set()));
+  check("a marked passage is not masked once they have finished it", !masksSpoilersFor(marked, 1, 100, 2, new Set([100])));
+  check("a reviewer's own marked passage is never masked for them", !masksSpoilersFor(marked, 1, 100, 1, new Set()));
+  check("a body with no marks masks nothing", !masksSpoilersFor({ body: "a || b" }, 1, 100, 2, new Set()));
+  check("marked passages alone make the finished check worth asking", gatesSpoilers({ spoiler: false, ...marked }));
+  check(
+    "a body splits into plain text and its marked passages, in order",
+    JSON.stringify(reviewSegments(marked.body)) ===
+      JSON.stringify([
+        { text: "Good. ", spoiler: false },
+        { text: "Everyone dies.", spoiler: true },
+        { text: " Read it.", spoiler: false },
+      ])
+  );
+  check("an unclosed mark is just text", reviewSegments("a || b").every((segment) => !segment.spoiler));
+  check("the Lounge's fallback text leaves a marked passage out", withoutMarkedSpoilers(marked.body) === "Good. [spoiler] Read it.");
 }
 
 console.log("Retry-After");

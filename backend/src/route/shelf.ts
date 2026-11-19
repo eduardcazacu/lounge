@@ -19,6 +19,7 @@ import {
   updateRunInput,
   upsertReviewInput,
   wantOrderInput,
+  withoutMarkedSpoilers,
 } from "@blogging-app/common";
 import { getConfig } from "../env";
 import { getPrismaClient } from "../prisma";
@@ -31,7 +32,7 @@ import { findKnownBook, rememberIsbns, resolveCandidate, saveEdition } from "../
 import { copyCovers, deleteCover } from "../covers";
 import { notifyBookClubNote, notifyFinishedReading, notifyStartedReading, type NotifyConfig } from "../shelf-notify";
 import { blockedUserIds } from "../blocks";
-import { coveredFor, finishedItemIds } from "../shelf-spoilers";
+import { coveredFor, finishedItemIds, gatesSpoilers, masksSpoilersFor } from "../shelf-spoilers";
 import {
   applyDocument,
   dayInZone,
@@ -266,8 +267,11 @@ type ReviewRow = {
   editedAt: Date | null;
 };
 
-/** `covered`: a spoiler this viewer has not finished the book for; see src/shelf-spoilers.ts. */
-function reviewView(review: ReviewRow, covered = false) {
+/**
+ * `covered`: a spoiler this viewer has not finished the book for; `maskSpoilers`:
+ * the same, for passages marked in its text. See src/shelf-spoilers.ts.
+ */
+function reviewView(review: ReviewRow, covered = false, maskSpoilers = false) {
   return {
     id: review.id,
     rating: review.rating,
@@ -275,6 +279,7 @@ function reviewView(review: ReviewRow, covered = false) {
     body: review.body,
     spoiler: review.spoiler,
     covered,
+    maskSpoilers,
     createdAt: review.createdAt.toISOString(),
     editedAt: review.editedAt ? review.editedAt.toISOString() : null,
   };
@@ -845,7 +850,13 @@ shelfRouter.get("/entries", async (c) => {
       item: itemView(entry.item, entry.edition),
       runs: entry.runs.map((run) => ({
         ...runView(run, entry.item.totalUnits),
-        review: run.review ? reviewView(run.review, coveredFor(run.review, userId, entry.item.id, callerId, finished)) : null,
+        review: run.review
+          ? reviewView(
+              run.review,
+              coveredFor(run.review, userId, entry.item.id, callerId, finished),
+              masksSpoilersFor(run.review, userId, entry.item.id, callerId, finished)
+            )
+          : null,
       })),
     })),
   });
@@ -1807,8 +1818,8 @@ shelfRouter.put("/runs/:id/review", async (c) => {
 
 /**
  * A cross-posted review's own text on the Lounge, which only shows if the card
- * cannot be drawn from the review. A spoiler's body is left out of it: unlike
- * the card, it has no cover.
+ * cannot be drawn from the review. A spoiler's body is left out of it, and so
+ * are the passages marked in it: unlike the card, it has no cover.
  */
 function loungeContent(review: { rating: number | null; recommend: boolean | null; body: string | null; spoiler: boolean }, fallback: string) {
   const summary = [
@@ -1817,7 +1828,7 @@ function loungeContent(review: { rating: number | null; recommend: boolean | nul
   ]
     .filter(Boolean)
     .join(" · ");
-  const body = review.spoiler && review.body ? "Contains spoilers." : review.body;
+  const body = review.spoiler && review.body ? "Contains spoilers." : review.body && withoutMarkedSpoilers(review.body);
   return [summary, body].filter(Boolean).join("\n\n") || fallback;
 }
 
@@ -1955,7 +1966,11 @@ function feedReviewView(review: FeedReviewRow, r2: string | undefined, viewerId:
   const { run } = review;
   const finishedRunIds = run.entry.runs.map((other) => other.id).sort((a, b) => a - b);
   return {
-    ...reviewView(review, coveredFor(review, run.entry.user.id, run.entry.item.id, viewerId, finished)),
+    ...reviewView(
+      review,
+      coveredFor(review, run.entry.user.id, run.entry.item.id, viewerId, finished),
+      masksSpoilersFor(review, run.entry.user.id, run.entry.item.id, viewerId, finished)
+    ),
     commentCount: review._count.comments,
     loungePostId: review.loungePost?.id ?? null,
     entryId: run.entry.id,
@@ -1998,7 +2013,7 @@ async function feedReviewViews(prisma: PrismaClient, rows: FeedReviewRow[], view
   const finished = await finishedItemIds(
     prisma,
     viewerId,
-    rows.filter((review) => review.spoiler).map((review) => review.run.entry.item.id)
+    rows.filter(gatesSpoilers).map((review) => review.run.entry.item.id)
   );
   return rows.map((review) => feedReviewView(review, r2, viewerId, finished));
 }
@@ -2054,7 +2069,7 @@ shelfRouter.get("/reviews/:id", async (c) => {
     },
   });
   if (!review) return notFound(c);
-  const finished = review.spoiler ? await finishedItemIds(prisma, callerId, [review.run.entry.item.id]) : new Set<number>();
+  const finished = gatesSpoilers(review) ? await finishedItemIds(prisma, callerId, [review.run.entry.item.id]) : new Set<number>();
 
   return c.json({
     review: {

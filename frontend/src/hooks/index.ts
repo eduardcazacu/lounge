@@ -27,6 +27,8 @@ export interface ShelfReviewCard {
     spoiler?: boolean;
     /** A spoiler this viewer hasn't finished the book for. */
     covered?: boolean;
+    /** The same, for the passages marked in `body`. */
+    maskSpoilers?: boolean;
     status: string;
     item: { title: string; creators: string[]; coverUrl: string | null; kind: string };
 }

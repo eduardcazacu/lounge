@@ -1100,10 +1100,15 @@ share a chosen few imported reviews.
 
 **Chosen** sending a spoiler review's text to everyone, with `covered` saying
 whether this viewer has finished the book, and the client drawing a cover with
-"Show anyway" (`backend/src/shelf-spoilers.ts`).
+"Show anyway" (`backend/src/shelf-spoilers.ts`). Passages marked inside a
+review (`||like this||`) follow the same rule: sent, with `maskSpoilers`, and
+masked by the client.
 
 **Rejected** leaving the text out for readers who have not finished it, as the
-book club does with notes, and fetching it when they ask to see it.
+book club does with notes, and fetching it when they ask to see it. For marked
+passages, also rejected: a separate field per passage, or markup richer than
+the double bars. The marks live in the body as typed, so a review's text is
+still one string everywhere, and a mark is two keystrokes on each side.
 
 **Because** a spoiler review is meant to be readable on request, and the
 reader's choice is the gate. Withholding it would cost "Show anyway" a round

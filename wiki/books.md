@@ -362,6 +362,18 @@ the ending away as readily. The Lounge post's own text, which shows only if
 the card cannot be drawn, leaves a spoiler's body out (`loungeContent`), and
 it is rewritten whenever the review is saved.
 
+**A single passage can be marked instead**, by wrapping it in double bars
+(`||like this||`), which the review editor's "Hide as spoiler" button does to
+the selection. The rest of the review stays readable; the passage is masked,
+one tap each, for the same readers a spoiler review is covered for
+(`masksSpoilersFor`, sent as `maskSpoilers`). The marks are stored in the body
+as typed, and `reviewSegments` in `common/src/index.ts` is the one reading of
+them, for the server and the web client both (`frontend/src/components/SpoilerText.tsx`
+draws them, in Books and on the Lounge card). The reviewer and readers who
+have finished see the passage tinted, so they know what was hidden. "Show
+anyway" on a covered review unmasks its passages too. The Lounge post's own
+text replaces each passage with "[spoiler]", having no way to mask it.
+
 ## Asking for a recommendation
 
 The feed's Ask button posts a `ShelfAsk`: a few lines asking the group what to
