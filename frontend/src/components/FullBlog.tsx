@@ -284,7 +284,7 @@ export const FullBlog = ({ blog, commentsPending = false }: { blog: Blog; commen
               </div>
               {images.length > 0 ? (
                 <div className="mt-2">
-                  <PostImages images={images} alt={label} mode="fit" onOpen={setViewing} />
+                  <PostImages images={images} alt={label} mode="fit" background={theme.softBg} onOpen={setViewing} />
                 </div>
               ) : null}
               {viewing !== null ? <PhotoViewer images={images} start={viewing} onClose={closeViewer} /> : null}

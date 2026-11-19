@@ -24,12 +24,15 @@ export function PostImages({
   images,
   alt,
   mode,
+  background,
   onOpen,
 }: {
   images: PostImage[];
   alt: string;
   /** "crop": filled to the frame, for the feed. "fit": shown whole, for the post. */
   mode: "crop" | "fit";
+  /** The author's theme, behind a photo that does not fill the frame and while one loads. */
+  background?: string;
   /** Called with the photo's index when one is tapped. */
   onOpen?: (index: number) => void;
 }) {
@@ -56,7 +59,7 @@ export function PostImages({
   };
 
   return (
-    <div className="group relative mt-2.5 overflow-hidden rounded-lg bg-slate-100">
+    <div className="group relative mt-2.5 overflow-hidden rounded-lg bg-slate-100" style={background ? { backgroundColor: background } : undefined}>
       <div
         ref={track}
         className="flex snap-x snap-mandatory overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"

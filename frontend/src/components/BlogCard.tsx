@@ -215,7 +215,7 @@ export const BlogCard = ({
           </div>
         ) : null}
         {images.length > 0 ? (
-          <PostImages images={images} alt={title.trim() || `A photo by ${authorname}`} mode="crop" />
+          <PostImages images={images} alt={title.trim() || `A photo by ${authorname}`} mode="crop" background={theme.softBg} />
         ) : firstYouTubeEmbedUrl ? (
           <div className="mt-2.5 overflow-hidden rounded-lg border border-slate-200 bg-black">
             <iframe
