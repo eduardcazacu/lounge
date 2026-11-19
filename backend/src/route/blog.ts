@@ -79,6 +79,8 @@ const postImagesSelect = {
 
 function postImagesView(images: { key: string; width: number | null; height: number | null }[], baseUrl: string | undefined) {
   return images.map((image) => ({
+    // The key too, so the author's editor can send the photos back in a new order.
+    key: image.key,
     url: buildPublicImageUrl(baseUrl, image.key),
     width: image.width,
     height: image.height,

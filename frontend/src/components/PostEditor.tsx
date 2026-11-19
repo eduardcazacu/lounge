@@ -366,7 +366,8 @@ export function PostEditor({ editing }: { editing?: EditablePost }) {
       if (editing) {
         await axios.put(`${BACKEND_URL}/api/v1/blog/${editing.id}`, payload, { headers: { Authorization: getAuthHeader() } });
         markBlogsStale();
-        navigate(`/blog/${editing.id}`, { replace: true });
+        // Back to the post, which refetches: it was marked stale above.
+        goBack();
       } else {
         await axios.post(`${BACKEND_URL}/api/v1/blog`, payload, { headers: { Authorization: getAuthHeader() } });
         writeDraft(null);

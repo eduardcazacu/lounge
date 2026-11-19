@@ -43,6 +43,7 @@ export interface ShelfAskCard {
 // One of a post's photos, in carousel order. The size is as uploaded, and null
 // for a photo carried over from a single-image post.
 export interface PostImage {
+    key?: string;
     url: string | null;
     width: number | null;
     height: number | null;

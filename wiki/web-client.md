@@ -43,7 +43,7 @@ failing to open it.
 |---|---|
 | `Blogs.tsx` | The feed. Author filter via `UsersStrip`, paged, and the page background is tinted from the selected author's palette |
 | `Blog.tsx` | One post, by id |
-| `Publish.tsx` | A new post, in `components/PostEditor.tsx`: a full-screen page with no app bar or bottom bar. Markdown with a formatting toolbar that rides on the keyboard, up to ten photos WebP-encoded and uploaded three at a time, reordered by dragging, and Preview drawn by the feed's own `BlogCard`. The draft, uploaded photos included, is kept in `localStorage` under `publishPostDraft`; a photo removed or a draft discarded is deleted from R2 (`DELETE /blog/upload-image`). Posting lands on the feed |
+| `Publish.tsx` | A new post, in `components/PostEditor.tsx`: a full-screen page with no app bar or bottom bar. Markdown with a formatting toolbar that rides on the keyboard, up to ten photos WebP-encoded and uploaded three at a time, reordered by dragging, and Preview drawn by the feed's own `BlogCard`. The draft, uploaded photos included, is kept in `localStorage` under `publishPostDraft`; a photo removed or a draft discarded is deleted from R2 (`DELETE /blog/upload-image`). Posting lands on the feed. `?edit=<id>` opens one of your own posts in the same editor, photos included; the post page's ✏️ leads there, except on a review or ask from Books, which is edited in Books |
 | `Account.tsx` | Display name, bio, profile picture, theme picker, notification toggle, logout |
 | `Instant.tsx` | The Instant client — see below |
 | `Books.tsx` | Lounge Books, a standalone app at `/books/*`, including KOReader sync at `/books/koreader` — see [books.md](books.md) |
@@ -269,8 +269,8 @@ so no screen changed. Instant is not: `useInstant.ts` is a socket store.
   the deepest scroll ever reached. Back within a session still has every page.
   `clearAuthStorage()` in `lib/auth.ts` wipes it, memory and disk.
 - **Writes mark reads stale without refetching** (`markBlogsStale`). An open post
-  holds its edits in `FullBlog`'s state, and a refetch that changed the post
-  would reset an edit in progress; for the same reason `useBlog` does not
+  holds its comment edits in `FullBlog`'s state, and a refetch that changed the
+  post would reset one in progress; for the same reason `useBlog` does not
   refetch on focus. A post opened from the feed draws the feed's copy as
   placeholder until its comments arrive.
 - **Scroll is restored by react-router's `<ScrollRestoration>`**, which needs a

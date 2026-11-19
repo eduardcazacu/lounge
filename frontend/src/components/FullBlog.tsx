@@ -1,4 +1,5 @@
 import axios from "axios";
+import { Link } from "react-router-dom";
 import { ShelfReviewEmbed } from "./ShelfReviewEmbed";
 import { ShelfAskEmbed } from "./ShelfAskEmbed";
 import { useCallback, useEffect, useState } from "react";
@@ -56,7 +57,8 @@ export const FullBlog = ({ blog, commentsPending = false }: { blog: Blog; commen
   const currentUserId = getCurrentUserId();
   const canEditPost = typeof blog.author.id === "number" && currentUserId === blog.author.id;
   const [comments, setComments] = useState(blog.comments || []);
-  const [postTitle, setPostTitle] = useState(blog.title);
+  const postTitle = blog.title;
+  const postContent = blog.content;
   const images = blog.images ?? [];
   const label = postLabel({ title: postTitle, content: blog.content, imageCount: images.length });
   const [viewing, setViewing] = useState<number | null>(null);
@@ -69,16 +71,9 @@ export const FullBlog = ({ blog, commentsPending = false }: { blog: Blog; commen
       document.title = previous;
     };
   }, [label]);
-  const [postContent, setPostContent] = useState(blog.content);
-  const [postEditedAt, setPostEditedAt] = useState(blog.editedAt || null);
   const [postLikeCount, setPostLikeCount] = useState(blog.likeCount || 0);
   const [postLikedByMe, setPostLikedByMe] = useState(Boolean(blog.likedByMe));
   const [postLikeLoading, setPostLikeLoading] = useState(false);
-  const [postEditing, setPostEditing] = useState(false);
-  const [postEditTitle, setPostEditTitle] = useState(blog.title);
-  const [postEditContent, setPostEditContent] = useState(blog.content);
-  const [postEditSaving, setPostEditSaving] = useState(false);
-  const [postEditError, setPostEditError] = useState<string | null>(null);
   const [commentInput, setCommentInput] = useState("");
   const [commentMentions, setCommentMentions] = useState<{ id: number; name: string }[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -92,19 +87,12 @@ export const FullBlog = ({ blog, commentsPending = false }: { blog: Blog; commen
 
   useEffect(() => {
     setComments(blog.comments || []);
-    setPostTitle(blog.title);
-    setPostContent(blog.content);
-    setPostEditedAt(blog.editedAt || null);
-    setPostEditTitle(blog.title);
-    setPostEditContent(blog.content);
-    setPostEditing(false);
-    setPostEditError(null);
     setEditingCommentId(null);
     setEditingCommentText("");
     setCommentEditError(null);
     setPostLikeCount(blog.likeCount || 0);
     setPostLikedByMe(Boolean(blog.likedByMe));
-  }, [blog.id, blog.comments, blog.content, blog.editedAt, blog.likeCount, blog.likedByMe, blog.title]);
+  }, [blog.id, blog.comments, blog.likeCount, blog.likedByMe]);
 
   async function submitComment() {
     const content = commentInput.trim();
@@ -203,43 +191,6 @@ export const FullBlog = ({ blog, commentsPending = false }: { blog: Blog; commen
     }
   }
 
-  async function savePostEdit() {
-    const title = postEditTitle.trim();
-    const content = postEditContent.trim();
-    if (!title && !content && images.length === 0) {
-      setPostEditError("Add a title, some text or a photo.");
-      return;
-    }
-
-    setPostEditSaving(true);
-    setPostEditError(null);
-    try {
-      const response = await axios.put(
-        `${BACKEND_URL}/api/v1/blog/${blog.id}`,
-        { title, content },
-        {
-          headers: {
-            Authorization: getAuthHeader(),
-          },
-        }
-      );
-      markBlogsStale();
-      setPostTitle(title);
-      setPostContent(content);
-      const editedAt = typeof response.data?.editedAt === "string" ? response.data.editedAt : new Date().toISOString();
-      setPostEditedAt(editedAt);
-      setPostEditing(false);
-    } catch (e) {
-      if (axios.isAxiosError(e)) {
-        setPostEditError(e.response?.data?.msg || "Failed to edit post.");
-      } else {
-        setPostEditError("Failed to edit post.");
-      }
-    } finally {
-      setPostEditSaving(false);
-    }
-  }
-
   async function saveCommentEdit(commentId: number) {
     const content = editingCommentText.trim();
     if (!content) {
@@ -297,13 +248,7 @@ export const FullBlog = ({ blog, commentsPending = false }: { blog: Blog; commen
                       <Avatar size={"small"} name={blog.author.name || "Anonymous"} themeKey={blog.author.themeKey} imageUrl={blog.author.profilePictureUrl} />
                   </div>
                   <div className="text-xl font-extrabold leading-tight break-words sm:text-3xl">
-                    {postEditing ? (
-                      <input
-                        value={postEditTitle}
-                        onChange={(e) => setPostEditTitle(e.target.value)}
-                        className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xl font-bold text-slate-900 sm:text-3xl"
-                      />
-                    ) : postTitle.trim() ? (
+                    {postTitle.trim() ? (
                       postTitle
                     ) : (
                       // Untitled: whose post it is, in the title's place.
@@ -312,27 +257,16 @@ export const FullBlog = ({ blog, commentsPending = false }: { blog: Blog; commen
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
-                  {canEditPost ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (postEditing) {
-                          setPostEditing(false);
-                          setPostEditTitle(postTitle);
-                          setPostEditContent(postContent);
-                          setPostEditError(null);
-                        } else {
-                          setPostEditing(true);
-                          setPostEditTitle(postTitle);
-                          setPostEditContent(postContent);
-                        }
-                      }}
+                  {/* In the composer, photos and all. A review or an ask from Books is edited there. */}
+                  {canEditPost && !blog.shelfReview && !blog.shelfAsk ? (
+                    <Link
+                      to={`/publish?edit=${blog.id}`}
                       className="rounded-full bg-slate-100 px-3 py-1.5 text-base leading-none font-semibold text-slate-700 hover:bg-slate-200"
                       aria-label="Edit post"
                       title="Edit post"
                     >
                       ✏️
-                    </button>
+                    </Link>
                   ) : null}
                   <button
                     type="button"
@@ -346,7 +280,7 @@ export const FullBlog = ({ blog, commentsPending = false }: { blog: Blog; commen
               </div>
               <div className="text-sm text-slate-500 pt-2 sm:pt-3">
                 Posted {formatPostedTime(blog.createdAt)}
-                {postEditedAt ? " · Edited" : ""}
+                {blog.editedAt ? " · Edited" : ""}
               </div>
               {images.length > 0 ? (
                 <div className="mt-2">
@@ -367,39 +301,7 @@ export const FullBlog = ({ blog, commentsPending = false }: { blog: Blog; commen
                   />
                 </div>
               ) : null}
-              {postEditing ? (
-                <div className="pt-3">
-                  <textarea
-                    value={postEditContent}
-                    onChange={(e) => setPostEditContent(e.target.value)}
-                    rows={12}
-                    className="block w-full rounded-lg border border-gray-300 bg-white p-3 text-sm text-gray-900 focus:border-blue-500 focus:ring-blue-500"
-                  />
-                  {postEditError ? <div className="pt-2 text-sm text-red-600">{postEditError}</div> : null}
-                  <div className="mt-3 flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => void savePostEdit()}
-                      disabled={postEditSaving}
-                      className="rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-                    >
-                      {postEditSaving ? "Saving..." : "Save"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPostEditing(false);
-                        setPostEditTitle(postTitle);
-                        setPostEditContent(postContent);
-                        setPostEditError(null);
-                      }}
-                      className="rounded-full bg-slate-200 px-4 py-2 text-sm font-medium text-slate-700"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              ) : blog.shelfReview ? (
+              {blog.shelfReview ? (
                 <div className="pt-3 sm:pt-4">
                   <ShelfReviewEmbed review={blog.shelfReview} full />
                 </div>
