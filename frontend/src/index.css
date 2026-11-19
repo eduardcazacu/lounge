@@ -2,6 +2,28 @@
 @tailwind components;
 @tailwind utilities;
 
+/* The screen's bottom edge and rounded corners, as the fixed bars clear them.
+   In a browser tab, Safari's own toolbar already stands between the page and
+   the home indicator, so the inset alone is enough. Installed to the home
+   screen, nothing does: a bar at the inset still sits close enough to the
+   indicator that a tap on it starts the home gesture, and its outer items sit
+   where the display's corners curve away. So standalone adds a gap below and
+   a margin at each side. The pages need viewport-fit=cover for any of the
+   insets to be reported (index.html, books.html). */
+:root {
+  --edge-bottom: env(safe-area-inset-bottom, 0px);
+  --edge-left: env(safe-area-inset-left, 0px);
+  --edge-right: env(safe-area-inset-right, 0px);
+}
+
+@media (display-mode: standalone) {
+  :root {
+    --edge-bottom: calc(env(safe-area-inset-bottom, 0px) + 0.625rem);
+    --edge-left: max(env(safe-area-inset-left, 0px), 1rem);
+    --edge-right: max(env(safe-area-inset-right, 0px), 1rem);
+  }
+}
+
 .markdown-body h1,
 .markdown-body h2,
 .markdown-body h3,

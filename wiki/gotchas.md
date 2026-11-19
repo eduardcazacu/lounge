@@ -229,6 +229,15 @@ postgres:16-alpine`).
 
 ## The web client
 
+**Without `viewport-fit=cover`, every `env(safe-area-inset-*)` is zero.** Nothing
+warns, and in a Safari tab it even looks right, because Safari's toolbar stands
+between the page and the home indicator. Installed to the home screen, the
+bottom bars land on the home indicator and in the display's rounded corners.
+Both `index.html` and `books.html` carry it. Fixed bars clear the edge through
+`--edge-bottom`, `--edge-left` and `--edge-right` in `frontend/src/index.css`,
+which add a gap in standalone mode, because a bar sitting right at the inset
+still sends taps to the home gesture.
+
 **React StrictMode double-invokes an impure state updater.** Dedup bookkeeping
 inside a `setInstants` updater drops the instant. It is kept outside the updater
 in `frontend/src/hooks/useInstant.ts` for exactly this reason.

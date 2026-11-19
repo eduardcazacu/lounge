@@ -159,7 +159,7 @@ export function Sheet({
       <button type="button" aria-label="Close" onClick={onClose} className="absolute inset-0 bg-slate-900/40" />
       <div
         className="relative flex max-h-[90dvh] w-full max-w-xl flex-col rounded-t-3xl bg-white shadow-xl sm:rounded-3xl"
-        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+        style={{ paddingBottom: "var(--edge-bottom)" }}
       >
         <div className="flex items-center justify-between px-5 pb-2 pt-4">
           <h2 className="text-lg font-semibold text-slate-900">{title}</h2>

@@ -10,7 +10,7 @@ import { INSTANT_COLORS } from "./instant/style";
 // finish flows. See wiki/web-client.md.
 
 /** What a page leaves clear at its bottom edge for the bar. */
-export const LOUNGE_NAV_SPACE = "calc(3.5rem + env(safe-area-inset-bottom))";
+export const LOUNGE_NAV_SPACE = "calc(3.5rem + var(--edge-bottom))";
 
 type Section = { to: string; label: string; matches: (path: string) => boolean; icon: ReactNode };
 
@@ -55,9 +55,9 @@ export function LoungeNav({ variant = "light" }: { variant?: "light" | "dark" })
   return (
     <nav
       className={`fixed inset-x-0 bottom-0 z-40 border-t ${dark ? "border-white/10" : "border-slate-200/70 bg-white/90 backdrop-blur"}`}
-      style={{ paddingBottom: "env(safe-area-inset-bottom)", background: dark ? INSTANT_COLORS.background : undefined }}
+      style={{ paddingBottom: "var(--edge-bottom)", background: dark ? INSTANT_COLORS.background : undefined }}
     >
-      <div className="mx-auto grid h-14 max-w-xl grid-cols-4">
+      <div className="mx-auto grid h-14 max-w-xl grid-cols-4" style={{ paddingLeft: "var(--edge-left)", paddingRight: "var(--edge-right)" }}>
         {SECTIONS.map((section) => {
           const isActive = section.matches(pathname);
           return (

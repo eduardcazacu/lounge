@@ -518,52 +518,57 @@ export function PostEditor({ editing }: { editing?: EditablePost }) {
       {/* Riding on the keyboard when it is up, so formatting is a thumb away. */}
       <div
         className="fixed inset-x-0 z-30 border-t border-slate-200 bg-white/95 backdrop-blur"
-        style={{ bottom: keyboard, paddingBottom: keyboard > 0 ? 0 : "env(safe-area-inset-bottom)" }}
+        style={{ bottom: keyboard, paddingBottom: keyboard > 0 ? 0 : "var(--edge-bottom)" }}
       >
-        <div className="mx-auto flex h-12 max-w-2xl items-center gap-0.5 overflow-x-auto px-2 [scrollbar-width:none]">
-          <ToolButton
-            label="Add photos"
-            onClick={() => picker.current?.click()}
-            disabled={photos.length >= MAX_POST_IMAGES || previewing}
-            accent={palette.accent}
-          >
-            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
-              <rect x="3" y="5" width="18" height="15" rx="2.5" />
-              <circle cx="8.5" cy="10" r="1.6" />
-              <path d="M21 16l-5-5-8 9" />
-            </svg>
-            <span className="text-xs tabular-nums">{photos.length > 0 ? `${photos.length}/${MAX_POST_IMAGES}` : ""}</span>
-          </ToolButton>
-          <span className="mx-1 h-6 w-px bg-slate-200" />
-          <ToolButton label="Bold" onClick={() => format("bold")} disabled={previewing}>
-            <b className="text-[17px]">B</b>
-          </ToolButton>
-          <ToolButton label="Italic" onClick={() => format("italic")} disabled={previewing}>
-            <i className="font-serif text-[18px]">I</i>
-          </ToolButton>
-          <ToolButton label="Heading" onClick={() => format("heading")} disabled={previewing}>
-            <span className="text-[15px] font-bold">H</span>
-          </ToolButton>
-          <ToolButton label="Link" onClick={() => format("link")} disabled={previewing}>
-            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" />
-            </svg>
-          </ToolButton>
-          <ToolButton label="List" onClick={() => format("list")} disabled={previewing}>
-            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <path d="M9 6h11M9 12h11M9 18h11" />
-              <circle cx="4.5" cy="6" r="1" fill="currentColor" />
-              <circle cx="4.5" cy="12" r="1" fill="currentColor" />
-              <circle cx="4.5" cy="18" r="1" fill="currentColor" />
-            </svg>
-          </ToolButton>
-          <ToolButton label="Quote" onClick={() => format("quote")} disabled={previewing}>
-            <span className="font-serif text-[22px] leading-none">❝</span>
-          </ToolButton>
-          <ToolButton label="Code" onClick={() => format("code")} disabled={previewing}>
-            <span className="font-mono text-[13px] font-semibold">{"</>"}</span>
-          </ToolButton>
-          <span className="flex-1" />
+        <div
+          className="mx-auto flex h-12 max-w-2xl items-center gap-1"
+          style={{ paddingLeft: "max(var(--edge-left), 0.5rem)", paddingRight: "max(var(--edge-right), 0.5rem)" }}
+        >
+          {/* The tools scroll on a narrow phone; Preview stays outside them, so it is never the one pushed off. */}
+          <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <ToolButton
+              label="Add photos"
+              onClick={() => picker.current?.click()}
+              disabled={photos.length >= MAX_POST_IMAGES || previewing}
+              accent={palette.accent}
+            >
+              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
+                <rect x="3" y="5" width="18" height="15" rx="2.5" />
+                <circle cx="8.5" cy="10" r="1.6" />
+                <path d="M21 16l-5-5-8 9" />
+              </svg>
+              <span className="text-xs tabular-nums">{photos.length > 0 ? `${photos.length}/${MAX_POST_IMAGES}` : ""}</span>
+            </ToolButton>
+            <span className="mx-1 h-6 w-px bg-slate-200" />
+            <ToolButton label="Bold" onClick={() => format("bold")} disabled={previewing}>
+              <b className="text-[17px]">B</b>
+            </ToolButton>
+            <ToolButton label="Italic" onClick={() => format("italic")} disabled={previewing}>
+              <i className="font-serif text-[18px]">I</i>
+            </ToolButton>
+            <ToolButton label="Heading" onClick={() => format("heading")} disabled={previewing}>
+              <span className="text-[15px] font-bold">H</span>
+            </ToolButton>
+            <ToolButton label="Link" onClick={() => format("link")} disabled={previewing}>
+              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" />
+              </svg>
+            </ToolButton>
+            <ToolButton label="List" onClick={() => format("list")} disabled={previewing}>
+              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M9 6h11M9 12h11M9 18h11" />
+                <circle cx="4.5" cy="6" r="1" fill="currentColor" />
+                <circle cx="4.5" cy="12" r="1" fill="currentColor" />
+                <circle cx="4.5" cy="18" r="1" fill="currentColor" />
+              </svg>
+            </ToolButton>
+            <ToolButton label="Quote" onClick={() => format("quote")} disabled={previewing}>
+              <span className="font-serif text-[22px] leading-none">❝</span>
+            </ToolButton>
+            <ToolButton label="Code" onClick={() => format("code")} disabled={previewing}>
+              <span className="font-mono text-[13px] font-semibold">{"</>"}</span>
+            </ToolButton>
+          </div>
           <button
             type="button"
             onClick={() => setPreviewing((value) => !value)}
@@ -744,7 +749,7 @@ function LeaveSheet({
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-modal aria-label="Leave this post?">
       <button type="button" aria-label="Keep writing" onClick={onStay} className="absolute inset-0 bg-slate-900/40" />
-      <div className="relative w-full max-w-md rounded-t-3xl bg-white p-5 shadow-xl sm:rounded-3xl" style={{ paddingBottom: "max(env(safe-area-inset-bottom), 20px)" }}>
+      <div className="relative w-full max-w-md rounded-t-3xl bg-white p-5 shadow-xl sm:rounded-3xl" style={{ paddingBottom: "max(var(--edge-bottom), 20px)" }}>
         <h2 className="text-lg font-semibold text-slate-900">{editing ? "Discard your changes?" : "Keep this as a draft?"}</h2>
         <p className="mt-1 text-sm text-slate-500">
           {editing ? "The post stays as it was." : "It'll be here next time you start a post, on this device."}
