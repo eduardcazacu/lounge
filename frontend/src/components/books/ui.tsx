@@ -199,12 +199,16 @@ export function TopBar({ title, right, back = true, sections = false }: { title:
     if (state?.idx && state.idx > 0) navigate(-1);
     else navigate("/books");
   };
+  const palette = usePalette();
+  // The section bars match Home's header exactly, so moving between the three
+  // sections changes the title and nothing else; the rest keep a hairline,
+  // because what scrolls under them is white cards on the same tint.
   return (
     <header
-      className="sticky top-0 z-30 border-b border-slate-200/70 bg-white/85 backdrop-blur"
-      style={{ paddingTop: "env(safe-area-inset-top)" }}
+      className={`sticky top-0 z-30 backdrop-blur ${sections ? "" : "border-b border-slate-200/70"}`}
+      style={{ paddingTop: "env(safe-area-inset-top)", background: `${palette.softBg}e6` }}
     >
-      <div className="mx-auto flex h-14 max-w-xl items-center gap-2 px-3">
+      <div className={`mx-auto flex max-w-xl items-center ${sections ? "h-16 gap-3 px-4" : "h-14 gap-2 px-3"}`}>
         {back ? (
           <button
             type="button"
