@@ -6,6 +6,7 @@ import { getAuthHeader, refreshAccessToken, refreshAccessTokenIfStale } from './
 import { enablePushIfPermissionGranted } from './lib/push'
 import { NotificationPrompt } from './components/NotificationPrompt'
 import { LoungeNav, LOUNGE_NAV_SPACE } from './components/LoungeNav'
+import { lastApp, rememberApp } from './lib/lastApp'
 
 // Every page but the two a signed-out visitor lands on is fetched the first
 // time it is opened. Bundled together the app was one file of over 600 kB,
@@ -36,7 +37,7 @@ function RootRedirect() {
     const bootstrap = async () => {
       if (getAuthHeader()) {
         if (active) {
-          setTargetPath("/blogs");
+          setTargetPath(lastApp());
         }
         return;
       }
@@ -45,7 +46,7 @@ function RootRedirect() {
       if (!active) {
         return;
       }
-      setTargetPath(refreshedToken ? "/blogs" : "/signin");
+      setTargetPath(refreshedToken ? lastApp() : "/signin");
     };
 
     void bootstrap();
@@ -71,6 +72,7 @@ const LOUNGE_PAGES = /^\/(blogs|blog\/|account|admin)/;
 
 function LoungeChrome() {
   const location = useLocation();
+  useEffect(() => rememberApp(location.pathname), [location.pathname]);
   // Books draws its own chrome, and the composer is a page of its own: a
   // prompt over its toolbar would sit on the buttons being written with.
   if (location.pathname === "/books" || location.pathname.startsWith("/books/") || location.pathname === "/publish") {

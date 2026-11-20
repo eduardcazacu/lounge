@@ -295,6 +295,12 @@ Two installable apps from one build. `index.html` names
 `src/main.tsx`. `Auth.tsx` honours `?next=` (same-site paths only), so a
 sign-in from either app returns to it. [books.md](books.md) has why.
 
+iOS drops an idle PWA from memory and relaunches it at its `start_url`, so the
+Lounge app's `/` sends a signed-in launch to whichever of the feed, Books or
+Instant was open last (`frontend/src/lib/lastApp.ts`), not always to the feed.
+It keeps the app, never the screen inside it: a deep link may be gone by the
+next launch, an app's front page never is.
+
 The service worker is `frontend/src/sw.ts`: push, notification clicks, and a
 precache of the build so a launch from the home screen needs no network.
 `vite-plugin-pwa` in `injectManifest` mode only injects the list of hashed
